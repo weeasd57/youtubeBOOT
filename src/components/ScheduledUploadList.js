@@ -90,6 +90,10 @@ export default function ScheduledUploadList() {
         </button>
       </div>
       
+      <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 rounded-md text-sm">
+        <p>Scheduled uploads are processed once daily at 9:00 AM. Videos scheduled for upload may take up to 24 hours to be processed.</p>
+      </div>
+      
       <div className="space-y-3">
         {scheduledUploads.map((upload) => (
           <div
