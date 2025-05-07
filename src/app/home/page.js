@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSession, signOut } from 'next-auth/react';
-import { FaYoutube, FaUpload, FaSync, FaHistory, FaEye, FaThumbsUp, FaCalendarAlt, FaClock } from 'react-icons/fa';
+import { FaYoutube, FaUpload, FaSync, FaHistory, FaEye, FaThumbsUp, FaCalendarAlt, FaClock, FaCloudUploadAlt } from 'react-icons/fa';
 import Image from "next/image";
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/contexts/UserContext';
@@ -16,6 +16,8 @@ import { useScheduledUploads } from '@/contexts/ScheduledUploadsContext';
 import ScheduleUploadForm from '@/components/ScheduleUploadForm';
 import ScheduledUploadList from '@/components/ScheduledUploadList';
 import AuthErrorBanner from '@/components/AuthErrorBanner';
+import UploadProgress from '@/components/UploadProgress';
+import QuotaErrorMessage from '@/components/QuotaErrorMessage';
 
 export default function Home() {
   const { data: session, status } = useSession();
@@ -39,6 +41,8 @@ export default function Home() {
     setDescription,
     loading: uploadLoading,
     uploadStatus,
+    uploadingFileId,
+    uploadComplete,
     autoUploadEnabled,
     error: uploadError,
     uploadToYouTube,
@@ -46,15 +50,21 @@ export default function Home() {
     toggleAutoUpload
   } = useUpload();
   const { logs, loading: logsLoading } = useUploadLogs();
-  const { videos, loading: youtubeLoading, refreshVideos } = useYouTube();
+  const { 
+    videos, 
+    loading: youtubeLoading, 
+    error: youtubeError,
+    isQuotaError,
+    refreshVideos 
+  } = useYouTube();
   const { refreshScheduledUploads } = useScheduledUploads();
 
   // Add state for showing schedule form
   const [showScheduleForm, setShowScheduleForm] = useState(false);
 
   // Combined loading and error states
-  const loading = userLoading || driveLoading || uploadLoading || logsLoading || youtubeLoading;
-  const error = userError || driveError || uploadError;
+  const loadingCombined = userLoading || driveLoading || uploadLoading || logsLoading || youtubeLoading;
+  const error = userError || driveError || uploadError || youtubeError;
 
   // Redirect to landing page if not authenticated
   useEffect(() => {
@@ -92,7 +102,7 @@ export default function Home() {
   };
 
   // Show loading spinner while checking authentication
-  if (status === 'loading' || (status === 'authenticated' && loading && !driveFiles.length)) {
+  if (status === 'loading' || (status === 'authenticated' && loadingCombined && !driveFiles.length)) {
     return (
       <div className="min-h-screen p-8 flex items-center justify-center dark:bg-gray-900" suppressHydrationWarning>
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 dark:border-blue-400" suppressHydrationWarning></div>
@@ -155,18 +165,18 @@ export default function Home() {
                 <button
                   onClick={fetchDriveFiles}
                   className="p-2 bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300 rounded-full hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
-                  disabled={loading}
+                  disabled={loadingCombined}
                   title="Refresh Drive Files"
                 >
-                  <FaSync className={loading ? 'animate-spin' : ''} />
+                  <FaSync className={loadingCombined ? 'animate-spin' : ''} />
                 </button>
                 <button
-                  onClick={refreshVideos}
+                  onClick={() => refreshVideos(true)}
                   className="p-2 bg-red-100 text-red-600 dark:bg-red-900 dark:text-red-300 rounded-full hover:bg-red-200 dark:hover:bg-red-800 transition-colors"
-                  disabled={loading}
-                  title="Refresh YouTube Videos"
+                  disabled={loadingCombined}
+                  title="Refresh YouTube videos"
                 >
-                  <FaYoutube />
+                  <FaSync className={youtubeLoading ? 'animate-spin' : ''} />
                 </button>
               </div>
             </div>
@@ -224,7 +234,7 @@ export default function Home() {
                         </div>
                       ))}
                     </div>
-                  ) : loading ? (
+                  ) : loadingCombined ? (
                     <p className="text-center py-4 text-gray-500 dark:text-gray-400">Loading videos...</p>
                   ) : (
                     <p className="text-center py-4 text-gray-500 dark:text-gray-400">No MP4 videos found in your Drive</p>
@@ -274,10 +284,10 @@ export default function Home() {
                       <div className="flex gap-2">
                         <button
                           onClick={uploadToYouTube}
-                          disabled={!selectedFile || loading}
+                          disabled={!selectedFile || uploadLoading}
                           className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          {loading ? (
+                          {uploadLoading ? (
                             <FaSync className="animate-spin" />
                           ) : (
                             <FaUpload />
@@ -287,13 +297,17 @@ export default function Home() {
                         
                         <button
                           onClick={() => setShowScheduleForm(true)}
-                          disabled={!selectedFile || loading}
+                          disabled={!selectedFile || uploadLoading}
                           className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <FaClock />
                           Schedule
                         </button>
                       </div>
+                      
+                      {uploadingFileId && !uploadComplete && (
+                        <UploadProgress fileId={uploadingFileId} />
+                      )}
                       
                       {uploadStatus && (
                         <div className={`mt-4 p-4 rounded-md ${
@@ -332,20 +346,23 @@ export default function Home() {
                 Your YouTube Videos
               </h2>
               <button
-                onClick={refreshVideos}
+                onClick={() => refreshVideos(true)}
                 className="p-2 bg-red-100 text-red-600 dark:bg-red-900 dark:text-red-300 rounded-full hover:bg-red-200 dark:hover:bg-red-800 transition-colors"
                 disabled={youtubeLoading}
+                title="Refresh YouTube videos"
               >
                 <FaSync className={youtubeLoading ? 'animate-spin' : ''} />
               </button>
             </div>
             
-            {youtubeLoading ? (
+            {isQuotaError && <QuotaErrorMessage message={youtubeError} />}
+            
+            {youtubeLoading && !videos.length ? (
               <div className="flex justify-center py-12">
                 <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-red-500"></div>
               </div>
             ) : videos.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 ${isQuotaError ? 'opacity-60' : ''}`}>
                 {videos.map(video => (
                   <div key={video.id} className="bg-gray-50 dark:bg-gray-700 rounded-lg shadow overflow-hidden">
                     <div className="w-full aspect-video relative bg-gray-200 dark:bg-gray-600">

@@ -15,6 +15,8 @@ export function UploadProvider({ children }) {
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState(null);
+  const [uploadingFileId, setUploadingFileId] = useState(null);
+  const [uploadComplete, setUploadComplete] = useState(false);
   const [autoUploadEnabled, setAutoUploadEnabled] = useState(false);
   const [error, setError] = useState(null);
 
@@ -34,6 +36,8 @@ export function UploadProvider({ children }) {
       setLoading(true);
       setUploadStatus(null);
       setError(null);
+      setUploadingFileId(selectedFile.id);
+      setUploadComplete(false);
       
       const response = await fetch('/api/upload', {
         method: 'POST',
@@ -48,6 +52,7 @@ export function UploadProvider({ children }) {
       });
 
       const data = await response.json();
+      setUploadComplete(true);
       
       if (response.ok) {
         setUploadStatus({
@@ -71,10 +76,48 @@ export function UploadProvider({ children }) {
         message: `Error: ${error.message}`,
       });
       setError(error.message);
+      setUploadComplete(true);
     } finally {
       setLoading(false);
     }
   }, [selectedFile, title, description, clearSelectedFile]);
+
+  // Process multiple videos (bulk upload) from the last 24 hours
+  const uploadMultipleVideos = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      setUploadStatus(null);
+      
+      const response = await fetch('/api/auto-upload-videos');
+      const data = await response.json();
+      
+      if (response.ok && data.results && data.results.length > 0) {
+        setUploadStatus({
+          success: true,
+          message: `Successfully processed ${data.results.length} videos`,
+          results: data.results,
+          isBulkUpload: true
+        });
+        // Refresh the file list
+        fetchDriveFiles();
+      } else {
+        setUploadStatus({
+          success: true,
+          message: data.message || 'No videos found to process',
+        });
+      }
+    } catch (error) {
+      console.error('Error in bulk upload:', error);
+      setError(`Error in bulk upload: ${error.message}`);
+      setUploadStatus({
+        success: false,
+        message: `Error in bulk upload: ${error.message}`,
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchDriveFiles]);
 
   // Check for new videos and auto-upload
   const checkNewVideos = useCallback(async () => {
@@ -119,6 +162,8 @@ export function UploadProvider({ children }) {
   // Reset upload status
   const resetUploadStatus = () => {
     setUploadStatus(null);
+    setUploadingFileId(null);
+    setUploadComplete(false);
   };
 
   const value = {
@@ -128,6 +173,8 @@ export function UploadProvider({ children }) {
     setDescription,
     loading,
     uploadStatus,
+    uploadingFileId,
+    uploadComplete,
     autoUploadEnabled,
     error,
     uploadToYouTube,

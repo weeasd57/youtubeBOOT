@@ -3,12 +3,43 @@ import { getServerSession } from 'next-auth/next';
 import { NextResponse } from 'next/server';
 import { authOptions } from '../auth/[...nextauth]/options';
 import { Readable } from 'stream';
+import { EventEmitter } from 'events';
 
-// Helper function to convert ArrayBuffer to Stream
-function bufferToStream(buffer) {
-  const readable = new Readable();
-  readable.push(buffer);
-  readable.push(null);
+// Global events emitter to track uploads in progress
+const uploadEvents = new EventEmitter();
+// Map to store upload progress by file ID
+const uploadProgressMap = new Map();
+
+// Helper function to convert ArrayBuffer to Stream with progress tracking
+function bufferToStream(buffer, fileId) {
+  const totalBytes = buffer.byteLength;
+  let bytesRead = 0;
+  
+  const readable = new Readable({
+    read(size) {
+      // If we've consumed all the data, push null to signal end
+      if (bytesRead >= totalBytes) {
+        this.push(null);
+        return;
+      }
+      
+      // Calculate how many bytes to read this time
+      const chunkSize = Math.min(size, totalBytes - bytesRead);
+      const chunk = buffer.slice(bytesRead, bytesRead + chunkSize);
+      
+      // Update bytes read
+      bytesRead += chunkSize;
+      
+      // Calculate and emit progress
+      const progress = Math.round((bytesRead / totalBytes) * 100);
+      uploadProgressMap.set(fileId, progress);
+      uploadEvents.emit('progress', { fileId, progress });
+      
+      // Push the chunk
+      this.push(Buffer.from(chunk));
+    }
+  });
+  
   return readable;
 }
 
@@ -29,6 +60,19 @@ async function logUpload(uploadData) {
     console.error('Failed to log upload:', error);
     // Continue even if logging fails
   }
+}
+
+// Endpoint to get upload progress by fileId
+export async function GET(request) {
+  const { searchParams } = new URL(request.url);
+  const fileId = searchParams.get('fileId');
+  
+  if (!fileId) {
+    return NextResponse.json({ error: 'File ID is required' }, { status: 400 });
+  }
+  
+  const progress = uploadProgressMap.get(fileId) || 0;
+  return NextResponse.json({ fileId, progress });
 }
 
 export async function POST(request) {
@@ -91,20 +135,28 @@ export async function POST(request) {
     };
     
     try {
-      // Convert the file content to a readable stream for the YouTube API
-      const mediaStream = bufferToStream(fileContent);
+      // Initialize progress tracking for this file
+      uploadProgressMap.set(fileId, 0);
       
-      // Upload the video to YouTube
+      // Convert the file content to a readable stream for the YouTube API with progress tracking
+      const mediaStream = bufferToStream(fileContent, fileId);
+      
+      // Upload the video to YouTube with timeout increased (10 hour issue fix)
       const uploadResponse = await youtube.videos.insert({
         part: 'snippet,status',
         requestBody: videoResource,
         media: {
           body: mediaStream,
         },
+        // Set a longer timeout (3 hours in milliseconds)
+        timeout: 10800000,
       });
 
       const videoId = uploadResponse.data.id;
       const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+      
+      // Clear the progress tracking for this file
+      uploadProgressMap.delete(fileId);
       
       // Log successful upload to Supabase
       await logUpload({
@@ -122,6 +174,9 @@ export async function POST(request) {
         videoUrl,
       });
     } catch (uploadError) {
+      // Clear the progress tracking for this file
+      uploadProgressMap.delete(fileId);
+      
       // Log failed upload to Supabase
       await logUpload({
         file_id: fileId,
