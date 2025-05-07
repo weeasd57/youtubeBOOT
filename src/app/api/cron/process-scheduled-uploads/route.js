@@ -16,12 +16,18 @@ function bufferToStream(buffer) {
 // Configured with Vercel Cron Jobs (https://vercel.com/docs/cron-jobs)
 export async function GET(request) {
   try {
-    // Verify the request is from a cron job or authorized source
-    // In production, you should use a secret token header
+    // Get the API key from the URL query parameters or authorization header
+    const { searchParams } = new URL(request.url);
+    const apiKey = searchParams.get('apiKey');
     const authHeader = request.headers.get('authorization');
+    const headerToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
     
-    if (process.env.NODE_ENV === 'production' && 
-        (!authHeader || authHeader !== `Bearer ${process.env.CRON_SECRET}`)) {
+    // Check if either the API key or the authorization header matches the secret
+    const isAuthorized = (apiKey && apiKey === process.env.CRON_API_KEY) || 
+                         (headerToken && headerToken === process.env.CRON_SECRET);
+    
+    if (process.env.NODE_ENV === 'production' && !isAuthorized) {
+      console.log('Unauthorized cron job access attempt');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     
