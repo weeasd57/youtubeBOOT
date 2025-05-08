@@ -7,7 +7,7 @@ import { getValidAccessToken } from '@/utils/refreshToken';
 // Helper function to convert ArrayBuffer to Stream
 function bufferToStream(buffer) {
   const readable = new Readable();
-  readable.push(buffer);
+  readable.push(Buffer.from(buffer)); // Convert ArrayBuffer to Buffer
   readable.push(null);
   return readable;
 }
