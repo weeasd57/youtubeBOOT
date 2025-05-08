@@ -29,11 +29,15 @@ export async function refreshAccessToken(email) {
     
     // Set the refresh token
     oauth2Client.setCredentials({
-      refresh_token: userTokens.refresh_token
+      refresh_token: userTokens.refresh_token,
+      scope: 'https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube'
     });
     
     // Refresh the token
     const { credentials } = await oauth2Client.refreshAccessToken();
+    
+    console.log('Token refreshed successfully with scopes:', credentials.scope);
+    
     const accessToken = credentials.access_token;
     const refreshToken = credentials.refresh_token || userTokens.refresh_token;
     const expiresAt = Math.floor(Date.now() / 1000 + credentials.expiry_date / 1000);

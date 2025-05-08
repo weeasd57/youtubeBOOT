@@ -7,6 +7,7 @@ import { UploadProvider } from '@/contexts/UploadContext';
 import { UploadLogsProvider } from '@/contexts/UploadLogsContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { YouTubeProvider } from '@/contexts/YouTubeContext';
+import { YouTubeChannelProvider } from '@/contexts/YouTubeChannelContext';
 import { ScheduledUploadsProvider } from '@/contexts/ScheduledUploadsContext';
 
 export function Providers({ children }) {
@@ -18,9 +19,11 @@ export function Providers({ children }) {
             <UploadProvider>
               <UploadLogsProvider>
                 <YouTubeProvider>
-                  <ScheduledUploadsProvider>
-                    {children}
-                  </ScheduledUploadsProvider>
+                  <YouTubeChannelProvider>
+                    <ScheduledUploadsProvider>
+                      {children}
+                    </ScheduledUploadsProvider>
+                  </YouTubeChannelProvider>
                 </YouTubeProvider>
               </UploadLogsProvider>
             </UploadProvider>

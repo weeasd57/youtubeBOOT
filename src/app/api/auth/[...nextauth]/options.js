@@ -1,5 +1,6 @@
 import GoogleProvider from 'next-auth/providers/google';
 import { saveUserToSupabase, saveUserTokens } from '@/utils/supabase';
+import { supabaseAdmin } from '@/utils/supabase';
 
 // NextAuth configuration options
 export const authOptions = {
@@ -18,9 +19,10 @@ export const authOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, account, profile }) {
+    async jwt({ token, account, profile, trigger }) {
       // Persist the OAuth access_token and refresh_token to the token right after signin
       if (account) {
+        console.log('JWT callback: Initial sign in, saving tokens');
         token.accessToken = account.access_token;
         token.refreshToken = account.refresh_token;
         token.expiresAt = account.expires_at;
@@ -35,6 +37,32 @@ export const authOptions = {
           });
         }
       }
+      
+      // Handle session updates - load fresh token from database when session is updated
+      if (trigger === 'update' && token.email) {
+        console.log('JWT callback: Session update triggered, checking for fresh tokens');
+        try {
+          // Get the latest token from the database
+          const { data: userTokens, error } = await supabaseAdmin
+            .from('user_tokens')
+            .select('access_token, refresh_token, expires_at')
+            .eq('user_email', token.email)
+            .single();
+            
+          if (userTokens && !error) {
+            console.log('JWT callback: Found fresh tokens in database, updating session');
+            token.accessToken = userTokens.access_token;
+            token.expiresAt = userTokens.expires_at;
+            // Only update refresh token if it exists (it might not be returned in some refresh flows)
+            if (userTokens.refresh_token) {
+              token.refreshToken = userTokens.refresh_token;
+            }
+          }
+        } catch (error) {
+          console.error('JWT callback: Error fetching tokens from database:', error);
+        }
+      }
+      
       return token;
     },
     async session({ session, token, user }) {
