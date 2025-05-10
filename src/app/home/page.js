@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSession, signOut } from 'next-auth/react';
-import { FaYoutube, FaUpload, FaSync, FaHistory, FaEye, FaThumbsUp, FaCalendarAlt, FaClock, FaCloudUploadAlt, FaTable } from 'react-icons/fa';
+import { FaYoutube, FaUpload, FaSync, FaHistory, FaEye, FaThumbsUp, FaCalendarAlt, FaClock, FaCloudUploadAlt, FaTable, FaDownload } from 'react-icons/fa';
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from 'next/navigation';
@@ -211,6 +211,13 @@ export default function Home() {
           >
             <FaTable />
             Schedules
+          </Link>
+          <Link
+            href="/tiktok-downloader"
+            className="px-6 py-3 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium flex items-center gap-2"
+          >
+            <FaDownload />
+            TikTok Downloader
           </Link>
         </div>
       </div>

@@ -36,15 +36,13 @@ export async function GET(request) {
     const tomorrow = new Date(now);
     tomorrow.setHours(now.getHours() + 24); // Look 24 hours ahead
     
-    console.log(`Checking for scheduled uploads between ${now.toISOString()} and ${tomorrow.toISOString()}`);
+    console.log(`Checking for scheduled uploads (all pending)`);
     
-    // Find scheduled uploads that are due within the next 24 hours
+    // Find all pending scheduled uploads
     const { data: scheduledUploads, error: fetchError } = await supabaseAdmin
       .from('scheduled_uploads')
       .select('*')
       .eq('status', 'pending')
-      .gte('scheduled_time', now.toISOString())
-      .lt('scheduled_time', tomorrow.toISOString())
       .order('scheduled_time', { ascending: true });
     
     if (fetchError) {
@@ -56,16 +54,45 @@ export async function GET(request) {
     }
     
     if (!scheduledUploads || scheduledUploads.length === 0) {
-      return NextResponse.json({ message: 'No uploads scheduled for the next 24 hours' });
+      return NextResponse.json({ message: 'No pending uploads found' });
     }
     
-    console.log(`Found ${scheduledUploads.length} scheduled uploads for the next 24 hours`);
+    // Filter uploads for immediate processing
+    const immediateFutureUploads = scheduledUploads.filter(upload => {
+      const scheduledTime = new Date(upload.scheduled_time);
+      const timeDifferenceMinutes = (scheduledTime - now) / (1000 * 60);
+      
+      // If scheduled time is in the past or within 5 minutes from now
+      return timeDifferenceMinutes <= 5;
+    });
+    
+    // For uploads scheduled for later, we'll log them only
+    const farFutureUploads = scheduledUploads.filter(upload => {
+      const scheduledTime = new Date(upload.scheduled_time);
+      const timeDifferenceMinutes = (scheduledTime - now) / (1000 * 60);
+      
+      return timeDifferenceMinutes > 5;
+    });
+    
+    if (farFutureUploads.length > 0) {
+      console.log(`Found ${farFutureUploads.length} uploads scheduled for later (>5 minutes)`);
+    }
+    
+    // If there are no uploads for immediate processing
+    if (immediateFutureUploads.length === 0) {
+      return NextResponse.json({ 
+        message: 'No uploads due for immediate processing',
+        pendingFuture: farFutureUploads.length
+      });
+    }
+    
+    console.log(`Found ${immediateFutureUploads.length} uploads for immediate processing`);
     
     // Group uploads by scheduled time into buckets
     // This allows us to simulate the every-5-minute cron job by processing in batches
     const uploadsByTimeBucket = {};
     
-    for (const upload of scheduledUploads) {
+    for (const upload of immediateFutureUploads) {
       const scheduledTime = new Date(upload.scheduled_time);
       // Create buckets by rounding to 5-minute intervals
       const minutes = scheduledTime.getMinutes();
@@ -91,21 +118,8 @@ export async function GET(request) {
       const uploadsInBucket = uploadsByTimeBucket[bucketTime];
       const bucketDate = new Date(bucketTime);
       
-      // Process uploads that are due now or in the past
-      if (bucketDate <= now) {
-        console.log(`Processing due bucket ${bucketTime} with ${uploadsInBucket.length} uploads`);
-        // Process uploads in this bucket
-      } 
-      // Process uploads scheduled within the next 5 minutes
-      else if (bucketDate <= new Date(now.getTime() + 5 * 60 * 1000)) {
-        console.log(`Processing upcoming bucket ${bucketTime} with ${uploadsInBucket.length} uploads`);
-        // Process uploads in this bucket
-      }
-      // Skip uploads scheduled more than 5 minutes in the future
-      else {
-        console.log(`Skipping future bucket ${bucketTime} with ${uploadsInBucket.length} uploads`);
-        continue;
-      }
+      // معالجة جميع الدلاء المجدولة بغض النظر عن وقتها
+      console.log(`Processing bucket ${bucketTime} with ${uploadsInBucket.length} uploads`);
       
       // Process each scheduled upload in this time bucket
       for (const upload of uploadsInBucket) {
@@ -253,9 +267,10 @@ export async function GET(request) {
     }
     
     return NextResponse.json({
-      message: `Processed ${allResults.length} of ${scheduledUploads.length} scheduled uploads`,
+      message: `Processed ${allResults.length} of ${immediateFutureUploads.length} uploads for immediate processing`,
       processedCount: allResults.length,
-      totalScheduled: scheduledUploads.length,
+      immediateUploads: immediateFutureUploads.length,
+      futureUploads: farFutureUploads.length,
       results: allResults
     });
     

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../auth/[...nextauth]/options';
-import { refreshUserTokens } from '@/utils/refreshToken';
+import { refreshAccessToken as refreshToken } from '@/utils/refreshToken';
 
 /**
  * API endpoint to refresh a user's OAuth tokens
@@ -32,7 +32,7 @@ export async function GET() {
     while (retryCount < 3) {
       try {
         // Call the token refresh function
-        const { success, accessToken, refreshToken, expiryDate } = await refreshUserTokens(email);
+        const { success, accessToken, refreshToken, expiryDate } = await refreshToken(email);
         
         if (!success) {
           throw new Error('Failed to refresh tokens');
