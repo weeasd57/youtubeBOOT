@@ -91,13 +91,21 @@ export async function GET(request) {
       const uploadsInBucket = uploadsByTimeBucket[bucketTime];
       const bucketDate = new Date(bucketTime);
       
-      // Skip buckets in the future (more than 5 minutes from now)
-      if (bucketDate > new Date(now.getTime() + 5 * 60 * 1000)) {
+      // Process uploads that are due now or in the past
+      if (bucketDate <= now) {
+        console.log(`Processing due bucket ${bucketTime} with ${uploadsInBucket.length} uploads`);
+        // Process uploads in this bucket
+      } 
+      // Process uploads scheduled within the next 5 minutes
+      else if (bucketDate <= new Date(now.getTime() + 5 * 60 * 1000)) {
+        console.log(`Processing upcoming bucket ${bucketTime} with ${uploadsInBucket.length} uploads`);
+        // Process uploads in this bucket
+      }
+      // Skip uploads scheduled more than 5 minutes in the future
+      else {
         console.log(`Skipping future bucket ${bucketTime} with ${uploadsInBucket.length} uploads`);
         continue;
       }
-      
-      console.log(`Processing bucket ${bucketTime} with ${uploadsInBucket.length} uploads`);
       
       // Process each scheduled upload in this time bucket
       for (const upload of uploadsInBucket) {

@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
+import { withAuthRetry, isAuthError } from '@/utils/apiHelpers';
 
 // Create context
 const YouTubeContext = createContext(null);
@@ -10,6 +11,10 @@ const YouTubeContext = createContext(null);
 let videoCache = [];
 const CACHE_EXPIRY_MS = 4 * 60 * 60 * 1000; // 4 hours
 let cacheTimestamp = 0;
+
+// For throttling API requests
+let youtubeLastRequestTimestamp = 0;
+const MIN_REQUEST_INTERVAL = 30 * 1000; // 30 seconds between API calls
 
 // Keep track of quota exceeded status
 let quotaExceededDate = null;
@@ -41,6 +46,30 @@ export function YouTubeProvider({ children }) {
     return videoCache.length > 0 && 
            cacheTimestamp > 0 && 
            (Date.now() - cacheTimestamp) < CACHE_EXPIRY_MS;
+  }, []);
+
+  // Helper to check if we should throttle requests
+  const shouldThrottleRequest = useCallback((forceRefresh) => {
+    return !forceRefresh && 
+           (Date.now() - youtubeLastRequestTimestamp) < MIN_REQUEST_INTERVAL;
+  }, []);
+
+  // Helper function to refresh session tokens
+  const refreshSessionTokens = useCallback(async () => {
+    try {
+      console.log('YouTubeContext: Refreshing session tokens');
+      const response = await fetch('/api/refresh-session');
+      const data = await response.json();
+      
+      if (data.success) {
+        console.log('YouTubeContext: Token refresh successful');
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('YouTubeContext: Error refreshing session:', error);
+      return false;
+    }
   }, []);
 
   // Update local state based on quota exceeded status
@@ -87,88 +116,90 @@ export function YouTubeProvider({ children }) {
 
   // Fetch YouTube videos
   const fetchYouTubeVideos = useCallback(async (forceRefresh = false) => {
-    if (status !== 'authenticated' || !session?.user?.email) {
+    if (status !== 'authenticated') {
       return;
     }
 
-    // Check if daily quota is already exceeded, use cache and don't attempt API call
-    if (dailyQuotaExceeded && !forceRefresh) {
-      console.log('Skipping YouTube API call - daily quota already exceeded');
-      
-      if (videoCache.length > 0) {
-        console.log('Using cached videos due to daily quota limit');
-        setVideos(videoCache);
-      }
-      
-      // Set friendly quota error message
-      setError('Daily YouTube API quota exceeded. Will automatically try again tomorrow.');
-      setErrorType('quota');
-      return;
-    }
-
-    // Avoid too frequent API calls
-    const now = Date.now();
-    const minTimeBetweenFetches = 10 * 1000; // 10 seconds
-    if (!forceRefresh && now - lastFetchAttempt < minTimeBetweenFetches) {
-      console.log('Throttling YouTube API calls - too frequent');
-      return;
-    }
-    
-    setLastFetchAttempt(now);
-
-    // Check cache first if not forcing refresh
+    // Use cache if valid and not forcing refresh
     if (!forceRefresh && isCacheValid()) {
       console.log('Using cached YouTube videos data');
       setVideos(videoCache);
       return;
     }
 
+    // Throttle API requests if needed
+    if (shouldThrottleRequest(forceRefresh)) {
+      console.log('Throttling YouTube API calls - too frequent');
+      return;
+    }
+
+    // Update last request timestamp
+    youtubeLastRequestTimestamp = Date.now();
+    setLastFetchAttempt(Date.now());
+
+    setLoading(true);
+    setError(null);
+    setErrorType(null);
+    
     try {
-      setLoading(true);
-      setError(null);
-      setErrorType(null);
-      
-      const response = await fetch('/api/youtube/videos');
-      const data = await response.json();
-      
-      if (response.ok) {
+      // Use the withAuthRetry function for automatic retries on auth errors
+      await withAuthRetry(async () => {
+        console.log('Fetching YouTube videos...');
+        const response = await fetch('/api/youtube/videos');
+        const data = await response.json();
+        
+        if (!response.ok) {
+          // Handle quota errors specially
+          if (data.isQuotaError) {
+            console.warn('YouTube API quota exceeded');
+            setErrorType('quota');
+            setError(data.message || 'YouTube API quota exceeded. Some features may be limited.');
+            
+            // For quota errors, mark today as exceeded and use cached videos if available
+            quotaExceededDate = new Date();
+            setDailyQuotaExceeded(true);
+            
+            if (videoCache.length > 0) {
+              console.log('Using cached videos due to quota error');
+              setVideos(videoCache);
+            }
+            return; // Don't retry quota errors
+          }
+          
+          // For auth errors, refresh token and throw to trigger retry
+          if (response.status === 401) {
+            // Try to refresh the token
+            await refreshSessionTokens();
+            throw new Error('Authentication error - retrying after token refresh');
+          }
+          
+          // For other errors, throw to either retry or propagate
+          throw new Error(data.error || data.message || 'Failed to fetch YouTube videos');
+        }
+        
+        // Success case
         const fetchedVideos = data.videos || [];
         setVideos(fetchedVideos);
         
-        // Update cache if we have videos
+        // Update cache
         if (fetchedVideos.length > 0) {
           videoCache = fetchedVideos;
           cacheTimestamp = Date.now();
         }
-      } else {
-        // Check if it's a quota error
-        const isQuotaError = 
-          response.status === 429 || 
-          data.isQuotaError === true ||
-          data.error === 'YouTube API quota exceeded';
-        
-        // Set error message using the response data
-        setError(data.message || `Failed to fetch YouTube videos: ${data.error}`);
-        setErrorType(isQuotaError ? 'quota' : 'general');
-        
-        // For quota errors, mark today as exceeded and use cached videos if available
-        if (isQuotaError) {
-          console.log('Quota exceeded, marking for today');
-          quotaExceededDate = new Date();
-          setDailyQuotaExceeded(true);
-          
-          if (videoCache.length > 0) {
-            console.log('Using cached videos due to quota error');
-            setVideos(videoCache);
-          }
+      }, {
+        // Only retry auth errors
+        shouldRetry: (error) => isAuthError(error),
+        onRetry: ({ error, retryCount, delay }) => {
+          console.log(`Retrying YouTube videos fetch (#${retryCount}) after ${Math.round(delay/1000)}s - ${error.message}`);
+          setError(`Refreshing connection... Retry attempt ${retryCount}`);
         }
-      }
+      });
     } catch (error) {
       console.error('Error fetching YouTube videos:', error);
       setError(`Error fetching YouTube videos: ${error.message}`);
       setErrorType('general');
       
-      // For any error, use cached data if available
+      // Use cached data if available on error
       if (videoCache.length > 0) {
         console.log('Using cached videos due to fetch error');
         setVideos(videoCache);
@@ -176,7 +207,7 @@ export function YouTubeProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  }, [session, status, isCacheValid, lastFetchAttempt, dailyQuotaExceeded]);
+  }, [status, isCacheValid, shouldThrottleRequest, refreshSessionTokens]);
 
   // Effect for initial data load when session changes
   useEffect(() => {

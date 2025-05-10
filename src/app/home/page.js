@@ -253,23 +253,29 @@ export default function Home() {
             <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4">
               <button
                 onClick={() => setActiveTab('drive')}
-                className={`px-4 py-2 border-b-2 ${
+                className={`px-4 py-2.5 border-b-2 font-medium transition-colors ${
                   activeTab === 'drive'
                     ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                     : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                 }`}
               >
-                Drive to YouTube
+                <span className="flex items-center gap-2">
+                  <FaYoutube className={activeTab === 'drive' ? 'text-red-500' : 'text-gray-400'} />
+                  Drive to YouTube
+                </span>
               </button>
               <button
                 onClick={() => setActiveTab('schedule')}
-                className={`px-4 py-2 border-b-2 ${
+                className={`px-4 py-2.5 border-b-2 font-medium transition-colors ${
                   activeTab === 'schedule'
                     ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                     : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                 }`}
               >
-                Schedule Uploads
+                <span className="flex items-center gap-2">
+                  <FaCalendarAlt className={activeTab === 'schedule' ? 'text-blue-500' : 'text-gray-400'} />
+                  Schedule Uploads
+                </span>
               </button>
             </div>
             

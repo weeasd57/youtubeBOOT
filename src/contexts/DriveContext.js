@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useSession, signOut } from 'next-auth/react';
+import { withAuthRetry, isAuthError } from '@/utils/apiHelpers';
 
 // Create context
 const DriveContext = createContext(null);
@@ -62,7 +63,7 @@ export function DriveProvider({ children }) {
   }, [updateSession]);
 
   // Fetch video files from Google Drive
-  const fetchDriveFiles = useCallback(async (forceRefresh = false, retryAfterRefresh = true) => {
+  const fetchDriveFiles = useCallback(async (forceRefresh = false) => {
     if (status !== 'authenticated') {
       return;
     }
@@ -84,59 +85,65 @@ export function DriveProvider({ children }) {
     // Update last request timestamp
     lastRequestTimestamp = Date.now();
 
+    setLoading(true);
+    setError(null);
+    
     try {
-      setLoading(true);
-      setError(null);
-      
-      console.log('Fetching Drive files...');
-      const response = await fetch('/api/drive');
-      const data = await response.json();
-      
-      setLastChecked(new Date());
-      
-      if (response.ok) {
+      // Use withAuthRetry to automatically handle auth errors
+      await withAuthRetry(async () => {
+        console.log('Fetching Drive files...');
+        const response = await fetch('/api/drive');
+        const data = await response.json();
+        
+        if (!response.ok) {
+          // For auth errors, refresh token and throw to trigger retry
+          if (response.status === 401) {
+            // Try to refresh the token
+            await refreshSessionTokens();
+            throw new Error('Authentication error - retrying after token refresh');
+          }
+          
+          // For other errors, throw to propagate
+          throw new Error(data.error || data.message || 'Failed to fetch Drive files');
+        }
+        
+        // Success case
         const files = data.files || [];
         setDriveFiles(files);
+        setLastChecked(new Date());
         
         // Update cache
         driveFilesCache = files;
         cacheTimestamp = Date.now();
-      } else if (response.status === 401 && retryAfterRefresh) {
-        // Auth error, try to refresh the token and retry
-        const refreshed = await refreshSessionTokens();
-        if (refreshed) {
-          // Retry the fetch with the new token but don't retry again to avoid loops
-          return fetchDriveFiles(forceRefresh, false);
-        } else {
-          setError('Authentication error. Please sign in again.');
-          
-          // Keep using cached data if available
-          if (driveFilesCache.length > 0) {
-            setDriveFiles(driveFilesCache);
-          }
+      }, {
+        // Only retry auth errors, not other types of failures
+        shouldRetry: (error) => isAuthError(error),
+        onRetry: ({ error, retryCount, delay }) => {
+          console.log(`Retrying Drive files fetch (#${retryCount}) after ${Math.round(delay/1000)}s - ${error.message}`);
         }
-      } else {
-        setError(`Failed to fetch Drive files: ${data.error}`);
-        
-        // Use cached data if available on error
-        if (driveFilesCache.length > 0) {
-          console.log('Using cached Drive files after API error');
-          setDriveFiles(driveFilesCache);
-        }
-      }
+      });
     } catch (error) {
       console.error('Error fetching Drive files:', error);
-      setError(`Error fetching Drive files: ${error.message}`);
+      
+      const errorMessage = error.message || 'Unknown error';
+      const isAuthenticationError = isAuthError(error);
+      
+      // Set a user-friendly error message
+      if (isAuthenticationError) {
+        setError('Authentication error. Attempting to reconnect...');
+      } else {
+        setError(`Failed to fetch Drive files: ${errorMessage}`);
+      }
       
       // Use cached data if available on error
       if (driveFilesCache.length > 0) {
-        console.log('Using cached Drive files after fetch error');
+        console.log('Using cached Drive files after API error');
         setDriveFiles(driveFilesCache);
       }
     } finally {
       setLoading(false);
     }
-  }, [status, refreshSessionTokens, isCacheValid, shouldThrottleRequest]);
+  }, [status, refreshSessionTokens, shouldThrottleRequest, isCacheValid]);
 
   // Select a file
   const selectFile = (file) => {

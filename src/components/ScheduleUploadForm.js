@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { FaClock, FaCalendarAlt, FaBolt, FaTrash, FaYoutube } from 'react-icons/fa';
+import { FaClock, FaCalendarAlt, FaBolt, FaTrash, FaYoutube, FaEdit, FaCheck, FaSync, FaLayerGroup } from 'react-icons/fa';
 import { useScheduledUploads } from '@/contexts/ScheduledUploadsContext';
 import Image from 'next/image';
 
@@ -10,6 +10,13 @@ export default function ScheduleUploadForm({ file, multipleFiles = [], onSchedul
   const [validationError, setValidationError] = useState(null);
   const [generalError, setGeneralError] = useState(null);
   const [currentDisplayTime, setCurrentDisplayTime] = useState(new Date()); // For displaying current time reference
+  
+  // New state for batch operations
+  const [hourInterval, setHourInterval] = useState(6);
+  const [startHour, setStartHour] = useState(new Date().getHours()); // Default to current hour
+  const [batchTitle, setBatchTitle] = useState('');
+  const [batchDescription, setBatchDescription] = useState('');
+  const [showBatchOptions, setShowBatchOptions] = useState(true); // Set to true by default to always show batch tools
 
   const { scheduleUpload, loading } = useScheduledUploads();
 
@@ -79,9 +86,66 @@ export default function ScheduleUploadForm({ file, multipleFiles = [], onSchedul
   
   const setToNowForRow = (index) => {
     const now = new Date();
+    // Format with timezone handling
     const offset = now.getTimezoneOffset() * 60000;
     const localNow = new Date(now.getTime() - offset);
-    handleInputChange(index, 'scheduledDateTime', localNow.toISOString().slice(0, 16));
+    const formattedDateTime = localNow.toISOString().slice(0, 16);
+    handleInputChange(index, 'scheduledDateTime', formattedDateTime);
+  };
+
+  // Modified function to apply staggered scheduling based on custom start hour and interval
+  const applyStaggeredScheduling = () => {
+    if (filesData.length === 0) return;
+    
+    // Create a base date that's today with custom start hour and minutes/seconds set to 00:00
+    const now = new Date();
+    const baseDate = new Date(now);
+    baseDate.setHours(startHour); // Use the custom start hour
+    baseDate.setMinutes(0);
+    baseDate.setSeconds(0);
+    
+    // Apply the staggered times
+    setFilesData(prevData => {
+      return prevData.map((file, index) => {
+        // Clone the base date for this file
+        const fileDate = new Date(baseDate);
+        // Add the specified hour interval for each subsequent file
+        fileDate.setHours(baseDate.getHours() + (index * hourInterval));
+        
+        // Handle timezone offset correctly
+        const offset = fileDate.getTimezoneOffset() * 60000;
+        const localFileDate = new Date(fileDate.getTime() - offset);
+        
+        return {
+          ...file,
+          scheduledDateTime: localFileDate.toISOString().slice(0, 16)
+        };
+      });
+    });
+  };
+
+  // New function to apply the same title to all files
+  const applyBatchTitle = () => {
+    if (!batchTitle.trim()) return;
+    
+    setFilesData(prevData => {
+      return prevData.map(file => ({
+        ...file,
+        title: batchTitle
+      }));
+    });
+  };
+
+  // New function to apply the same description to all files
+  const applyBatchDescription = () => {
+    if (!batchDescription.trim()) return;
+    
+    setFilesData(prevData => {
+      return prevData.map(file => ({
+        ...file,
+        description: batchDescription
+      }));
+    });
   };
 
   const validateForm = () => {
@@ -200,134 +264,265 @@ export default function ScheduleUploadForm({ file, multipleFiles = [], onSchedul
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6 p-1 sm:p-4 bg-white dark:bg-gray-800 rounded-lg shadow">
-      <div>
-        <h3 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-white mb-3 sm:mb-4">
-          Schedule Uploads ({filesData.length} {filesData.length === 1 ? 'video' : 'videos'})
-        </h3>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-          Current time: {formatCurrentDateTime()}
-        </p>
-      </div>
-
-      {validationError && (
-        <div className="p-3 mb-3 bg-red-100 border border-red-400 text-red-700 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700 rounded-md text-sm">
-          {validationError}
+    <div className="bg-gradient-to-br from-white to-blue-50 dark:from-gray-800 dark:to-gray-900 rounded-xl shadow-xl max-w-full border border-blue-100 dark:border-gray-700 transition-all p-1">
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div className="bg-blue-600 dark:bg-blue-700 text-white p-4 rounded-t-xl">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg sm:text-2xl font-bold flex items-center">
+              <FaCalendarAlt className="mr-3 text-white" />
+              Schedule Uploads
+              <span className="ml-3 px-3 py-1 bg-white text-blue-600 text-xs font-bold rounded-full flex items-center">
+                {filesData.length} {filesData.length === 1 ? 'video' : 'videos'}
+              </span>
+            </h3>
+            <p className="text-xs text-blue-100">
+              {formatCurrentDateTime()}
+            </p>
+          </div>
         </div>
-      )}
-      {generalError && (
-        <div className="p-3 mb-3 bg-red-100 border border-red-400 text-red-700 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700 rounded-md text-sm">
-          {generalError}
-        </div>
-      )}
 
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-          <thead className="bg-gray-50 dark:bg-gray-700">
-            <tr>
-              <th scope="col" className="px-2 sm:px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-[10%]">Video</th>
-              <th scope="col" className="px-2 sm:px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-[40%]">Title</th>
-              <th scope="col" className="px-2 sm:px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-[20%]">Description</th>
-              <th scope="col" className="px-2 sm:px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-[25%]">Schedule Time</th>
-              <th scope="col" className="px-1 sm:px-2 py-2 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-[5%]">Act</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-            {filesData.map((video, index) => (
-              <tr key={video.fileId} className={video.rowError ? 'bg-red-50 dark:bg-red-900/20' : ''}>
-                <td className="px-2 sm:px-4 py-3 whitespace-nowrap">
-                  <div className="flex items-center">
-                    <div className="flex-shrink-0 h-10 w-16 bg-gray-200 dark:bg-gray-600 rounded overflow-hidden flex items-center justify-center">
-                      {video.thumbnailLink ? (
-                        <Image src={video.thumbnailLink} alt={video.fileName} width={64} height={40} className="object-cover h-full w-full" />
-                      ) : (
-                        <FaYoutube className="text-red-500 text-xl" /> 
-                      )}
-                    </div>
-                    <div className="ml-2 sm:ml-3">
-                      <div className="text-xs sm:text-sm font-medium text-gray-900 dark:text-white truncate w-24 sm:w-32 md:w-40" title={video.fileName}>
-                        {video.fileName}
-                      </div>
+        {validationError && (
+          <div className="mx-4 p-4 bg-red-100 border-l-4 border-red-500 text-red-700 dark:bg-red-900/30 dark:text-red-300 rounded-md text-sm animate-pulse">
+            {validationError}
+          </div>
+        )}
+        
+        {generalError && (
+          <div className="mx-4 p-4 bg-red-100 border-l-4 border-red-500 text-red-700 dark:bg-red-900/30 dark:text-red-300 rounded-md text-sm animate-pulse">
+            {generalError}
+          </div>
+        )}
+
+        {/* Batch operations panel - always visible now */}
+        <div className="mx-4">
+          <div className="bg-blue-50 dark:bg-gray-700/50 border border-blue-100 dark:border-gray-600 rounded-lg p-4 mb-4 space-y-4">
+            <div>
+              <h4 className="font-medium text-sm text-gray-700 dark:text-gray-300 mb-2">Staggered Scheduling</h4>
+              <div className="flex flex-col sm:flex-row gap-4">
+                <div className="sm:flex-1 flex flex-col sm:flex-row gap-3">
+                  <div className="flex-1">
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Start Hour (24h)</label>
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="number" 
+                        min="0" 
+                        max="23"
+                        value={startHour} 
+                        onChange={(e) => setStartHour(parseInt(e.target.value) || 0)}
+                        className="w-20 px-2 py-1 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      />
+                      <span className="text-xs text-gray-500 dark:text-gray-400">:00</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const now = new Date();
+                          setStartHour(now.getHours());
+                        }}
+                        className="px-3 py-2 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
+                        title="Set to current hour"
+                      >
+                        <FaBolt size={10} className="animate-pulse" /> Now
+                      </button>
                     </div>
                   </div>
-                </td>
-                <td className="px-2 sm:px-4 py-3">
-                  <input
-                    type="text"
-                    value={video.title}
-                    onChange={(e) => handleInputChange(index, 'title', e.target.value)}
-                    className={`w-full px-2 py-1 border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 text-sm dark:bg-gray-700 dark:text-white ${video.rowError && video.rowError.includes('Title') ? 'border-red-500 dark:border-red-400' : 'border-gray-300 dark:border-gray-600'}`}
-                    placeholder="Video Title"
-                  />
-                </td>
-                <td className="px-2 sm:px-4 py-3">
-                  <textarea
-                    value={video.description}
-                    onChange={(e) => handleInputChange(index, 'description', e.target.value)}
-                    className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 text-sm"
-                    rows="1" 
-                    placeholder="Description"
-                  />
-                </td>
-                <td className="px-2 sm:px-4 py-3">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-1 sm:gap-2">
-                    <input
-                      type="datetime-local"
-                      value={video.scheduledDateTime}
-                      onChange={(e) => handleInputChange(index, 'scheduledDateTime', e.target.value)}
-                      className={`w-full sm:flex-grow px-2 py-1 border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 text-sm dark:bg-gray-700 dark:text-white ${video.rowError && video.rowError.includes('Schedule time') ? 'border-red-500 dark:border-red-400' : 'border-gray-300 dark:border-gray-600'}`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setToNowForRow(index)}
-                      className="p-1 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded flex items-center gap-1 self-start sm:self-center"
-                      title="Set to current time"
-                    >
-                      <FaBolt size={10} /> Now
-                    </button>
+                  
+                  <div className="flex-1">
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Hours Between Videos</label>
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="number" 
+                        min="1" 
+                        max="24"
+                        value={hourInterval} 
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          const parsed = parseInt(value);
+                          if (!isNaN(parsed) && parsed >= 1) {
+                            setHourInterval(parsed);
+                          } else if (value === '') {
+                            setHourInterval(6); // Default to 6 only when input is empty
+                          }
+                        }}
+                        className="w-20 px-2 py-1 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      />
+                      <span className="text-xs text-gray-500 dark:text-gray-400">hours</span>
+                    </div>
                   </div>
-                   {video.scheduledDateTime && <p className='text-xs text-gray-400 mt-1 hidden sm:block'>Sched: {formatDateTimeForDisplay(video.scheduledDateTime)}</p>}
-                   {video.rowError && (
-                    <p className="text-xs text-red-500 dark:text-red-400 mt-1">{video.rowError}</p>
-                  )}
-                </td>
-                <td className="px-1 sm:px-2 py-3 whitespace-nowrap text-center text-sm font-medium">
+                </div>
+                
+                <button
+                  type="button"
+                  onClick={applyStaggeredScheduling}
+                  className="px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white text-xs rounded-lg flex items-center gap-1.5 transition-colors self-end"
+                >
+                  <FaSync /> Apply Interval
+                </button>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Set Title For All Videos</label>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="text" 
+                    value={batchTitle} 
+                    onChange={(e) => setBatchTitle(e.target.value)}
+                    placeholder="Common title for all videos"
+                    className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  />
                   <button
                     type="button"
-                    onClick={() => handleRemoveFile(video.fileId)}
-                    className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 p-1"
-                    title="Remove this video"
+                    onClick={applyBatchTitle}
+                    disabled={!batchTitle.trim()}
+                    className="px-3 py-2 bg-green-500 hover:bg-green-600 text-white text-xs rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <FaTrash />
+                    <FaCheck /> Apply
                   </button>
-                </td>
-              </tr>
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Set Description For All Videos</label>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="text" 
+                    value={batchDescription} 
+                    onChange={(e) => setBatchDescription(e.target.value)}
+                    placeholder="Common description for all videos"
+                    className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={applyBatchDescription}
+                    disabled={!batchDescription.trim()}
+                    className="px-3 py-2 bg-green-500 hover:bg-green-600 text-white text-xs rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <FaCheck /> Apply
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-4 py-2">
+          <div className="grid grid-cols-1 gap-4 max-h-[400px] overflow-y-auto pr-1">
+            {filesData.map((video, index) => (
+              <div 
+                key={video.fileId} 
+                className={`${
+                  video.rowError 
+                    ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800' 
+                    : 'bg-white border-gray-200 dark:bg-gray-800 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600'
+                } rounded-lg border shadow-sm p-4 transition-all`}
+              >
+                <div className="flex flex-col sm:flex-row gap-4">
+                  {/* Video thumbnail and info */}
+                  <div className="flex items-center sm:w-[200px]">
+                    <div className="h-14 w-20 bg-gray-100 dark:bg-gray-700 rounded-md overflow-hidden flex items-center justify-center shadow-sm">
+                      {video.thumbnailLink ? (
+                        <Image src={video.thumbnailLink} alt={video.fileName} width={80} height={56} className="object-cover h-full w-full" />
+                      ) : (
+                        <FaYoutube className="text-red-500 text-2xl" /> 
+                      )}
+                    </div>
+                    <div className="ml-3">
+                      <div className="text-xs font-medium text-gray-800 dark:text-white truncate max-w-[120px]" title={video.fileName}>
+                        {video.fileName}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveFile(video.fileId)}
+                        className="mt-1 text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-xs flex items-center gap-1 hover:underline"
+                      >
+                        <FaTrash size={10} /> Remove
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Form fields */}
+                  <div className="flex-1 space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Title</label>
+                      <input
+                        type="text"
+                        value={video.title}
+                        onChange={(e) => handleInputChange(index, 'title', e.target.value)}
+                        className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm dark:bg-gray-700 dark:text-white transition-all ${video.rowError && video.rowError.includes('Title') ? 'border-red-500 dark:border-red-400' : 'border-gray-200 dark:border-gray-600'}`}
+                        placeholder="Video Title"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+                      <textarea
+                        value={video.description}
+                        onChange={(e) => handleInputChange(index, 'description', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm transition-all"
+                        rows="1" 
+                        placeholder="Description (optional)"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Schedule Time</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="datetime-local"
+                          value={video.scheduledDateTime}
+                          onChange={(e) => handleInputChange(index, 'scheduledDateTime', e.target.value)}
+                          className={`flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm dark:bg-gray-700 dark:text-white transition-all ${video.rowError && video.rowError.includes('Schedule time') ? 'border-red-500 dark:border-red-400' : 'border-gray-200 dark:border-gray-600'}`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setToNowForRow(index)}
+                          className="px-3 py-2 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
+                          title="Set to current time"
+                        >
+                          <FaBolt size={10} className="animate-pulse" /> Now
+                        </button>
+                      </div>
+                      {video.scheduledDateTime && 
+                        <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                          Scheduled for: {formatDateTimeForDisplay(video.scheduledDateTime)}
+                        </p>
+                      }
+                      {video.rowError && (
+                        <p className="text-xs text-red-500 dark:text-red-400 mt-1">
+                          {video.rowError}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
             ))}
-          </tbody>
-        </table>
-      </div>
-      
-      <div className="flex items-center justify-end space-x-2 sm:space-x-3 pt-3 sm:pt-4">
-        <button
-          type="button"
-          onClick={onCancel} // This should probably clear selections and hide form via parent
-          className="px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
-        >
-          Cancel All
-        </button>
-        <button
-          type="submit"
-          disabled={loading || filesData.length === 0}
-          className="px-4 sm:px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 sm:gap-2 text-xs sm:text-sm"
-        >
-          {loading ? (
-            <FaClock className="animate-spin" /> 
-          ) : (
-            <FaCalendarAlt />
-          )}
-          Schedule {filesData.length > 0 ? filesData.length : ''} {filesData.length === 1 ? 'Video' : 'Videos'}
-        </button>
-      </div>
-    </form>
+          </div>
+        </div>
+        
+        <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-b-xl border-t border-gray-200 dark:border-gray-700 flex items-center justify-end space-x-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors shadow-sm"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={loading || filesData.length === 0}
+            className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm transition-colors shadow-sm"
+          >
+            {loading ? (
+              <FaClock className="animate-spin" /> 
+            ) : (
+              <FaCalendarAlt />
+            )}
+            Schedule {filesData.length > 0 ? filesData.length : ''} {filesData.length === 1 ? 'Video' : 'Videos'}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 } 

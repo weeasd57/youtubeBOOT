@@ -28,7 +28,7 @@ export default {
           secondary: '#9ca3af',
           accent: '#f97316',
           muted: '#374151',
-          card: '#111827',
+          card: '#FFD700',
           'card-foreground': '#f9fafb',
         },
       },
