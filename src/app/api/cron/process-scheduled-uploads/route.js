@@ -130,11 +130,40 @@ export async function GET(request) {
             .update({ status: 'processing', updated_at: new Date().toISOString() })
             .eq('id', upload.id);
           
-          // Get a valid access token for this user, refreshing if necessary
-          const accessToken = await getValidAccessToken(upload.user_email);
+          // محاولات متعددة للحصول على رمز وصول صالح
+          let accessToken = null;
+          let tokenError = null;
           
+          // محاولة تحديث الرمز عدة مرات (3 محاولات بفاصل زمني)
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              // Get a valid access token for this user, refreshing if necessary
+              accessToken = await getValidAccessToken(upload.user_email);
+              
+              if (accessToken) {
+                // نجحت المصادقة
+                tokenError = null;
+                break;
+              } else {
+                // فشل في الحصول على رمز
+                tokenError = new Error('Failed to get valid access token for user');
+              }
+            } catch (err) {
+              tokenError = err;
+              console.error(`Authentication attempt ${attempt + 1} failed:`, err);
+            }
+            
+            // انتظار قبل المحاولة التالية (زيادة الوقت تدريجياً: 1 ثانية، 2 ثانية، 4 ثانية)
+            if (attempt < 2) {
+              await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+            }
+          }
+          
+          // إذا فشلت جميع المحاولات
           if (!accessToken) {
-            throw new Error('Failed to get valid access token for user');
+            throw new Error(tokenError ? 
+              `Authentication failed after multiple attempts: ${tokenError.message}` : 
+              'Failed to get valid access token for user after multiple attempts');
           }
           
           // Initialize the OAuth2 client
@@ -142,6 +171,9 @@ export async function GET(request) {
           oauth2Client.setCredentials({
             access_token: accessToken,
           });
+          
+          // إضافة سجلات أكثر تفصيلاً للتشخيص
+          console.log(`Successfully authenticated for user ${upload.user_email}, preparing for file upload`);
           
           // Initialize Drive API to get the file
           const drive = google.drive({ version: 'v3', auth: oauth2Client });

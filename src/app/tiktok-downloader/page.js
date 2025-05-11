@@ -3,6 +3,22 @@
 import { useState, useRef } from 'react';
 import { FaFileUpload, FaDownload, FaSpinner, FaEye } from 'react-icons/fa';
 
+// Añadir estilos para la animación shimmer
+const shimmerAnimation = `
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(200%);
+    }
+  }
+  
+  .animate-shimmer {
+    animation: shimmer 2s infinite;
+  }
+`;
+
 export default function TikTokDownloader() {
   const [jsonData, setJsonData] = useState(null);
   const [videos, setVideos] = useState([]);
@@ -200,13 +216,33 @@ export default function TikTokDownloader() {
   const getStatusBadge = (status) => {
     switch (status) {
       case 'pending':
-        return <span className="px-2 py-1 text-xs bg-gray-200 text-gray-800 rounded-full">في الانتظار</span>;
+        return (
+          <span className="px-3 py-1.5 text-xs bg-gray-100 text-gray-700 dark:bg-gray-700/50 dark:text-gray-300 rounded-full inline-flex items-center gap-1.5 font-medium border border-gray-200 dark:border-gray-600 shadow-sm">
+            <span className="w-2 h-2 rounded-full bg-gray-400 animate-pulse"></span>
+            في الانتظار
+          </span>
+        );
       case 'processing':
-        return <span className="px-2 py-1 text-xs bg-blue-200 text-blue-800 rounded-full flex items-center"><FaSpinner className="animate-spin mr-1" /> قيد المعالجة</span>;
+        return (
+          <span className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 rounded-full inline-flex items-center gap-1.5 font-medium border border-blue-200 dark:border-blue-800 shadow-sm">
+            <FaSpinner className="animate-spin" size={12} />
+            قيد المعالجة
+          </span>
+        );
       case 'completed':
-        return <span className="px-2 py-1 text-xs bg-green-200 text-green-800 rounded-full">مكتمل</span>;
+        return (
+          <span className="px-3 py-1.5 text-xs bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300 rounded-full inline-flex items-center gap-1.5 font-medium border border-green-200 dark:border-green-800 shadow-sm">
+            <span className="w-2 h-2 rounded-full bg-green-500"></span>
+            مكتمل
+          </span>
+        );
       case 'failed':
-        return <span className="px-2 py-1 text-xs bg-red-200 text-red-800 rounded-full">فشل</span>;
+        return (
+          <span className="px-3 py-1.5 text-xs bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 rounded-full inline-flex items-center gap-1.5 font-medium border border-red-200 dark:border-red-800 shadow-sm">
+            <span className="w-2 h-2 rounded-full bg-red-500"></span>
+            فشل
+          </span>
+        );
       default:
         return null;
     }
@@ -214,6 +250,9 @@ export default function TikTokDownloader() {
 
   return (
     <div className="min-h-screen p-8 flex flex-col dark:bg-gray-900">
+      {/* Añadir estilos personalizados */}
+      <style dangerouslySetInnerHTML={{ __html: shimmerAnimation }} />
+      
       <header className="flex justify-between items-center mb-8">
         <h1 className="text-2xl font-bold dark:text-white">تحميل فيديوهات TikTok</h1>
         <button
@@ -255,68 +294,93 @@ export default function TikTokDownloader() {
           </div>
 
           {loading && (
-            <div className="w-full bg-gray-200 rounded-full h-2.5 mb-4 dark:bg-gray-700">
-              <div 
-                className="bg-blue-600 h-2.5 rounded-full" 
-                style={{ width: `${progress}%` }}
-              ></div>
+            <div className="w-full mb-6">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{progress}% completado</span>
+                <span className="text-xs font-medium text-blue-600 dark:text-blue-400">{Math.round((progress / 100) * videos.length)}/{videos.length} videos</span>
+              </div>
+              <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden dark:bg-gray-700 shadow-inner">
+                <div 
+                  className="h-full rounded-full bg-gradient-to-r from-blue-500 to-blue-600 relative overflow-hidden transition-all duration-500 ease-out shadow-sm flex items-center justify-center"
+                  style={{ width: `${progress}%` }}
+                >
+                  {progress > 10 && (
+                    <div className="absolute inset-0 overflow-hidden">
+                      <span className="absolute inset-0 bg-white/20 animate-pulse"></span>
+                      <span className="absolute top-0 bottom-0 w-8 bg-white/30 -skew-x-30 animate-shimmer"></span>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
           {currentVideo && (
-            <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-md">
-              <p className="dark:text-white">جارِ معالجة: {currentVideo.title}</p>
+            <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/10 rounded-lg border border-blue-200 dark:border-blue-800/30 shadow-sm">
+              <div className="flex items-center">
+                <div className="mr-3 flex-shrink-0">
+                  <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center animate-pulse">
+                    <FaSpinner className="animate-spin text-white" size={14} />
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-sm font-medium text-blue-800 dark:text-blue-300">جارِ معالجة:</h3>
+                  <p className="text-sm text-blue-700 dark:text-blue-200 font-bold truncate">{currentVideo.title}</p>
+                </div>
+              </div>
             </div>
           )}
         </div>
       )}
 
       {videos.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 overflow-hidden">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 overflow-hidden border border-gray-100 dark:border-gray-700 transition-all hover:shadow-lg">
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-              <thead className="bg-gray-50 dark:bg-gray-700">
-                <tr>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">الفيديو</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">الرابط</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">الحالة</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">إجراءات</th>
+            <table className="w-full max-w-full table-auto divide-y divide-gray-200 dark:divide-gray-700">
+              <thead>
+                <tr className="bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/20">
+                  <th className="px-6 py-4 text-right text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider rounded-tl-lg">الفيديو</th>
+                  <th className="px-6 py-4 text-right text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">الرابط</th>
+                  <th className="px-6 py-4 text-right text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">الحالة</th>
+                  <th className="px-6 py-4 text-right text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider rounded-tr-lg">إجراءات</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700">
-                {videos.map((video) => (
-                  <tr key={video.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/40">
-                    <td className="px-6 py-4 whitespace-nowrap text-right">
-                      <div className="text-sm font-medium text-gray-900 dark:text-white">{video.title}</div>
+              <tbody className="bg-white divide-y divide-gray-100 dark:bg-gray-800 dark:divide-gray-700">
+                {videos.map((video, index) => (
+                  <tr key={video.id} className={`transition-colors ${index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-blue-50/50 dark:bg-gray-800/80'} hover:bg-blue-100/50 dark:hover:bg-blue-900/20`}>
+                    <td className="px-6 py-4 text-right">
+                      <div className="text-sm font-semibold text-gray-900 dark:text-white">{video.title}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                    <td className="px-6 py-4 text-right">
                       <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{video.url}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                    <td className="px-6 py-4 text-right">
                       {getStatusBadge(video.status)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button
-                        onClick={() => downloadSingleVideo(video)}
-                        disabled={video.status === 'processing' || loading}
-                        className={`px-3 py-1.5 rounded-md flex items-center gap-1 ${
-                          video.status === 'completed' 
-                            ? 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400' 
-                            : 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400'
-                        } disabled:opacity-50 disabled:cursor-not-allowed`}
-                      >
-                        <FaDownload size={12} />
-                        تحميل
-                      </button>
-                      {video.status === 'failed' && (
+                    <td className="px-6 py-4 text-right text-sm font-medium">
+                      <div className="flex flex-col md:flex-row gap-2 justify-end">
                         <button
-                          onClick={() => window.open(video.url, '_blank')}
-                          className="px-3 py-1.5 rounded-md flex items-center gap-1 bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 mt-1"
+                          onClick={() => downloadSingleVideo(video)}
+                          disabled={video.status === 'processing' || loading}
+                          className={`px-3 py-1.5 rounded-md flex items-center gap-1 transition-all ${
+                            video.status === 'completed' 
+                              ? 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 hover:scale-105' 
+                              : 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 hover:scale-105'
+                          } disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100`}
                         >
-                          <FaEye size={12} />
-                          فتح الأصلي
+                          <FaDownload size={12} />
+                          تحميل
                         </button>
-                      )}
+                        {video.status === 'failed' && (
+                          <button
+                            onClick={() => window.open(video.url, '_blank')}
+                            className="px-3 py-1.5 rounded-md flex items-center gap-1 bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 hover:scale-105 transition-all"
+                          >
+                            <FaEye size={12} />
+                            فتح الأصلي
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
