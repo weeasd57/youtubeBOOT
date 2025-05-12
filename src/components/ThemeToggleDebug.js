@@ -4,25 +4,24 @@ import { useContext } from 'react';
 import { ThemeContext, THEMES } from '@/contexts/ThemeContext';
 import { FaSun, FaMoon } from 'react-icons/fa';
 
-export default function ThemeToggle() {
+export default function ThemeToggleDebug() {
+  // Use a try-catch block to properly handle theme context errors
   try {
     const context = useContext(ThemeContext);
     
-    // If context is undefined, return a disabled button
     if (!context) {
+      console.error('Theme context is undefined or null!', { context });
       return (
-        <button 
-          disabled
-          className="p-2 rounded-md text-gray-400 cursor-not-allowed"
-          aria-label="Theme toggle unavailable"
-        >
-          <FaMoon size={20} />
-        </button>
+        <div className="px-2 py-1 bg-red-100 border border-red-300 text-red-800 rounded text-xs">
+          Theme Error
+        </div>
       );
     }
     
     const { theme, toggleTheme } = context;
     const isDark = theme === THEMES.DARK;
+    
+    console.log('Theme context loaded successfully:', { theme, isDark });
 
     return (
       <button
@@ -38,17 +37,11 @@ export default function ThemeToggle() {
       </button>
     );
   } catch (error) {
-    console.error('Error in ThemeToggle:', error);
-    
-    // Return a disabled button as fallback
+    console.error('Error in ThemeToggleDebug:', error);
     return (
-      <button 
-        disabled
-        className="p-2 rounded-md text-gray-400 cursor-not-allowed"
-        aria-label="Theme toggle error"
-      >
-        <FaMoon size={20} />
-      </button>
+      <div className="px-2 py-1 bg-red-100 border border-red-300 text-red-800 rounded text-xs">
+        {error.message || 'Theme Error'}
+      </div>
     );
   }
 } 

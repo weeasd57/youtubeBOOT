@@ -89,15 +89,15 @@ export default function YouTubeConnectionStatus({ onRefreshSuccess }) {
   const statusInfo = getStatusInfo();
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+    <div className="bg-white dark:bg-black rounded-lg shadow-md p-6 border dark:border-amber-700/30 transition-all duration-300">
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-xl font-semibold dark:text-white flex items-center gap-2">
+        <h2 className="text-xl font-semibold dark:text-amber-50 flex items-center gap-2">
           <FaYoutube className="text-red-500" />
           YouTube Connection Status
         </h2>
         <button
           onClick={() => refreshConnection(true)}
-          className="p-2 bg-red-100 text-red-600 dark:bg-red-900 dark:text-red-300 rounded-full hover:bg-red-200 dark:hover:bg-red-800 transition-colors"
+          className="p-2 bg-red-100 text-red-600 dark:bg-amber-900/30 dark:text-amber-300 rounded-full hover:bg-red-200 dark:hover:bg-amber-800/40 transition-all duration-300 transform hover:rotate-12"
           disabled={isChecking}
           title="Refresh Connection Status"
         >
@@ -105,7 +105,7 @@ export default function YouTubeConnectionStatus({ onRefreshSuccess }) {
         </button>
       </div>
 
-      <div className={`p-4 ${statusInfo.bgColor} dark:bg-opacity-20 rounded-lg mb-4`}>
+      <div className={`p-4 ${statusInfo.bgColor} dark:bg-opacity-20 rounded-lg mb-4 border dark:border-amber-800/20`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center">
             <FaYoutube className="text-red-600 text-4xl mr-3" />
@@ -114,7 +114,7 @@ export default function YouTubeConnectionStatus({ onRefreshSuccess }) {
                 {statusInfo.text}
               </h3>
               {lastChecked && (
-                <p className="text-sm text-gray-500 dark:text-gray-400">
+                <p className="text-sm text-gray-500 dark:text-amber-200/60">
                   Last checked: {lastChecked.toLocaleTimeString()}
                 </p>
               )}
@@ -128,14 +128,14 @@ export default function YouTubeConnectionStatus({ onRefreshSuccess }) {
 
       {connectionStatus === 'connected' && channelInfo && (
         <div className="mt-4">
-          <h3 className="font-medium text-lg mb-4 dark:text-white">Channel Information</h3>
+          <h3 className="font-medium text-lg mb-4 dark:text-amber-50">Channel Information</h3>
           
           <div className="flex flex-col md:flex-row gap-4">
             {/* Channel Profile */}
-            <div className="flex-1 bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg">
+            <div className="flex-1 bg-gray-50 dark:bg-black/60 p-4 rounded-lg border dark:border-amber-700/30 transition-all duration-300">
               <div className="flex items-center gap-4">
                 {channelInfo.thumbnailUrl && (
-                  <div className="relative w-16 h-16 rounded-full overflow-hidden">
+                  <div className="relative w-16 h-16 rounded-full overflow-hidden border dark:border-amber-500/30">
                     <Image
                       src={channelInfo.thumbnailUrl}
                       alt={channelInfo.channelTitle || 'Channel'}
@@ -152,8 +152,8 @@ export default function YouTubeConnectionStatus({ onRefreshSuccess }) {
                   </div>
                 )}
                 <div>
-                  <h4 className="text-lg font-medium dark:text-white">{channelInfo.channelTitle}</h4>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">ID: {channelInfo.channelId}</p>
+                  <h4 className="text-lg font-medium dark:text-amber-50">{channelInfo.channelTitle}</h4>
+                  <p className="text-sm text-gray-500 dark:text-amber-200/60">ID: {channelInfo.channelId}</p>
                 </div>
               </div>
               
@@ -167,39 +167,39 @@ export default function YouTubeConnectionStatus({ onRefreshSuccess }) {
             
             {/* Channel Stats */}
             <div className="flex-1 grid grid-cols-3 gap-2">
-              <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg flex flex-col items-center justify-center">
-                <FaVideo className="text-blue-500 text-xl mb-1" />
-                <span className="text-lg font-semibold dark:text-white">
+              <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg flex flex-col items-center justify-center border dark:border-blue-800/20 transition-all duration-300 hover:-translate-y-1">
+                <FaVideo className="text-blue-500 dark:text-blue-400 text-xl mb-1" />
+                <span className="text-lg font-semibold dark:text-amber-50">
                   {formatNumber(channelInfo.videoCount)}
                 </span>
-                <span className="text-xs text-gray-500 dark:text-gray-400">Videos</span>
+                <span className="text-xs text-gray-500 dark:text-amber-200/60">Videos</span>
                 
                 {channelInfo.videoCount === 0 && channelInfo.uploadsPlaylistId && (
                   <a 
                     href={`https://www.youtube.com/playlist?list=${channelInfo.uploadsPlaylistId}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs text-blue-500 mt-1 underline"
+                    className="text-xs text-blue-500 dark:text-amber-400 mt-1 underline"
                   >
                     Check Uploads
                   </a>
                 )}
               </div>
               
-              <div className="bg-purple-50 dark:bg-purple-900/20 p-3 rounded-lg flex flex-col items-center justify-center">
-                <FaUsers className="text-purple-500 text-xl mb-1" />
-                <span className="text-lg font-semibold dark:text-white">
+              <div className="bg-purple-50 dark:bg-purple-900/20 p-3 rounded-lg flex flex-col items-center justify-center border dark:border-purple-800/20 transition-all duration-300 hover:-translate-y-1">
+                <FaUsers className="text-purple-500 dark:text-purple-400 text-xl mb-1" />
+                <span className="text-lg font-semibold dark:text-amber-50">
                   {channelInfo.statsHidden ? 'Hidden' : formatNumber(channelInfo.subscriberCount)}
                 </span>
-                <span className="text-xs text-gray-500 dark:text-gray-400">Subscribers</span>
+                <span className="text-xs text-gray-500 dark:text-amber-200/60">Subscribers</span>
               </div>
               
-              <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded-lg flex flex-col items-center justify-center">
-                <FaEye className="text-green-500 text-xl mb-1" />
-                <span className="text-lg font-semibold dark:text-white">
+              <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded-lg flex flex-col items-center justify-center border dark:border-green-800/20 transition-all duration-300 hover:-translate-y-1">
+                <FaEye className="text-green-500 dark:text-green-400 text-xl mb-1" />
+                <span className="text-lg font-semibold dark:text-amber-50">
                   {formatNumber(channelInfo.viewCount)}
                 </span>
-                <span className="text-xs text-gray-500 dark:text-gray-400">Views</span>
+                <span className="text-xs text-gray-500 dark:text-amber-200/60">Views</span>
               </div>
             </div>
           </div>
@@ -210,7 +210,7 @@ export default function YouTubeConnectionStatus({ onRefreshSuccess }) {
                 href={`https://www.youtube.com/channel/${channelInfo.channelId}`} 
                 target="_blank" 
                 rel="noopener noreferrer"
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors"
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md transition-all duration-300 transform hover:scale-105 border border-transparent dark:border-amber-500/20"
               >
                 <FaYoutube />
                 Visit Channel
@@ -220,7 +220,7 @@ export default function YouTubeConnectionStatus({ onRefreshSuccess }) {
                 href={`https://www.youtube.com/playlist?list=${channelInfo.uploadsPlaylistId}`} 
                 target="_blank" 
                 rel="noopener noreferrer"
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors"
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-md transition-all duration-300 transform hover:scale-105 border border-transparent dark:border-amber-500/20"
               >
                 <FaVideo />
                 View Videos
@@ -234,7 +234,7 @@ export default function YouTubeConnectionStatus({ onRefreshSuccess }) {
                 href={`https://www.youtube.com/channel/${channelInfo.channelId}`} 
                 target="_blank" 
                 rel="noopener noreferrer"
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors"
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md transition-all duration-300 transform hover:scale-105 border border-transparent dark:border-amber-500/20"
               >
                 <FaYoutube />
                 Visit Channel
@@ -250,7 +250,7 @@ export default function YouTubeConnectionStatus({ onRefreshSuccess }) {
             onSuccess={handleRefreshSuccess}
             className="w-full justify-center"
           />
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-2 text-center">
+          <p className="text-sm text-gray-500 dark:text-amber-200/60 mt-2 text-center">
             Click to refresh your YouTube connection
           </p>
         </div>

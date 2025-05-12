@@ -1,9 +1,17 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { FaFileUpload, FaDownload, FaSpinner, FaEye } from 'react-icons/fa';
+import { useRef, useState, useEffect } from 'react';
+import { FaFileUpload, FaDownload, FaSpinner, FaEye, FaYoutube } from 'react-icons/fa';
+import { useSession } from 'next-auth/react';
+import Image from "next/image";
+import Link from "next/link";
+import { useUser } from '@/contexts/UserContext';
+import { useTikTok } from '@/contexts/TikTokContext';
+import ClientOnly from '@/components/ClientOnly';
+import Navbar from '@/components/Navbar';
+import PageContainer from '@/components/PageContainer';
 
-// Añadir estilos para la animación shimmer
+// Add styles for the shimmer animation and RTL scrolling
 const shimmerAnimation = `
   @keyframes shimmer {
     0% {
@@ -17,230 +25,237 @@ const shimmerAnimation = `
   .animate-shimmer {
     animation: shimmer 2s infinite;
   }
+  
+  /* RTL Scrolling styles */
+  .rtl-scroll {
+    direction: rtl;
+    overflow-x: auto;
+    padding-bottom: 1rem;
+  }
+  
+  .rtl-scroll > * {
+    direction: ltr;
+  }
+  
+  /* Hide scrollbar for Chrome, Safari and Opera */
+  .rtl-scroll::-webkit-scrollbar {
+    display: none;
+  }
+  
+  /* Hide scrollbar for IE, Edge and Firefox */
+  .rtl-scroll {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
 `;
 
 export default function TikTokDownloader() {
-  const [jsonData, setJsonData] = useState(null);
-  const [videos, setVideos] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [currentVideo, setCurrentVideo] = useState(null);
-  const [progress, setProgress] = useState(0);
+  const [isMounted, setIsMounted] = useState(false);
+  
+  // Use useEffect to mark component as mounted
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+  
+  // Show loading spinner while mounting
+  if (!isMounted) {
+    return (
+      <div className="w-full min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <FaSpinner className="animate-spin text-blue-500 mx-auto mb-4" size={36} />
+          <p className="text-gray-600 dark:text-gray-400">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+  
+  return <TikTokDownloaderContent />;
+}
+
+// Separate content component that uses context hooks
+function TikTokDownloaderContent() {
+  const { 
+    videos, 
+    jsonData, 
+    loading, 
+    currentVideo, 
+    progress, 
+    saveToDrive, 
+    setSaveToDrive,
+    folderName,
+    setFolderName,
+    driveFolderId,
+    driveFolders,
+    loadingFolders,
+    fetchDriveFolders,
+    useExistingFolder,
+    getDriveFolderUrl,
+    createDriveFolder,
+    handleFileUpload: handleFileUploadAction,
+    downloadAllVideos,
+    downloadSingleVideo
+  } = useTikTok();
+  
   const fileInputRef = useRef(null);
+  const { data: session } = useSession();
+  const { user } = useUser();
+  const [showNewFolder, setShowNewFolder] = useState(true);
+  const [selectedFolderId, setSelectedFolderId] = useState('');
+  const [foldersLoaded, setFoldersLoaded] = useState(false);
+  const [foldersError, setFoldersError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
-  // تحميل ملف JSON
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  // Load drive folders when component mounts - only once
+  useEffect(() => {
+    if (session && saveToDrive && !foldersLoaded) {
+      loadFolders();
+    }
+  }, [session, saveToDrive, foldersLoaded]);
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const data = JSON.parse(event.target.result);
-        setJsonData(data);
-        
-        // استخراج روابط الفيديوهات
-        const extractedVideos = [];
-        for (const item of data) {
-          if (item.webVideoUrl || item.videoUrl) {
-            extractedVideos.push({
-              id: item.id || `video-${extractedVideos.length + 1}`,
-              url: item.webVideoUrl || item.videoUrl,
-              title: item.text || item.desc || `فيديو ${extractedVideos.length + 1}`,
-              status: 'pending',
-              downloadUrl: null
-            });
-          }
-        }
-        setVideos(extractedVideos);
-      } catch (error) {
-        console.error('خطأ في تحليل ملف JSON:', error);
-        alert('حدث خطأ في تحليل الملف. تأكد من أنه ملف JSON صالح.');
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  // الحصول على رابط التحميل من SnaptTik
-  const getDownloadLink = async (tiktokUrl) => {
+  // Function to load folders and handle errors
+  const loadFolders = async () => {
     try {
-      console.log('Requesting download link for:', tiktokUrl);
+      setFoldersError(false);
+      setErrorMessage('');
+      const result = await fetchDriveFolders();
       
-      const response = await fetch('/api/tiktok-download', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ url: tiktokUrl }),
-      });
-
-      if (!response.ok) {
-        console.error('API response not ok:', response.status);
-        
-        // Si el servicio no funciona, prueba la descarga directa
-        if (response.status === 404) {
-          // Usar método alternativo - descarga directa
-          return `/api/tiktok-direct-download?url=${encodeURIComponent(tiktokUrl)}`;
+      if (!result || !result.success) {
+        setFoldersError(true);
+        // If we have a specific error message, show it
+        if (result && result.error) {
+          setErrorMessage(result.error);
+          console.error("Error loading folders:", result.error);
         }
-        
-        throw new Error(`فشل الطلب: ${response.status}`);
+      } else {
+        setFoldersLoaded(true);
+        // If folders were loaded from cache, show a warning
+        if (result.fromCache) {
+          setErrorMessage("Using cached folder list. Some folders may be missing or outdated. Try refreshing your authentication.");
+        }
       }
-
-      const data = await response.json();
-      console.log('Got download URL:', data.downloadUrl);
-      return data.downloadUrl;
     } catch (error) {
-      console.error('Error getting download link:', error);
-      throw error;
+      setFoldersError(true);
+      setErrorMessage(error.message || 'Unknown error occurred');
+      console.error("Error loading folders:", error);
     }
   };
 
-  // تحميل جميع الفيديوهات
-  const downloadAllVideos = async () => {
-    if (videos.length === 0) return;
-    
-    setLoading(true);
-    setProgress(0);
-    
-    for (let i = 0; i < videos.length; i++) {
-      const video = videos[i];
-      setCurrentVideo(video);
-      
-      try {
-        // تحديث حالة الفيديو إلى قيد المعالجة
-        setVideos(prev => 
-          prev.map(v => v.id === video.id ? { ...v, status: 'processing' } : v)
-        );
-        
-        // الحصول على رابط التحميل
-        const downloadUrl = await getDownloadLink(video.url);
-        
-        // تحديث حالة الفيديو إلى مكتمل
-        setVideos(prev => 
-          prev.map(v => v.id === video.id ? { ...v, status: 'completed', downloadUrl } : v)
-        );
-        
-        // تحميل الفيديو تلقائيًا
-        if (downloadUrl) {
-          const link = document.createElement('a');
-          link.href = downloadUrl;
-          link.download = `${video.title.replace(/[^\w\s]/gi, '')}.mp4`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-        }
-      } catch (error) {
-        // تحديث حالة الفيديو إلى فاشل
-        setVideos(prev => 
-          prev.map(v => v.id === video.id ? { ...v, status: 'failed', error: error.message } : v)
-        );
-      }
-      
-      // تحديث التقدم
-      setProgress(Math.round(((i + 1) / videos.length) * 100));
-      
-      // تأخير لتجنب الحظر
-      if (i < videos.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
-      }
+  // Reset folders loaded flag when saveToDrive changes
+  useEffect(() => {
+    if (!saveToDrive) {
+      setFoldersLoaded(false);
+      setFoldersError(false);
+      setErrorMessage('');
     }
-    
-    setLoading(false);
-    setCurrentVideo(null);
-  };
+  }, [saveToDrive]);
 
-  // تحميل فيديو واحد
-  const downloadSingleVideo = async (video) => {
-    if (video.status === 'completed' && video.downloadUrl) {
-      // إذا كان الفيديو مكتملاً بالفعل، قم بتحميله فقط
-      try {
-        const link = document.createElement('a');
-        link.href = video.downloadUrl;
-        link.download = `${video.title.replace(/[^\w\s]/gi, '')}.mp4`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      } catch (e) {
-        console.error('Error initiating download:', e);
-        // Abrir en nueva pestaña como alternativa
-        window.open(video.downloadUrl, '_blank');
-      }
+  // Handle creating a new folder
+  const handleCreateFolder = async () => {
+    if (!folderName.trim()) {
+      alert("Please enter a folder name");
       return;
     }
     
+    setLoadingFolders(true);
     try {
-      // تحديث حالة الفيديو إلى قيد المعالجة
-      setVideos(prev => 
-        prev.map(v => v.id === video.id ? { ...v, status: 'processing' } : v)
-      );
-      
-      // الحصول على رابط التحميل
-      const downloadUrl = await getDownloadLink(video.url);
-      
-      // تحديث حالة الفيديو إلى مكتمل
-      setVideos(prev => 
-        prev.map(v => v.id === video.id ? { ...v, status: 'completed', downloadUrl } : v)
-      );
-      
-      // تحميل الفيديو تلقائيًا
-      if (downloadUrl) {
-        try {
-          const link = document.createElement('a');
-          link.href = downloadUrl;
-          link.download = `${video.title.replace(/[^\w\s]/gi, '')}.mp4`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-        } catch (e) {
-          console.error('Error initiating download:', e);
-          // Abrir en nueva pestaña como alternativa
-          window.open(downloadUrl, '_blank');
+      const folderId = await createDriveFolder();
+      if (folderId) {
+        // Refresh the folder list
+        const result = await fetchDriveFolders();
+        
+        if (result && result.success) {
+          // Find the newly created folder in the list
+          const newFolder = result.folders.find(f => f.id === folderId);
+          if (newFolder) {
+            // Select the new folder
+            setSelectedFolderId(folderId);
+            useExistingFolder(folderId, newFolder.name);
+            setShowNewFolder(false);
+          }
         }
+        
+        // Show success message
+        alert("Folder created successfully!");
+      } else {
+        alert("Failed to create folder");
       }
     } catch (error) {
-      // تحديث حالة الفيديو إلى فاشل
-      setVideos(prev => 
-        prev.map(v => v.id === video.id ? { 
-          ...v, 
-          status: 'failed', 
-          error: error.message,
-          downloadUrl: video.url // En caso de fallo, establecer la URL original para abrir directamente
-        } : v)
-      );
-      
-      // Mostrar un mensaje de error al usuario
-      alert(`Error al procesar el video: ${error.message}\n\nPor favor, intenta abrir directamente el enlace de TikTok.`);
+      console.error("Error creating folder:", error);
+      alert("Error creating folder: " + (error.message || "Unknown error"));
+    } finally {
+      setLoadingFolders(false);
     }
   };
 
-  // تقرير حالة الفيديو
+  // Handle folder selection change
+  const handleFolderChange = (e) => {
+    const folderId = e.target.value;
+    setSelectedFolderId(folderId);
+    
+    if (folderId) {
+      const folder = driveFolders.find(f => f.id === folderId);
+      if (folder) {
+        useExistingFolder(folder.id, folder.name);
+        setShowNewFolder(false);
+      }
+    } else {
+      setShowNewFolder(true);
+    }
+  };
+
+  // Handle new folder name change
+  const handleFolderNameChange = (e) => {
+    setFolderName(e.target.value);
+    // Reset selected folder when typing a new name
+    if (selectedFolderId) {
+      setSelectedFolderId('');
+    }
+  };
+
+  // Handle file input change
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      handleFileUploadAction(file);
+    }
+  };
+
+  // Status badge component
   const getStatusBadge = (status) => {
     switch (status) {
       case 'pending':
         return (
           <span className="px-3 py-1.5 text-xs bg-gray-100 text-gray-700 dark:bg-gray-700/50 dark:text-gray-300 rounded-full inline-flex items-center gap-1.5 font-medium border border-gray-200 dark:border-gray-600 shadow-sm">
             <span className="w-2 h-2 rounded-full bg-gray-400 animate-pulse"></span>
-            في الانتظار
+            Pending
           </span>
         );
       case 'processing':
         return (
           <span className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 rounded-full inline-flex items-center gap-1.5 font-medium border border-blue-200 dark:border-blue-800 shadow-sm">
             <FaSpinner className="animate-spin" size={12} />
-            قيد المعالجة
+            Processing
+          </span>
+        );
+      case 'downloading':
+        return (
+          <span className="px-3 py-1.5 text-xs bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 rounded-full inline-flex items-center gap-1.5 font-medium border border-purple-200 dark:border-purple-800 shadow-sm">
+            <FaSpinner className="animate-spin" size={12} />
+            Downloading
           </span>
         );
       case 'completed':
         return (
           <span className="px-3 py-1.5 text-xs bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300 rounded-full inline-flex items-center gap-1.5 font-medium border border-green-200 dark:border-green-800 shadow-sm">
             <span className="w-2 h-2 rounded-full bg-green-500"></span>
-            مكتمل
+            Completed
           </span>
         );
       case 'failed':
         return (
           <span className="px-3 py-1.5 text-xs bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 rounded-full inline-flex items-center gap-1.5 font-medium border border-red-200 dark:border-red-800 shadow-sm">
             <span className="w-2 h-2 rounded-full bg-red-500"></span>
-            فشل
+            Failed
           </span>
         );
       default:
@@ -249,164 +264,314 @@ export default function TikTokDownloader() {
   };
 
   return (
-    <div className="min-h-screen p-8 flex flex-col dark:bg-gray-900">
-      {/* Añadir estilos personalizados */}
+    <PageContainer user={user}>
+      {/* Add custom styles */}
       <style dangerouslySetInnerHTML={{ __html: shimmerAnimation }} />
-      
-      <header className="flex justify-between items-center mb-8">
-        <h1 className="text-2xl font-bold dark:text-white">تحميل فيديوهات TikTok</h1>
-        <button
-          onClick={() => fileInputRef.current.click()}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md flex items-center gap-2"
-        >
-          <FaFileUpload /> تحميل ملف JSON
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileUpload}
-            accept=".json"
-            className="hidden"
-          />
-        </button>
-      </header>
 
-      {jsonData && (
-        <div className="mb-4">
-          <div className="flex justify-between items-center mb-2">
-            <h2 className="text-lg font-medium dark:text-white">تم العثور على {videos.length} فيديو</h2>
-            {videos.length > 0 && (
-              <button
-                onClick={downloadAllVideos}
-                disabled={loading}
-                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? (
-                  <>
-                    <FaSpinner className="animate-spin" /> جارِ التحميل ({progress}%)
-                  </>
-                ) : (
-                  <>
-                    <FaDownload /> تحميل جميع الفيديوهات
-                  </>
-                )}
-              </button>
-            )}
-          </div>
-
-          {loading && (
-            <div className="w-full mb-6">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{progress}% completado</span>
-                <span className="text-xs font-medium text-blue-600 dark:text-blue-400">{Math.round((progress / 100) * videos.length)}/{videos.length} videos</span>
-              </div>
-              <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden dark:bg-gray-700 shadow-inner">
-                <div 
-                  className="h-full rounded-full bg-gradient-to-r from-blue-500 to-blue-600 relative overflow-hidden transition-all duration-500 ease-out shadow-sm flex items-center justify-center"
-                  style={{ width: `${progress}%` }}
-                >
-                  {progress > 10 && (
-                    <div className="absolute inset-0 overflow-hidden">
-                      <span className="absolute inset-0 bg-white/20 animate-pulse"></span>
-                      <span className="absolute top-0 bottom-0 w-8 bg-white/30 -skew-x-30 animate-shimmer"></span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {currentVideo && (
-            <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/10 rounded-lg border border-blue-200 dark:border-blue-800/30 shadow-sm">
-              <div className="flex items-center">
-                <div className="mr-3 flex-shrink-0">
-                  <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center animate-pulse">
-                    <FaSpinner className="animate-spin text-white" size={14} />
-                  </div>
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-sm font-medium text-blue-800 dark:text-blue-300">جارِ معالجة:</h3>
-                  <p className="text-sm text-blue-700 dark:text-blue-200 font-bold truncate">{currentVideo.title}</p>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {videos.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 overflow-hidden border border-gray-100 dark:border-gray-700 transition-all hover:shadow-lg">
-          <div className="overflow-x-auto">
-            <table className="w-full max-w-full table-auto divide-y divide-gray-200 dark:divide-gray-700">
-              <thead>
-                <tr className="bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/20">
-                  <th className="px-6 py-4 text-right text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider rounded-tl-lg">الفيديو</th>
-                  <th className="px-6 py-4 text-right text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">الرابط</th>
-                  <th className="px-6 py-4 text-right text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">الحالة</th>
-                  <th className="px-6 py-4 text-right text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider rounded-tr-lg">إجراءات</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-100 dark:bg-gray-800 dark:divide-gray-700">
-                {videos.map((video, index) => (
-                  <tr key={video.id} className={`transition-colors ${index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-blue-50/50 dark:bg-gray-800/80'} hover:bg-blue-100/50 dark:hover:bg-blue-900/20`}>
-                    <td className="px-6 py-4 text-right">
-                      <div className="text-sm font-semibold text-gray-900 dark:text-white">{video.title}</div>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{video.url}</div>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      {getStatusBadge(video.status)}
-                    </td>
-                    <td className="px-6 py-4 text-right text-sm font-medium">
-                      <div className="flex flex-col md:flex-row gap-2 justify-end">
-                        <button
-                          onClick={() => downloadSingleVideo(video)}
-                          disabled={video.status === 'processing' || loading}
-                          className={`px-3 py-1.5 rounded-md flex items-center gap-1 transition-all ${
-                            video.status === 'completed' 
-                              ? 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 hover:scale-105' 
-                              : 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 hover:scale-105'
-                          } disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100`}
-                        >
-                          <FaDownload size={12} />
-                          تحميل
-                        </button>
-                        {video.status === 'failed' && (
-                          <button
-                            onClick={() => window.open(video.url, '_blank')}
-                            className="px-3 py-1.5 rounded-md flex items-center gap-1 bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 hover:scale-105 transition-all"
-                          >
-                            <FaEye size={12} />
-                            فتح الأصلي
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {!jsonData && (
-        <div className="flex-1 flex flex-col items-center justify-center">
-          <div className="text-center max-w-md">
-            <FaFileUpload className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-600" />
-            <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">تحميل فيديوهات TikTok</h3>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              قم بتحميل ملف JSON الذي يحتوي على روابط فيديوهات TikTok لتحميلها بدون علامة مائية.
-            </p>
+      <div className="w-full px-4">
+        <div className="mb-6">
+          <h2 className="text-2xl font-bold mb-2 dark:text-white">TikTok Batch Downloader</h2>
+          <p className="text-gray-600 dark:text-gray-400 mb-4">
+            Upload your TikTok Favorites JSON file and download all videos at once
+          </p>
+          
+          <div className="flex flex-col md:flex-row gap-4 mb-4">
             <button
               onClick={() => fileInputRef.current.click()}
-              className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md inline-flex items-center gap-2"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md flex items-center gap-2"
             >
-              <FaFileUpload /> تحميل ملف JSON
+              <FaFileUpload /> Upload JSON File
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                accept=".json"
+                className="hidden"
+              />
             </button>
           </div>
+          
+          {session && (
+            <div className="mb-4 p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+              <h3 className="text-lg font-medium mb-3 dark:text-white">Google Drive Settings</h3>
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="saveToDrive"
+                    checked={saveToDrive}
+                    onChange={(e) => setSaveToDrive(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                  />
+                  <label htmlFor="saveToDrive" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Save to Google Drive
+                  </label>
+                </div>
+                
+                {saveToDrive && (
+                  <div className="space-y-4">
+                    <div className="flex flex-col gap-1">
+                      <label htmlFor="folderSelect" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Select Existing Folder
+                      </label>
+                      <div className="flex gap-2 items-center">
+                        <select
+                          id="folderSelect"
+                          value={selectedFolderId}
+                          onChange={handleFolderChange}
+                          className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                          disabled={loadingFolders}
+                        >
+                          <option value="">-- Select a folder --</option>
+                          {driveFolders.map(folder => (
+                            <option key={folder.id} value={folder.id}>
+                              {folder.name}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={loadFolders}
+                          disabled={loadingFolders}
+                          className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md flex items-center gap-2 disabled:opacity-50"
+                          title={foldersError ? "Retry loading folders" : "Refresh folders list"}
+                        >
+                          {loadingFolders ? (
+                            <FaSpinner className="animate-spin" size={16} />
+                          ) : (
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                          )}
+                        </button>
+                      </div>
+                      {loadingFolders && (
+                        <p className="text-xs text-blue-500 dark:text-blue-400 mt-1">
+                          Loading folders...
+                        </p>
+                      )}
+                      {foldersError && (
+                        <div className="text-xs text-red-500 dark:text-red-400 mt-1">
+                          <p>Error loading folders. Please try again.</p>
+                          {errorMessage && (
+                            <p className="mt-1 font-medium">{errorMessage}</p>
+                          )}
+                          {errorMessage && errorMessage.includes('timed out') && (
+                            <p className="mt-2 text-blue-600 dark:text-blue-400">
+                              Try using the <span className="font-bold">Refresh Auth</span> button in the top right corner.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      {!loadingFolders && !foldersError && errorMessage && errorMessage.includes('cached') && (
+                        <div className="text-xs text-amber-500 dark:text-amber-400 mt-1">
+                          <p className="font-medium">{errorMessage}</p>
+                        </div>
+                      )}
+                      {!loadingFolders && !foldersError && !errorMessage && driveFolders.length === 0 && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          No folders found in your Google Drive
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="createNewFolder"
+                        checked={showNewFolder}
+                        onChange={(e) => {
+                          setShowNewFolder(e.target.checked);
+                          if (!e.target.checked && driveFolders.length > 0) {
+                            // Select the first folder if unchecking "create new"
+                            setSelectedFolderId(driveFolders[0].id);
+                            useExistingFolder(driveFolders[0].id, driveFolders[0].name);
+                          }
+                        }}
+                        className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                      />
+                      <label htmlFor="createNewFolder" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Create new folder
+                      </label>
+                    </div>
+                    
+                    {showNewFolder && (
+                      <div className="flex flex-col gap-1">
+                        <label htmlFor="folderName" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                          New Folder Name
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            id="folderName"
+                            value={folderName}
+                            onChange={handleFolderNameChange}
+                            placeholder="Enter folder name"
+                            className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                          />
+                          <button
+                            onClick={handleCreateFolder}
+                            disabled={loadingFolders || !folderName.trim()}
+                            className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md flex items-center gap-2 disabled:opacity-50"
+                          >
+                            {loadingFolders ? (
+                              <FaSpinner className="animate-spin" size={16} />
+                            ) : (
+                              "Create Folder"
+                            )}
+                          </button>
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Videos will be saved to this new folder in your Google Drive
+                        </p>
+                      </div>
+                    )}
+                    
+                    {driveFolderId && (
+                      <div className="mt-4 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-green-800 dark:text-green-300">
+                              Videos will be saved to: <span className="font-bold">{folderName}</span>
+                            </p>
+                          </div>
+                          <a
+                            href={getDriveFolderUrl()}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-md flex items-center gap-2 text-sm"
+                          >
+                            <FaEye size={14} /> View Folder
+                          </a>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
-      )}
-    </div>
+
+        {jsonData && (
+          <div className="mb-4">
+            <div className="flex justify-between items-center mb-2">
+              <h2 className="text-lg font-medium dark:text-white">Found {videos.length} videos</h2>
+              {videos.length > 0 && (
+                <button
+                  onClick={downloadAllVideos}
+                  disabled={loading}
+                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loading ? (
+                    <>
+                      <FaSpinner className="animate-spin" /> Downloading ({progress}%)
+                    </>
+                  ) : (
+                    <>
+                      <FaDownload /> Download All Videos
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+
+            {loading && (
+              <div className="w-full mb-6">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{progress}% completed</span>
+                  <span className="text-xs font-medium text-blue-600 dark:text-blue-400">{Math.round((progress / 100) * videos.length)}/{videos.length} videos</span>
+                </div>
+                <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden dark:bg-gray-700 shadow-inner">
+                  <div 
+                    className="h-full rounded-full bg-gradient-to-r from-blue-500 to-blue-600 relative overflow-hidden transition-all duration-500 ease-out shadow-sm flex items-center justify-center"
+                    style={{ width: `${progress}%` }}
+                  >
+                    {progress > 10 && (
+                      <div className="absolute inset-0 overflow-hidden">
+                        <span className="absolute inset-0 bg-white/20 animate-pulse"></span>
+                        <span className="absolute top-0 bottom-0 w-8 bg-white/30 -skew-x-30 animate-shimmer"></span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {currentVideo && (
+              <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/10 rounded-lg border border-blue-200 dark:border-blue-800/30 shadow-sm">
+                <div className="flex items-center">
+                  <div className="mr-3 flex-shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center animate-pulse">
+                      <FaSpinner className="animate-spin text-white" size={14} />
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="text-sm font-semibold text-gray-900 dark:text-white">Processing video</h4>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-xs">{currentVideo.title || currentVideo.url}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {videos.length > 0 && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 overflow-hidden border border-gray-100 dark:border-gray-700 transition-all hover:shadow-lg">
+                <div className="overflow-x-auto rtl-scroll">
+                  <table className="w-full table-auto divide-y divide-gray-200 dark:divide-gray-700">
+                    <thead>
+                      <tr className="bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/20">
+                        <th className="px-6 py-4 text-left text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider rounded-tl-lg">Video</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Link</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Status</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider rounded-tr-lg">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {videos.map((video, index) => (
+                        <tr key={video.id} className={`transition-colors ${index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-blue-50/50 dark:bg-gray-800/80'} hover:bg-blue-100/50 dark:hover:bg-blue-900/20`}>
+                          <td className="px-6 py-4 text-left">
+                            <div className="text-sm font-semibold text-gray-900 dark:text-white">{video.title}</div>
+                          </td>
+                          <td className="px-6 py-4 text-left">
+                            <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{video.url}</div>
+                          </td>
+                          <td className="px-6 py-4 text-left">
+                            {getStatusBadge(video.status)}
+                          </td>
+                          <td className="px-6 py-4 text-left">
+                            <div className="flex flex-col md:flex-row gap-2">
+                              <button
+                                onClick={() => downloadSingleVideo(video)}
+                                disabled={video.status === 'processing' || loading}
+                                className={`px-3 py-1.5 rounded-md flex items-center gap-1 transition-all ${
+                                  video.status === 'completed' 
+                                    ? 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 hover:scale-105' 
+                                    : 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 hover:scale-105'
+                                } disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100`}
+                              >
+                                <FaDownload size={12} />
+                                Download
+                              </button>
+                              {video.status === 'failed' && (
+                                <button
+                                  onClick={() => window.open(video.url, '_blank')}
+                                  className="px-3 py-1.5 rounded-md flex items-center gap-1 bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 hover:scale-105 transition-all"
+                                >
+                                  <FaEye size={12} />
+                                  Open Original
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </PageContainer>
   );
 }

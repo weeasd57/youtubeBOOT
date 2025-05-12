@@ -4,7 +4,7 @@ import { google } from 'googleapis';
 import { authOptions } from '../../auth/[...nextauth]/options';
 import { getValidAccessToken } from '@/utils/refreshToken';
 
-// التحقق من حالة الاتصال بيوتيوب بدون استهلاك حصة API كبيرة
+// Check YouTube connection status without consuming large API quota
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
@@ -16,7 +16,7 @@ export async function GET() {
       }, { status: 401 });
     }
     
-    // محاولة الحصول على رمز وصول صالح
+    // Get valid access token
     const accessToken = await getValidAccessToken(session.user.email);
     
     if (!accessToken) {
@@ -27,16 +27,14 @@ export async function GET() {
       }, { status: 401 });
     }
     
-    // إنشاء OAuth2 client
+    // Create OAuth2 client
     const oauth2Client = new google.auth.OAuth2();
     oauth2Client.setCredentials({
       access_token: accessToken,
     });
 
-    // التحقق من الاتصال باستخدام طلب بسيط
-    // نختار طلبًا خفيفًا لا يستهلك الكثير من الحصة
+    // Check connection with a lightweight request
     const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
-    console.log('Fetching channel data...');
     
     const channelResponse = await youtube.channels.list({
       part: 'snippet,statistics,contentDetails',
@@ -44,10 +42,7 @@ export async function GET() {
       maxResults: 1
     });
     
-    console.log('Channel API response received');
-    
     if (!channelResponse.data.items || channelResponse.data.items.length === 0) {
-      console.log('No channel found in response');
       return NextResponse.json({
         success: false,
         message: 'Channel not found',
@@ -56,7 +51,6 @@ export async function GET() {
     }
     
     const channel = channelResponse.data.items[0];
-    console.log('Channel data:', JSON.stringify(channel, null, 2));
     
     // Extract and parse statistics as numbers
     const channelId = channel.id;
@@ -73,19 +67,10 @@ export async function GET() {
     // Get uploads playlist ID
     const uploadsPlaylistId = channel.contentDetails?.relatedPlaylists?.uploads || null;
     
-    console.log('Parsed stats:', {
-      videoCount,
-      subscriberCount,
-      viewCount,
-      statsHidden,
-      uploadsPlaylistId
-    });
-    
     // Try to get video count from uploads playlist if it's zero from channel statistics
     let enhancedVideoCount = videoCount;
     if (videoCount === 0 && uploadsPlaylistId) {
       try {
-        console.log('Attempting to fetch video count from uploads playlist');
         const playlistResponse = await youtube.playlistItems.list({
           part: 'id',
           playlistId: uploadsPlaylistId,
@@ -95,15 +80,13 @@ export async function GET() {
         // Get total results if available
         if (playlistResponse.data.pageInfo?.totalResults) {
           enhancedVideoCount = playlistResponse.data.pageInfo.totalResults;
-          console.log('Got video count from playlist:', enhancedVideoCount);
         }
       } catch (playlistError) {
-        console.error('Error fetching video count from playlist:', playlistError);
         // Continue with original video count if this fails
       }
     }
     
-    // إذا نجح الطلب، فهذا يعني أن الاتصال صالح
+    // Return connection status and channel info
     return NextResponse.json({
       success: true,
       status: 'connected',
@@ -122,7 +105,7 @@ export async function GET() {
   } catch (error) {
     console.error('Error checking YouTube connection:', error);
     
-    // التحقق مما إذا كانت المشكلة متعلقة بالمصادقة
+    // Check if the issue is authentication-related
     if (error.code === 401 || error.message?.includes('invalid_grant') || error.message?.includes('Invalid Credentials')) {
       return NextResponse.json({
         success: false,

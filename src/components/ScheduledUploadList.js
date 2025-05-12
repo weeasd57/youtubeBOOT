@@ -32,13 +32,13 @@ export default function ScheduledUploadList() {
   
   if (loading && scheduledUploads.length === 0) {
     return (
-      <div className="p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+      <div className="p-6 bg-white dark:bg-black rounded-lg shadow-md border dark:border-amber-700/30 transition-all duration-300">
         <div className="flex items-center gap-2 mb-4">
-          <FaClock className="text-blue-500" />
-          <h2 className="text-xl font-semibold dark:text-white">Scheduled Uploads</h2>
+          <FaClock className="text-amber-500" />
+          <h2 className="text-xl font-semibold dark:text-amber-50">Scheduled Uploads</h2>
         </div>
         <div className="flex justify-center py-8">
-          <FaSpinner className="animate-spin text-3xl text-blue-500" />
+          <FaSpinner className="animate-spin text-3xl text-blue-500 dark:text-amber-500" />
         </div>
       </div>
     );
@@ -46,12 +46,12 @@ export default function ScheduledUploadList() {
   
   if (error) {
     return (
-      <div className="p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+      <div className="p-6 bg-white dark:bg-black rounded-lg shadow-md border dark:border-amber-700/30 transition-all duration-300">
         <div className="flex items-center gap-2 mb-4">
-          <FaClock className="text-blue-500" />
-          <h2 className="text-xl font-semibold dark:text-white">Scheduled Uploads</h2>
+          <FaClock className="text-amber-500" />
+          <h2 className="text-xl font-semibold dark:text-amber-50">Scheduled Uploads</h2>
         </div>
-        <div className="p-4 bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 rounded-md">
+        <div className="p-4 bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 rounded-md border dark:border-red-800/20">
           {error}
         </div>
       </div>
@@ -60,12 +60,12 @@ export default function ScheduledUploadList() {
   
   if (scheduledUploads.length === 0) {
     return (
-      <div className="p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+      <div className="p-6 bg-white dark:bg-black rounded-lg shadow-md border dark:border-amber-700/30 transition-all duration-300">
         <div className="flex items-center gap-2 mb-4">
-          <FaClock className="text-blue-500" />
-          <h2 className="text-xl font-semibold dark:text-white">Scheduled Uploads</h2>
+          <FaClock className="text-amber-500" />
+          <h2 className="text-xl font-semibold dark:text-amber-50">Scheduled Uploads</h2>
         </div>
-        <div className="p-6 text-center text-gray-500 dark:text-gray-400 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg">
+        <div className="p-6 text-center text-gray-500 dark:text-amber-200/60 border border-dashed border-gray-300 dark:border-amber-700/40 rounded-lg">
           <p>No scheduled uploads</p>
           <p className="text-sm mt-1">Videos scheduled for upload will appear here</p>
         </div>
@@ -74,23 +74,23 @@ export default function ScheduledUploadList() {
   }
   
   return (
-    <div className="p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+    <div className="p-6 bg-white dark:bg-black rounded-lg shadow-md border dark:border-amber-700/30 transition-all duration-300">
       <div className="flex justify-between items-center mb-4">
         <div className="flex items-center gap-2">
-          <FaClock className="text-blue-500" />
-          <h2 className="text-xl font-semibold dark:text-white">Scheduled Uploads</h2>
+          <FaClock className="text-amber-500" />
+          <h2 className="text-xl font-semibold dark:text-amber-50">Scheduled Uploads</h2>
         </div>
         <button
           onClick={refreshScheduledUploads}
           disabled={loading}
-          className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-full"
+          className="p-2 text-blue-500 dark:text-amber-400 hover:bg-blue-50 dark:hover:bg-amber-900/20 rounded-full transition-all duration-300 transform hover:rotate-12"
           title="Refresh"
         >
           <FaSpinner className={`${loading ? 'animate-spin' : ''}`} />
         </button>
       </div>
       
-      <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 rounded-md text-sm">
+      <div className="mb-4 p-3 bg-blue-50 dark:bg-amber-900/20 text-blue-800 dark:text-amber-300 rounded-md text-sm border dark:border-amber-800/20">
         <p>Scheduled uploads are processed once daily at 9:00 AM. Videos scheduled for upload may take up to 24 hours to be processed.</p>
       </div>
       
@@ -98,19 +98,19 @@ export default function ScheduledUploadList() {
         {scheduledUploads.map((upload) => (
           <div
             key={upload.id}
-            className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
+            className="border border-gray-200 dark:border-amber-800/30 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-black/50 transition-all duration-300 transform hover:-translate-y-1 hover:shadow-md"
           >
             <div className="flex justify-between items-start">
               <div>
-                <h3 className="font-medium text-gray-900 dark:text-white">{upload.title}</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{upload.file_name}</p>
+                <h3 className="font-medium text-gray-900 dark:text-amber-50">{upload.title}</h3>
+                <p className="text-sm text-gray-500 dark:text-amber-200/60 mt-1">{upload.file_name}</p>
               </div>
               
               {upload.status === 'pending' && (
                 <button
                   onClick={() => handleCancel(upload.id)}
                   disabled={cancelingId === upload.id}
-                  className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full"
+                  className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-all duration-300"
                   title="Cancel upload"
                 >
                   {cancelingId === upload.id ? (
@@ -124,8 +124,8 @@ export default function ScheduledUploadList() {
             
             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm">
               <div className="flex items-center gap-1">
-                <FaClock className="text-gray-400 dark:text-gray-500" />
-                <span className="text-gray-600 dark:text-gray-300">
+                <FaClock className="text-gray-400 dark:text-amber-500/70" />
+                <span className="text-gray-600 dark:text-amber-200/80">
                   Scheduled for: {formatDate(upload.scheduled_time)}
                 </span>
               </div>
@@ -168,7 +168,7 @@ export default function ScheduledUploadList() {
                   href={upload.youtube_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-blue-600 hover:underline dark:text-blue-400 text-sm"
+                  className="text-blue-600 hover:underline dark:text-amber-400 text-sm"
                 >
                   View on YouTube
                 </a>

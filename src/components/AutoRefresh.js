@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { signOut, useSession } from 'next-auth/react';
-import { createPersistentRetry, isAuthError } from '@/utils/apiHelpers';
+import { isAuthError } from '@/utils/apiHelpers';
 import { FaSync } from 'react-icons/fa';
 
 export default function AutoRefresh({ onSuccess, onError }) {
@@ -14,16 +14,21 @@ export default function AutoRefresh({ onSuccess, onError }) {
     message: 'Preparing to refresh authentication...'
   });
   
+  // Use a simple retry approach instead of persistent retry
   useEffect(() => {
-    // Create a persistent retry controller
-    const retryController = createPersistentRetry(
-      async () => {
-        setRefreshState(prev => ({
-          ...prev,
-          isAttempting: true,
-          message: 'Refreshing authentication token...'
-        }));
-        
+    let mounted = true;
+    let timeoutId = null;
+    
+    const attemptRefresh = async () => {
+      if (!mounted) return;
+      
+      setRefreshState(prev => ({
+        ...prev,
+        isAttempting: true,
+        message: 'Refreshing authentication token...'
+      }));
+      
+      try {
         // Call the refresh session endpoint
         const response = await fetch('/api/refresh-session');
         
@@ -35,13 +40,7 @@ export default function AutoRefresh({ onSuccess, onError }) {
         // Update the session with the new tokens
         await updateSession();
         
-        return true; // Success
-      },
-      {
-        initialDelay: 3000,
-        maxDelay: 20000,
-        onSuccess: () => {
-          console.log('Session refreshed successfully!');
+        if (mounted) {
           setRefreshState({
             isAttempting: false,
             errorCount: 0,
@@ -50,59 +49,64 @@ export default function AutoRefresh({ onSuccess, onError }) {
           });
           
           if (onSuccess) onSuccess();
-        },
-        onError: (error, retryCount) => {
-          console.error(`Failed to refresh session (attempt ${retryCount}):`, error);
-          
-          setRefreshState(prev => ({
-            ...prev,
-            errorCount: retryCount,
-            message: `Failed to refresh: ${error.message || 'Unknown error'}`
-          }));
-          
-          // If maximum retry attempts and errors are severe, sign out
-          if (retryCount >= 5 && !isAuthError(error)) {
-            console.error('Critical refresh error - signing out:', error);
-            if (onError) onError(error);
-            
-            // Sign out on critical errors after multiple retries
-            setTimeout(() => {
-              signOut({ callbackUrl: '/' });
-            }, 2000);
-            
-            return;
-          }
-        },
-        onRetry: ({ retryCount, delay, nextAttemptTime }) => {
-          setRefreshState(prev => ({
-            ...prev,
-            isAttempting: false,
-            nextAttempt: nextAttemptTime,
-            message: `Retry #${retryCount} scheduled in ${Math.round(delay/1000)}s...`
-          }));
-        },
-        // Longer delays for auth errors, shorter for network/temporary issues
-        getDelayMultiplier: (error) => {
-          if (error.message?.includes('network') || error.message?.includes('timeout')) {
-            return 0.5; // Shorter delay for network issues
-          }
-          return 1;
         }
+      } catch (error) {
+        console.error(`Failed to refresh session:`, error);
+        
+        if (!mounted) return;
+        
+        // Increment error count
+        const newErrorCount = refreshState.errorCount + 1;
+        
+        setRefreshState(prev => ({
+          ...prev,
+          isAttempting: false,
+          errorCount: newErrorCount,
+          message: `Failed to refresh: ${error.message || 'Unknown error'}`
+        }));
+        
+        // If maximum retry attempts reached or critical error, trigger sign out
+        if (newErrorCount >= 3 || 
+            (error.message && error.message.includes('revoked')) || 
+            (error.message && error.message.includes('sign in again'))) {
+          console.error('Critical refresh error or max retries reached - signing out:', error);
+          if (onError) onError(error);
+          
+          // Sign out after 3 seconds to allow reading the error message
+          setTimeout(() => {
+            signOut({ callbackUrl: '/' });
+          }, 3000);
+          
+          return;
+        }
+        
+        // Schedule next retry with increasing delay
+        const delay = Math.min(5000 * Math.pow(2, newErrorCount - 1), 30000);
+        
+        setRefreshState(prev => ({
+          ...prev,
+          nextAttempt: new Date(Date.now() + delay),
+          message: `Retry #${newErrorCount + 1} scheduled in ${Math.round(delay/1000)}s...`
+        }));
+        
+        // Schedule next retry
+        timeoutId = setTimeout(attemptRefresh, delay);
       }
-    );
-    
-    // Start the retry process
-    retryController.start();
-    
-    // Clean up when component unmounts
-    return () => {
-      retryController.stop();
     };
-  }, [updateSession, onSuccess, onError]);
+    
+    // Start the first attempt
+    attemptRefresh();
+    
+    // Cleanup function
+    return () => {
+      mounted = false;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [updateSession, onSuccess, onError, refreshState.errorCount]);
   
   const handleManualSignOut = () => {
     console.log('AutoRefresh: User initiated sign out');
-    if (onError) onError();
+    signOut({ callbackUrl: '/' });
   };
   
   return (

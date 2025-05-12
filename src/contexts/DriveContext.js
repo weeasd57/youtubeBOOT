@@ -42,20 +42,81 @@ export function DriveProvider({ children }) {
     try {
       setIsRefreshing(true);
       const response = await fetch('/api/refresh-session');
+      
+      // Handle network errors in the fetch itself
+      if (!response.ok) {
+        const data = await response.json();
+        
+        // Check for force sign out due to too many failures
+        if (data.forceSignOut || data.action === 'sign_out') {
+          console.warn('Force sign out triggered due to token refresh failures');
+          // Add a small delay to show the error message before signing out
+          setTimeout(() => {
+            signOut({ redirect: true, callbackUrl: '/' });
+          }, 2000);
+          
+          // Check if this is an access_revoked case
+          const isAccessRevoked = data.error && (
+            data.error.includes('revoked') || 
+            data.error.includes('expired')
+          );
+          
+          setError({
+            message: data.message || 'Too many authentication failures. Signing you out...',
+            isNetworkError: false,
+            forceSignOut: true,
+            isAccessRevoked: isAccessRevoked
+          });
+          return false;
+        }
+        
+        // Check for network error specific action
+        if (data.action === 'retry_later') {
+          setError({
+            message: `${data.message || 'Network connectivity issue detected'} (Failure ${data.failureCount || 1}/${data.maxFailures || 5})`,
+            isNetworkError: true,
+            failureCount: data.failureCount,
+            maxFailures: data.maxFailures
+          });
+          return false;
+        }
+        
+        throw new Error(data.message || 'Failed to refresh session');
+      }
+      
       const data = await response.json();
 
       if (data.success) {
         // Update session through next-auth
         await updateSession();
+        setError(null); // Clear any errors
         return true;
-      } else if (data.action === 'sign_out') {
-        // Token refresh failed completely, sign out user
-        await signOut({ redirect: true, callbackUrl: '/' });
-        return false;
       }
+      
       return false;
     } catch (error) {
       console.error('Error refreshing session:', error);
+      
+      // Set appropriate error based on type
+      const isNetworkErr = error.message && (
+        error.message.includes('fetch') || 
+        error.message.includes('network') || 
+        error.message.includes('Failed to fetch') ||
+        error.message.includes('timeout')
+      );
+      
+      if (isNetworkErr) {
+        setError({
+          message: 'Network connectivity issue. Please check your connection.',
+          isNetworkError: true
+        });
+      } else {
+        setError({
+          message: `Authentication error: ${error.message}`,
+          isNetworkError: false
+        });
+      }
+      
       return false;
     } finally {
       setIsRefreshing(false);
@@ -89,48 +150,73 @@ export function DriveProvider({ children }) {
     setError(null);
     
     try {
-      // Use withAuthRetry to automatically handle auth errors
-      await withAuthRetry(async () => {
-        console.log('Fetching Drive files...');
-        const response = await fetch('/api/drive');
-        const data = await response.json();
-        
-        if (!response.ok) {
-          // For auth errors, refresh token and throw to trigger retry
-          if (response.status === 401) {
-            // Try to refresh the token
-            await refreshSessionTokens();
-            throw new Error('Authentication error - retrying after token refresh');
-          }
+      console.log('Fetching Drive files...');
+      
+      // Limit retries to 2 to prevent looping
+      let retryCount = 0;
+      const maxRetries = 1; // Just one retry to avoid loops
+      
+      // Use simple try/catch instead of withAuthRetry
+      const response = await fetch('/api/drive');
+      
+      if (!response.ok) {
+        // For auth errors, refresh token once
+        if (response.status === 401) {
+          console.log('Authentication error, attempting to refresh token...');
+          const refreshed = await refreshSessionTokens();
           
-          // For other errors, throw to propagate
-          throw new Error(data.error || data.message || 'Failed to fetch Drive files');
+          if (refreshed) {
+            // Try one more time after refreshing
+            const retryResponse = await fetch('/api/drive');
+            
+            if (!retryResponse.ok) {
+              throw new Error(`API error after token refresh: ${retryResponse.status}`);
+            }
+            
+            const data = await retryResponse.json();
+            const files = data.files || [];
+            
+            // Update state and cache
+            setDriveFiles(files);
+            setLastChecked(new Date());
+            driveFilesCache = files;
+            cacheTimestamp = Date.now();
+            setLoading(false);
+            return;
+          } else {
+            throw new Error('Failed to refresh authentication token');
+          }
         }
         
-        // Success case
-        const files = data.files || [];
-        setDriveFiles(files);
-        setLastChecked(new Date());
-        
-        // Update cache
-        driveFilesCache = files;
-        cacheTimestamp = Date.now();
-      }, {
-        // Only retry auth errors, not other types of failures
-        shouldRetry: (error) => isAuthError(error),
-        onRetry: ({ error, retryCount, delay }) => {
-          console.log(`Retrying Drive files fetch (#${retryCount}) after ${Math.round(delay/1000)}s - ${error.message}`);
+        // Handle other response errors
+        try {
+          const errorData = await response.json();
+          throw new Error(errorData.error || errorData.message || `API error: ${response.status}`);
+        } catch (parseError) {
+          throw new Error(`Failed to fetch Drive files: ${response.status}`);
         }
-      });
+      }
+      
+      // Successful response
+      const data = await response.json();
+      const files = data.files || [];
+      
+      // Update state and cache
+      setDriveFiles(files);
+      setLastChecked(new Date());
+      driveFilesCache = files;
+      cacheTimestamp = Date.now();
     } catch (error) {
       console.error('Error fetching Drive files:', error);
       
       const errorMessage = error.message || 'Unknown error';
-      const isAuthenticationError = isAuthError(error);
+      const isAuthenticationError = errorMessage.includes('authentication') || 
+                                  errorMessage.includes('auth') ||
+                                  errorMessage.includes('401');
       
       // Set a user-friendly error message
       if (isAuthenticationError) {
-        setError('Authentication error. Attempting to reconnect...');
+        setError('Authentication error. Please try refreshing the page.');
       } else {
         setError(`Failed to fetch Drive files: ${errorMessage}`);
       }

@@ -4,9 +4,6 @@ import { useState, useEffect } from 'react';
 import { FaClock, FaCalendarAlt, FaBolt, FaTrash, FaYoutube, FaEdit, FaCheck, FaSync, FaLayerGroup } from 'react-icons/fa';
 import { useScheduledUploads } from '@/contexts/ScheduledUploadsContext';
 import Image from 'next/image';
-import { Tooltip } from "@/components/ui/tooltip";
-import { TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { InfoCircledIcon } from "@radix-ui/react-icons";
 
 export default function ScheduleUploadForm({ file, multipleFiles = [], onScheduled, onCancel, onFileRemove }) {
   const [filesData, setFilesData] = useState([]);
@@ -20,7 +17,6 @@ export default function ScheduleUploadForm({ file, multipleFiles = [], onSchedul
   const [batchTitle, setBatchTitle] = useState('');
   const [batchDescription, setBatchDescription] = useState('');
   const [showBatchOptions, setShowBatchOptions] = useState(true); // Set to true by default to always show batch tools
-  const [simpleTimeFormat, setSimpleTimeFormat] = useState({}); // Track which rows use simple time format
 
   const { scheduleUpload, loading } = useScheduledUploads();
 
@@ -95,56 +91,6 @@ export default function ScheduleUploadForm({ file, multipleFiles = [], onSchedul
     const localNow = new Date(now.getTime() - offset);
     const formattedDateTime = localNow.toISOString().slice(0, 16);
     handleInputChange(index, 'scheduledDateTime', formattedDateTime);
-  };
-
-  // Parse simple time format like "3pm" or "15:30" 
-  const parseSimpleTime = (timeStr, index) => {
-    try {
-      const now = new Date();
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      let hours = 0;
-      let minutes = 0;
-      
-      // Clean input
-      const cleanTime = timeStr.trim().toLowerCase();
-      
-      // Check AM/PM
-      const isPM = cleanTime.includes('pm');
-      const cleanerTime = cleanTime.replace(/am|pm/g, '').trim();
-      
-      // Check hour:minute format
-      if (cleanerTime.includes(':')) {
-        const [hoursStr, minsStr] = cleanerTime.split(':');
-        hours = parseInt(hoursStr);
-        minutes = parseInt(minsStr) || 0;
-      } else {
-        hours = parseInt(cleanerTime);
-        minutes = 0;
-      }
-      
-      // Convert 12-hour to 24-hour
-      if (isPM && hours < 12) hours += 12;
-      if (!isPM && hours === 12) hours = 0;
-      
-      // Apply time to current date
-      today.setHours(hours, minutes, 0, 0);
-      
-      // Check if time is in the past, schedule for tomorrow if so
-      if (today < now) {
-        today.setDate(today.getDate() + 1);
-      }
-      
-      // Handle timezone offset
-      const offset = today.getTimezoneOffset() * 60000;
-      const localDate = new Date(today.getTime() - offset);
-      const formattedDateTime = localDate.toISOString().slice(0, 16);
-      
-      // Update state
-      handleInputChange(index, 'scheduledDateTime', formattedDateTime);
-    } catch (error) {
-      console.error('Error parsing simple time format:', error);
-      // Don't change value on error
-    }
   };
 
   // Modified function to apply staggered scheduling based on custom start hour and interval
@@ -521,25 +467,22 @@ export default function ScheduleUploadForm({ file, multipleFiles = [], onSchedul
                     
                     <div>
                       <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Schedule Time</label>
-                     
-
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="datetime-local"
-                            value={video.scheduledDateTime}
-                            onChange={(e) => handleInputChange(index, 'scheduledDateTime', e.target.value)}
-                            className={`flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm dark:bg-gray-700 dark:text-white transition-all ${video.rowError && video.rowError.includes('Schedule time') ? 'border-red-500 dark:border-red-400' : 'border-gray-200 dark:border-gray-600'}`}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setToNowForRow(index)}
-                            className="px-3 py-2 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
-                            title="Set to current time"
-                          >
-                            <FaBolt size={10} className="animate-pulse" /> Now
-                          </button>
-                        </div>
-                      
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="datetime-local"
+                          value={video.scheduledDateTime}
+                          onChange={(e) => handleInputChange(index, 'scheduledDateTime', e.target.value)}
+                          className={`flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm dark:bg-gray-700 dark:text-white transition-all ${video.rowError && video.rowError.includes('Schedule time') ? 'border-red-500 dark:border-red-400' : 'border-gray-200 dark:border-gray-600'}`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setToNowForRow(index)}
+                          className="px-3 py-2 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
+                          title="Set to current time"
+                        >
+                          <FaBolt size={10} className="animate-pulse" /> Now
+                        </button>
+                      </div>
                       {video.scheduledDateTime && 
                         <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
                           Scheduled for: {formatDateTimeForDisplay(video.scheduledDateTime)}

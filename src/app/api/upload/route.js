@@ -4,6 +4,8 @@ import { NextResponse } from 'next/server';
 import { authOptions } from '../auth/[...nextauth]/options';
 import { Readable } from 'stream';
 import { EventEmitter } from 'events';
+import { getValidAccessToken } from '@/utils/refreshToken';
+import { supabaseAdmin } from '@/utils/supabase';
 
 // Global events emitter to track uploads in progress
 const uploadEvents = new EventEmitter();
@@ -46,19 +48,22 @@ function bufferToStream(buffer, fileId) {
 // Helper function to log uploads to Supabase
 async function logUpload(uploadData) {
   try {
-    // Get the origin from the request headers or use a default URL for the server
-    const origin = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+    const { data, error } = await supabaseAdmin
+      .from('upload_logs')
+      .insert({
+        ...uploadData,
+        created_at: new Date().toISOString()
+      });
+      
+    if (error) {
+      console.error('Error logging upload:', error);
+    }
     
-    await fetch(`${origin}/api/upload-logs`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(uploadData),
-    });
-  } catch (error) {
-    console.error('Failed to log upload:', error);
-    // Continue even if logging fails
+    return data;
+  } catch (e) {
+    console.error('Failed to log upload:', e);
+    // Non-critical error, don't throw
+    return null;
   }
 }
 
@@ -79,7 +84,7 @@ export async function POST(request) {
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session || !session.accessToken) {
+    if (!session || !session.user?.email) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
@@ -89,10 +94,17 @@ export async function POST(request) {
       return NextResponse.json({ error: 'File ID is required' }, { status: 400 });
     }
 
-    // Initialize the OAuth2 client
+    // Get valid access token, refreshing if necessary
+    const accessToken = await getValidAccessToken(session.user.email);
+    
+    if (!accessToken) {
+      return NextResponse.json({ error: 'Invalid access token' }, { status: 401 });
+    }
+
+    // Initialize the OAuth2 client with fresh token
     const oauth2Client = new google.auth.OAuth2();
     oauth2Client.setCredentials({
-      access_token: session.accessToken,
+      access_token: accessToken,
     });
 
     // Initialize Drive API to get the file
@@ -115,7 +127,7 @@ export async function POST(request) {
 
     const fileContent = fileResponse.data;
     
-    // Initialize YouTube API
+    // Initialize YouTube API with the same fresh token
     const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
     
     // Format title to include #Shorts if not already present
@@ -134,64 +146,60 @@ export async function POST(request) {
       },
     };
     
-    try {
-      // Initialize progress tracking for this file
-      uploadProgressMap.set(fileId, 0);
-      
-      // Convert the file content to a readable stream for the YouTube API with progress tracking
-      const mediaStream = bufferToStream(fileContent, fileId);
-      
-      // Upload the video to YouTube with timeout increased (10 hour issue fix)
-      const uploadResponse = await youtube.videos.insert({
-        part: 'snippet,status',
-        requestBody: videoResource,
-        media: {
-          body: mediaStream,
-        },
-        // Set a longer timeout (3 hours in milliseconds)
-        timeout: 10800000,
-      });
+    // Reset the progress tracking for this file
+    uploadProgressMap.set(fileId, 0);
+    
+    // Convert the file content to a readable stream with progress tracking
+    const mediaStream = bufferToStream(fileContent, fileId);
+    
+    // Upload the video to YouTube
+    const uploadResponse = await youtube.videos.insert({
+      part: 'snippet,status',
+      requestBody: videoResource,
+      media: {
+        body: mediaStream,
+      },
+    });
+    
+    const videoId = uploadResponse.data.id;
+    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    
+    // Update the progress map to indicate completion
+    uploadProgressMap.set(fileId, 100);
+    
+    // Log successful upload to Supabase
+    await logUpload({
+      video_id: videoId,
+      file_id: fileId,
+      file_name: fileName,
+      youtube_url: videoUrl,
+      title: formattedTitle,
+      status: 'success',
+    });
 
-      const videoId = uploadResponse.data.id;
-      const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-      
-      // Clear the progress tracking for this file
-      uploadProgressMap.delete(fileId);
-      
-      // Log successful upload to Supabase
-      await logUpload({
-        video_id: videoId,
-        file_id: fileId,
-        file_name: fileName,
-        youtube_url: videoUrl,
-        title: formattedTitle,
-        status: 'success',
-      });
-
-      return NextResponse.json({
-        success: true,
-        videoId,
-        videoUrl,
-      });
-    } catch (uploadError) {
-      // Clear the progress tracking for this file
-      uploadProgressMap.delete(fileId);
-      
-      // Log failed upload to Supabase
-      await logUpload({
-        file_id: fileId,
-        file_name: fileName,
-        title: formattedTitle,
-        status: 'error',
-        error_message: uploadError.message,
-      });
-      
-      throw uploadError;
-    }
+    return NextResponse.json({
+      success: true,
+      videoId,
+      videoUrl,
+      title: formattedTitle
+    });
   } catch (error) {
-    console.error('Error uploading to YouTube:', error);
+    console.error('Error uploading video:', error);
+    
+    // Log failed upload to Supabase
+    await logUpload({
+      file_id: fileId,
+      file_name: fileName,
+      title: formattedTitle,
+      status: 'error',
+      error_message: error.message || 'Unknown error',
+    });
+    
     return NextResponse.json(
-      { error: 'Failed to upload video to YouTube', details: error.message },
+      { 
+        error: 'Error uploading video to YouTube',
+        details: error.message || 'Unknown error'
+      },
       { status: 500 }
     );
   }

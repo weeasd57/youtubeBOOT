@@ -10,32 +10,53 @@ export const authOptions = {
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
       authorization: {
         params: {
-          scope: 'https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube',
+          scope: 'openid profile email https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube',
           prompt: 'consent',
           access_type: 'offline',
           response_type: 'code'
+        }
+      },
+      userinfo: {
+        params: { fields: 'id,email,name,picture' },
+      },
+      profile(profile) {
+        return {
+          id: profile.sub || profile.id,
+          name: profile.name,
+          email: profile.email,
+          image: profile.picture
         }
       }
     }),
   ],
   callbacks: {
-    async jwt({ token, account, profile, trigger }) {
-      // Persist the OAuth access_token and refresh_token to the token right after signin
-      if (account) {
-        console.log('JWT callback: Initial sign in, saving tokens');
-        token.accessToken = account.access_token;
-        token.refreshToken = account.refresh_token;
-        token.expiresAt = account.expires_at;
+    async jwt({ token, account, user, trigger }) {
+      // Initial sign in
+      if (account && user) {
+        console.log('JWT callback - Initial sign in', { 
+          account_type: account.type,
+          scope: account.scope || 'No scope provided' 
+        });
         
-        // Store tokens in database for later use by cron jobs
-        if (token.email) {
+        // Save user to Supabase when they sign in
+        await saveUserToSupabase(user);
+        
+        // Save tokens to separate table for background access
+        if (account.access_token) {
           await saveUserTokens({
-            email: token.email,
+            email: user.email,
             accessToken: account.access_token,
             refreshToken: account.refresh_token,
             expiresAt: account.expires_at
           });
         }
+        
+        return {
+          ...token,
+          access_token: account.access_token,
+          refresh_token: account.refresh_token,
+          expires_at: account.expires_at,
+        };
       }
       
       // Handle session updates - load fresh token from database when session is updated
@@ -65,9 +86,11 @@ export const authOptions = {
       
       return token;
     },
-    async session({ session, token, user }) {
+    async session({ session, token }) {
       // Send properties to the client
-      session.accessToken = token.accessToken;
+      session.accessToken = token.access_token;
+      session.refreshToken = token.refresh_token;
+      session.expiresAt = token.expires_at;
       session.error = token.error;
       
       // Save user data to Supabase

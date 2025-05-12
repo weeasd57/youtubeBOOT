@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth/next';
 import { NextResponse } from 'next/server';
 import { authOptions } from '../../auth/[...nextauth]/options';
 import { withRetry, isQuotaError } from '@/utils/apiHelpers';
+import { getValidAccessToken } from '@/utils/refreshToken';
 
 // Wrapper for Google API calls to standardize error handling
 async function safeGoogleApiCall(apiCall) {
@@ -35,14 +36,21 @@ export async function GET() {
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session || !session.accessToken) {
+    if (!session || !session.user?.email) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    // Initialize the OAuth2 client
+    // Get a valid access token, refreshing if necessary
+    const accessToken = await getValidAccessToken(session.user.email);
+    
+    if (!accessToken) {
+      return NextResponse.json({ error: 'Invalid access token' }, { status: 401 });
+    }
+    
+    // Initialize the OAuth2 client with fresh token
     const oauth2Client = new google.auth.OAuth2();
     oauth2Client.setCredentials({
-      access_token: session.accessToken,
+      access_token: accessToken,
     });
 
     // Initialize YouTube API

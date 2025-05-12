@@ -1,5 +1,5 @@
 -- Scheduled Uploads table
-CREATE TABLE scheduled_uploads (
+CREATE TABLE IF NOT EXISTS scheduled_uploads (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_email TEXT NOT NULL REFERENCES users(email) ON DELETE CASCADE,
   file_id TEXT NOT NULL,
@@ -16,18 +16,22 @@ CREATE TABLE scheduled_uploads (
 );
 
 -- Index for faster querying scheduled uploads
-CREATE INDEX idx_scheduled_uploads_status ON scheduled_uploads(status);
-CREATE INDEX idx_scheduled_uploads_scheduled_time ON scheduled_uploads(scheduled_time);
+CREATE INDEX IF NOT EXISTS idx_scheduled_uploads_status ON scheduled_uploads(status);
+CREATE INDEX IF NOT EXISTS idx_scheduled_uploads_scheduled_time ON scheduled_uploads(scheduled_time);
 
 -- User Tokens table for storing OAuth tokens
-CREATE TABLE user_tokens (
+CREATE TABLE IF NOT EXISTS user_tokens (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_email TEXT NOT NULL REFERENCES users(email) ON DELETE CASCADE,
   access_token TEXT NOT NULL,
   refresh_token TEXT,
   expires_at BIGINT,
+  scopes TEXT,
+  is_valid BOOLEAN DEFAULT TRUE,
+  error_message TEXT,
+  last_network_error TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE UNIQUE INDEX idx_user_tokens_email ON user_tokens(user_email); 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_tokens_email ON user_tokens(user_email); 
