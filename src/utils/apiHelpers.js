@@ -229,4 +229,127 @@ export function createPersistentRetry(fn, options = {}) {
     stop,
     isRunning: () => isRunning
   };
+}
+
+// Generic API call function with retry logic
+export async function fetchWithRetry(url, options = {}, retryOptions = {}) {
+  const {
+    maxRetries = 3,
+    initialDelay = 1000,
+    maxDelay = 10000,
+    factor = 2,
+    retryOnStatus = [408, 429, 500, 502, 503, 504],
+    retryOnNetworkError = true
+  } = retryOptions;
+
+  let delay = initialDelay;
+  let attempt = 0;
+  let lastError = null;
+
+  while (attempt <= maxRetries) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = options.timeout 
+        ? setTimeout(() => controller.abort(), options.timeout) 
+        : null;
+
+      // Add the abort signal to our fetch options if not already present
+      const fetchOptions = {
+        ...options,
+        signal: options.signal || controller.signal
+      };
+
+      const response = await fetch(url, fetchOptions);
+
+      // Clear the timeout if we have one
+      if (timeoutId) clearTimeout(timeoutId);
+
+      // If we get a status code we should retry on
+      if (retryOnStatus.includes(response.status) && attempt < maxRetries) {
+        attempt++;
+        lastError = new Error(`Received status ${response.status}`);
+        
+        // Log the retry attempt
+        console.warn(`API call to ${url} failed with status ${response.status}. Retrying (${attempt}/${maxRetries})...`);
+        
+        // Wait for the calculated delay and then continue to next iteration
+        await new Promise(resolve => setTimeout(resolve, delay));
+        
+        // Exponential backoff with jitter
+        delay = Math.min(delay * factor * (0.9 + 0.2 * Math.random()), maxDelay);
+        continue;
+      }
+
+      // For successful responses or final attempts with error status
+      return response;
+    } catch (error) {
+      lastError = error;
+
+      // Clear any existing timeout
+      if (options.timeoutId) clearTimeout(options.timeoutId);
+
+      // Determine if it's a timeout, network error, or abort we should retry on
+      const isNetworkError = (
+        error.name === 'TypeError' || 
+        error.message?.includes('network') ||
+        error.message?.includes('fetch') ||
+        error.code === 'ETIMEDOUT' ||
+        error.code === 'ECONNRESET' ||
+        error.code === 'ECONNREFUSED'
+      );
+      
+      const isTimeout = (
+        error.name === 'AbortError' || 
+        error.name === 'TimeoutError' || 
+        error.code === 'ETIMEDOUT' ||
+        error.message?.includes('timeout')
+      );
+
+      // If this is not a network error or timeout or we've used all our retries, throw the error
+      if ((!isNetworkError && !isTimeout) || !retryOnNetworkError || attempt >= maxRetries) {
+        throw error;
+      }
+
+      attempt++;
+      
+      // Log the retry attempt
+      console.warn(`API call to ${url} failed with error: ${error.message}. Retrying (${attempt}/${maxRetries})...`);
+      
+      // Wait before the next attempt
+      await new Promise(resolve => setTimeout(resolve, delay));
+      
+      // Exponential backoff with jitter
+      delay = Math.min(delay * factor * (0.9 + 0.2 * Math.random()), maxDelay);
+    }
+  }
+
+  // If we've exhausted all retries, throw the last error
+  throw lastError || new Error(`Failed after ${maxRetries} retries`);
+}
+
+// Helper for timeout-safe GET requests with retry
+export async function getWithRetry(url, options = {}, retryOptions = {}) {
+  const fetchOptions = {
+    method: 'GET',
+    ...options,
+    timeout: options.timeout || 30000 // Default 30 second timeout
+  };
+  
+  return fetchWithRetry(url, fetchOptions, retryOptions);
+}
+
+// Helper for timeout-safe POST requests with retry
+export async function postWithRetry(url, data, options = {}, retryOptions = {}) {
+  const fetchOptions = {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    },
+    body: JSON.stringify(data),
+    ...options,
+    timeout: options.timeout || 30000 // Default 30 second timeout
+  };
+  
+  return fetchWithRetry(url, fetchOptions, retryOptions);
 } 

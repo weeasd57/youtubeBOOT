@@ -37,164 +37,233 @@ function throttledLog(message, data = null, level = 'log') {
  * @returns {Promise<{accessToken: string, refreshToken: string, expiresAt: number, scopes: string} | null>}
  */
 export async function refreshAccessToken(email) {
-  try {
-    // Get the user's tokens from the database
-    const { data: userTokens, error } = await supabaseAdmin
-      .from('user_tokens')
-      .select('*')
-      .eq('user_email', email)
-      .single();
-    
-    if (error || !userTokens) {
-      throttledLog('Failed to get user tokens from database:', error, 'error');
-      throw new Error('User tokens not found in database');
-    }
-    
-    if (!userTokens.refresh_token) {
-      throttledLog('No refresh token found for user:', email, 'error');
-      throw new Error('No refresh token available for this user');
-    }
-    
-    // Create OAuth client for refreshing
-    const oauth2Client = new google.auth.OAuth2(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET,
-      process.env.NEXTAUTH_URL
-    );
-    
-    // Check if client ID and secret are available
-    if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-      throttledLog('Missing Google OAuth credentials in environment variables', null, 'error');
-      throw new Error('Missing Google OAuth credentials');
-    }
-    
-    // Set the refresh token
-    oauth2Client.setCredentials({
-      refresh_token: userTokens.refresh_token,
-      // Don't set scope here to avoid scope conflicts
-    });
-    
+  // Retry configuration
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY_MS = 2000; // 2 second initial delay
+  let retryCount = 0;
+  let lastError = null;
+
+  // Helper function to wait between retries with exponential backoff
+  const wait = (attemptNumber) => {
+    const delay = RETRY_DELAY_MS * Math.pow(1.5, attemptNumber);
+    return new Promise(resolve => setTimeout(resolve, delay));
+  };
+
+  while (retryCount <= MAX_RETRIES) {
     try {
-      // Refresh the token
-      const { credentials } = await oauth2Client.refreshAccessToken();
-      
-      throttledLog('Token refreshed successfully with scopes:', credentials.scope);
-      
-      const accessToken = credentials.access_token;
-      const refreshToken = credentials.refresh_token || userTokens.refresh_token;
-      const expiryDate = credentials.expiry_date;
-      const expiresAt = Math.floor(Date.now() / 1000 + expiryDate / 1000);
-      const scopes = credentials.scope;
-      
-      // Update the tokens in the database
-      await supabaseAdmin
+      // Get the user's tokens from the database
+      const { data: userTokens, error } = await supabaseAdmin
         .from('user_tokens')
-        .update({
-          access_token: accessToken,
-          refresh_token: refreshToken,
-          expires_at: expiresAt,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('user_email', email);
+        .select('*')
+        .eq('user_email', email)
+        .single();
       
-      return {
-        success: true,
-        accessToken,
-        refreshToken,
-        expiresAt,
-        scopes
-      };
-    } catch (refreshError) {
-      throttledLog('Error refreshing token with Google OAuth:', refreshError, 'error');
+      if (error || !userTokens) {
+        throttledLog('Failed to get user tokens from database:', error, 'error');
+        throw new Error('User tokens not found in database');
+      }
       
-      // Check if error is due to revoked access
-      const isRevokedAccess = refreshError.message && (
-        refreshError.message.includes('invalid_grant') || 
-        refreshError.message.includes('invalid_request') ||
-        refreshError.message.includes('access_denied') ||
-        refreshError.message.includes('unauthorized_client')
+      if (!userTokens.refresh_token) {
+        throttledLog('No refresh token found for user:', email, 'error');
+        throw new Error('No refresh token available for this user');
+      }
+      
+      // Create OAuth client for refreshing
+      const oauth2Client = new google.auth.OAuth2(
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET,
+        process.env.NEXTAUTH_URL
       );
       
-      // Identify network errors specifically
-      const isNetworkError = 
-        refreshError.code === 'ETIMEDOUT' || 
-        refreshError.code === 'ECONNREFUSED' ||
-        refreshError.code === 'ENOTFOUND' ||
-        refreshError.errno === 'ETIMEDOUT' ||
-        refreshError.type === 'system' ||
-        (refreshError.message && (
-          refreshError.message.includes('network') ||
-          refreshError.message.includes('timeout') ||
-          refreshError.message.includes('failed, reason:') ||
-          refreshError.message.includes('ETIMEDOUT')
-        ));
+      // Check if client ID and secret are available
+      if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+        throttledLog('Missing Google OAuth credentials in environment variables', null, 'error');
+        throw new Error('Missing Google OAuth credentials');
+      }
       
-      if (isRevokedAccess) {
-        throttledLog('User has likely revoked access:', email, 'warn');
+      // Set the refresh token
+      oauth2Client.setCredentials({
+        refresh_token: userTokens.refresh_token,
+        // Don't set scope here to avoid scope conflicts
+      });
+      
+      try {
+        // Refresh the token
+        const { credentials } = await oauth2Client.refreshAccessToken();
         
-        // Delete token from the database
+        // If we got here after retries, log success
+        if (retryCount > 0) {
+          throttledLog(`Token refreshed successfully after ${retryCount} retries`);
+        } else {
+          throttledLog('Token refreshed successfully with scopes:', credentials.scope);
+        }
+        
+        const accessToken = credentials.access_token;
+        const refreshToken = credentials.refresh_token || userTokens.refresh_token;
+        const expiryDate = credentials.expiry_date;
+        const expiresAt = Math.floor(Date.now() / 1000 + expiryDate / 1000);
+        const scopes = credentials.scope;
+        
+        // Update the tokens in the database
         await supabaseAdmin
           .from('user_tokens')
-          .delete()
+          .update({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+            expires_at: expiresAt,
+            updated_at: new Date().toISOString(),
+            retry_count: 0, // Reset retry count on success
+            last_success: new Date().toISOString()
+          })
           .eq('user_email', email);
         
         return {
-          success: false,
-          error: "Access has been revoked. Please sign in again.",
-          errorCode: "ACCESS_REVOKED",
-          needsReauth: true
+          success: true,
+          accessToken,
+          refreshToken,
+          expiresAt,
+          scopes
         };
-      }
-      
-      // Mark token status in database based on error type
-      await supabaseAdmin
-        .from('user_tokens')
-        .update({
-          error_message: refreshError.message,
-          updated_at: new Date().toISOString(),
-          last_network_error: isNetworkError ? new Date().toISOString() : null
-        })
-        .eq('user_email', email);
-      
-      // For network errors, we should still return the existing token if available
-      if (isNetworkError) {
-        throttledLog('Network error when refreshing token, using existing token if available', null, 'warn');
+      } catch (refreshError) {
+        lastError = refreshError;
         
-        // Return the existing token if we have one
-        if (userTokens.access_token) {
+        // Check for network timeouts specifically
+        const isNetworkTimeout = 
+          refreshError.code === 'ETIMEDOUT' || 
+          refreshError.errno === 'ETIMEDOUT' ||
+          (refreshError.message && refreshError.message.includes('ETIMEDOUT'));
+        
+        if (isNetworkTimeout && retryCount < MAX_RETRIES) {
+          retryCount++;
+          throttledLog(`Network timeout (ETIMEDOUT) when refreshing token. Retry ${retryCount}/${MAX_RETRIES}`, null, 'warn');
+          
+          // Update database with retry information
+          await supabaseAdmin
+            .from('user_tokens')
+            .update({
+              error_message: `ETIMEDOUT - Retry ${retryCount}/${MAX_RETRIES}`,
+              updated_at: new Date().toISOString(),
+              retry_count: retryCount
+            })
+            .eq('user_email', email);
+          
+          // Wait before retry with exponential backoff
+          await wait(retryCount);
+          continue; // Skip to next iteration of the loop
+        }
+        
+        throttledLog('Error refreshing token with Google OAuth:', refreshError, 'error');
+        
+        // Check if error is due to revoked access
+        const isRevokedAccess = refreshError.message && (
+          refreshError.message.includes('invalid_grant') || 
+          refreshError.message.includes('invalid_request') ||
+          refreshError.message.includes('access_denied') ||
+          refreshError.message.includes('unauthorized_client')
+        );
+        
+        // Identify network errors specifically
+        const isNetworkError = 
+          refreshError.code === 'ETIMEDOUT' || 
+          refreshError.code === 'ECONNREFUSED' ||
+          refreshError.code === 'ENOTFOUND' ||
+          refreshError.errno === 'ETIMEDOUT' ||
+          refreshError.type === 'system' ||
+          (refreshError.message && (
+            refreshError.message.includes('network') ||
+            refreshError.message.includes('timeout') ||
+            refreshError.message.includes('failed, reason:') ||
+            refreshError.message.includes('ETIMEDOUT')
+          ));
+        
+        if (isRevokedAccess) {
+          throttledLog('User has likely revoked access:', email, 'warn');
+          
+          // Delete token from the database
+          await supabaseAdmin
+            .from('user_tokens')
+            .delete()
+            .eq('user_email', email);
+          
           return {
-            success: true,
-            accessToken: userTokens.access_token,
-            refreshToken: userTokens.refresh_token,
-            expiresAt: userTokens.expires_at || Math.floor(Date.now() / 1000) + 3600, // Default 1 hour expiry
-            scopes: userTokens.scopes
+            success: false,
+            error: "Access has been revoked. Please sign in again.",
+            errorCode: "ACCESS_REVOKED",
+            needsReauth: true
           };
         }
         
+        // Mark token status in database based on error type
+        await supabaseAdmin
+          .from('user_tokens')
+          .update({
+            error_message: refreshError.message,
+            updated_at: new Date().toISOString(),
+            last_network_error: isNetworkError ? new Date().toISOString() : null,
+            retry_count: retryCount
+          })
+          .eq('user_email', email);
+        
+        // For network errors, we should still return the existing token if available
+        if (isNetworkError) {
+          throttledLog('Network error when refreshing token, using existing token if available', null, 'warn');
+          
+          // Return the existing token if we have one
+          if (userTokens.access_token) {
+            return {
+              success: true,
+              accessToken: userTokens.access_token,
+              refreshToken: userTokens.refresh_token,
+              expiresAt: userTokens.expires_at || Math.floor(Date.now() / 1000) + 3600, // Default 1 hour expiry
+              scopes: userTokens.scopes
+            };
+          }
+          
+          return {
+            success: false,
+            error: "Network error when contacting Google's authentication servers",
+            errorCode: "NETWORK_ERROR",
+            isNetworkError: true,
+            retryAttempts: retryCount
+          };
+        }
+        
+        // For other errors that are not network or access revocation related
         return {
           success: false,
-          error: "Network error when contacting Google's authentication servers",
-          errorCode: "NETWORK_ERROR",
-          isNetworkError: true
+          error: `Failed to refresh token: ${refreshError.message}`,
+          errorCode: "REFRESH_ERROR"
         };
       }
+    } catch (error) {
+      lastError = error;
       
-      // For other errors that are not network or access revocation related
+      if (retryCount < MAX_RETRIES) {
+        // Retry on database errors too
+        retryCount++;
+        throttledLog(`Error in refreshAccessToken flow. Retry ${retryCount}/${MAX_RETRIES}: ${error.message}`, null, 'warn');
+        await wait(retryCount);
+        continue;
+      }
+      
+      throttledLog('Error in refreshAccessToken after all retries:', error, 'error');
+      
+      // Return structured error response
       return {
         success: false,
-        error: `Failed to refresh token: ${refreshError.message}`,
-        errorCode: "REFRESH_ERROR"
+        error: error.message,
+        retryAttempts: retryCount
       };
     }
-  } catch (error) {
-    throttledLog('Error in refreshAccessToken:', error, 'error');
-    
-    // Return structured error response
-    return {
-      success: false,
-      error: error.message
-    };
   }
+  
+  // If we've exhausted all retries and still failed
+  return {
+    success: false,
+    error: `Failed to refresh token after ${MAX_RETRIES} attempts: ${lastError?.message || 'Unknown error'}`,
+    errorCode: "MAX_RETRIES_EXCEEDED",
+    retryAttempts: retryCount
+  };
 }
 
 /**

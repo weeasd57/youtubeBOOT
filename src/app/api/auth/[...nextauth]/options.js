@@ -1,6 +1,5 @@
 import GoogleProvider from 'next-auth/providers/google';
-import { saveUserToSupabase, saveUserTokens } from '@/utils/supabase';
-import { supabaseAdmin } from '@/utils/supabase';
+import { saveUserToSupabase, saveUserTokens, supabaseAdmin } from '@/utils/supabase-server';
 
 // NextAuth configuration options
 export const authOptions = {
@@ -10,7 +9,7 @@ export const authOptions = {
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
       authorization: {
         params: {
-          scope: 'openid profile email https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube',
+          scope: 'openid email profile https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/youtube https://www.googleapis.com/auth/youtube.upload',
           prompt: 'consent',
           access_type: 'offline',
           response_type: 'code'

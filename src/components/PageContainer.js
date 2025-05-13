@@ -1,108 +1,166 @@
 'use client';
 
-import { useState } from 'react';
-import { FaYoutube, FaSync } from 'react-icons/fa';
-import { signOut } from 'next-auth/react';
+import { useState, useEffect } from 'react';
+import { FaSync } from 'react-icons/fa';
+import { signOut, useSession } from 'next-auth/react';
 import Image from "next/image";
 import ThemeToggle from './ThemeToggle';
 import Navbar from './Navbar';
 import ClientOnly from './ClientOnly';
+import AuthErrorBanner from './AuthErrorBanner';
+import { toastHelper } from './ToastHelper';
 
-export default function PageContainer({ user, children, onRefresh = null }) {
+export default function PageContainer({ user, children, onRefresh = null, error = null }) {
   const [refreshing, setRefreshing] = useState(false);
+  const [showAuthError, setShowAuthError] = useState(false);
+  const [validationInProgress, setValidationInProgress] = useState(false);
+  const { update: updateSession } = useSession();
 
-  // Function to refresh authentication
-  const handleRefreshAuth = async () => {
-    if (refreshing) return;
+  // Check if the error is authentication related and if tokens are actually working
+  useEffect(() => {
+    if (!error) {
+      setShowAuthError(false);
+      return;
+    }
+
+    // Only validate for authentication errors
+    const errorMessage = typeof error === 'string' ? error : error.message || '';
+    const isAuthError = errorMessage.includes('Authentication') || 
+                         errorMessage.includes('auth') ||
+                         errorMessage.includes('token') ||
+                         errorMessage.includes('Invalid Credentials');
     
+    if (!isAuthError) {
+      setShowAuthError(false);
+      return;
+    }
+    
+    // Validate if tokens are actually working despite the error
+    const validateTokens = async () => {
+      if (validationInProgress) return;
+      
+      setValidationInProgress(true);
+      try {
+        // Check token status with the debug endpoint
+        const response = await fetch('/api/auth/debug');
+        const data = await response.json();
+        
+        // If we have valid tokens, don't show the error
+        if (response.ok && data.status === 'authenticated' && 
+            data.tokenInfo && data.tokenInfo.isValid) {
+          setShowAuthError(false);
+          console.log("Tokens are valid, hiding authentication error");
+        } else {
+          setShowAuthError(true);
+        }
+      } catch (e) {
+        console.error("Error validating tokens:", e);
+        setShowAuthError(true);
+      } finally {
+        setValidationInProgress(false);
+      }
+    };
+    
+    validateTokens();
+  }, [error, validationInProgress]);
+
+  // Function to refresh auth
+  const handleRefreshAuth = async () => {
     setRefreshing(true);
+    
     try {
       const response = await fetch('/api/auth/refresh', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-        }
+        },
       });
       
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success) {
-          alert('Authentication refreshed successfully!');
-          // If there's an onRefresh callback, call it
-          if (onRefresh) onRefresh();
-        } else {
-          alert(data.message || 'Failed to refresh authentication.');
-        }
+      const data = await response.json();
+      
+      if (data.success) {
+        // Success message with toast instead of alert
+        toastHelper.success('Authentication refreshed successfully!');
+        // If we have an onRefresh callback, call it
+        if (onRefresh) onRefresh();
       } else {
-        alert('Failed to refresh authentication. Please try signing out and in again.');
+        // Handle different error types with appropriate toasts
+        if (data.needsReauth) {
+          toastHelper.error('Your access to Google services has been revoked. Please sign out and sign in again to reconnect your account.');
+        } else if (data.isNetworkError) {
+          toastHelper.warning('Network error occurred. Please check your connection and try again.');
+        } else if (data.retryAttempts) {
+          toastHelper.warning(`Authentication refresh failed after ${data.retryAttempts} attempts. Please try again later.`);
+        } else {
+          toastHelper.error(`Error refreshing authentication: ${data.message || 'Unknown error'}`);
+        }
       }
     } catch (error) {
       console.error('Error refreshing auth:', error);
-      alert('Error refreshing authentication. Please try again later.');
+      toastHelper.error('Failed to refresh authentication. Please try again or sign out and sign in again.');
     } finally {
       setRefreshing(false);
     }
   };
 
   return (
-    <div className="min-h-screen p-8 flex flex-col dark:bg-black transition-colors duration-300">
+    <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-black text-black dark:text-amber-50 transition-colors duration-300">
       {/* Header */}
-      <header className="flex justify-between items-center mb-8">
-        <div className="flex items-center gap-2">
-          <FaYoutube className="text-red-600 text-3xl" />
-          <h1 className="text-2xl font-bold dark:text-amber-50">YouTube Drive Uploader</h1>
-        </div>
-        
-        <div className="flex items-center gap-4">
-          <ClientOnly>
+      <header className="sticky top-0 z-10 bg-white dark:bg-black shadow-sm dark:shadow-amber-700/5 border-b border-gray-200 dark:border-amber-700/30 transition-all duration-300">
+        <div className="flex justify-between items-center p-3 px-5">
+          {/* Logo */}
+          <div className="flex items-center space-x-2">
+            <div className="rounded-full overflow-hidden flex items-center justify-center w-10 h-10">
+              <Image 
+                src="/android-chrome-192x192.png" 
+                alt="App Logo"
+                width={40}
+                height={40}
+                className="object-cover"
+              />
+            </div>
+            <h1 className="text-lg md:text-xl font-bold dark:text-amber-50">
+              YouTube Drive Uploader
+            </h1>
+          </div>
+
+          {/* User Menu / Sign In */}
+          <div className="flex items-center space-x-4">
             <ThemeToggle />
-          </ClientOnly>
-          
-          <ClientOnly>
+            
             {user && (
-              <div className="flex items-center gap-2">
+              <div className="items-center space-x-2 hidden md:flex">
+                <span className="text-sm font-medium dark:text-amber-100">{user.name}</span>
                 {user.image && (
-                  <Image 
+                  <Image
                     src={user.image}
-                    alt={user.name || 'User'}
+                    alt={user.name}
                     width={32}
                     height={32}
-                    className="rounded-full border dark:border-amber-500/30"
+                    className="w-8 h-8 rounded-full"
                   />
                 )}
-                <span className="text-sm font-medium dark:text-amber-50">{user.name}</span>
               </div>
             )}
-          </ClientOnly>
-          
-          {onRefresh && (
+            
+            {user && (
+              <button
+                onClick={handleRefreshAuth}
+                disabled={refreshing}
+                title="Refresh Authentication"
+                className="p-2 rounded-full text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 transition-all duration-300 disabled:opacity-50"
+              >
+                <FaSync className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`} />
+              </button>
+            )}
+            
             <button
-              onClick={onRefresh}
-              className="p-2 rounded-full text-blue-500 dark:text-amber-400 hover:bg-blue-50 dark:hover:bg-amber-900/20 transition-all duration-300 transform hover:rotate-12"
+              onClick={() => signOut({ callbackUrl: '/' })}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md border border-transparent dark:border-amber-500/20 transition-all duration-300 transform hover:scale-105"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
+              Sign Out
             </button>
-          )}
-          
-          {user && (
-            <button
-              onClick={handleRefreshAuth}
-              disabled={refreshing}
-              title="Refresh Authentication"
-              className="p-2 rounded-full text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 transition-all duration-300 disabled:opacity-50"
-            >
-              <FaSync className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`} />
-            </button>
-          )}
-          
-          <button
-            onClick={() => signOut({ callbackUrl: '/' })}
-            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md border border-transparent dark:border-amber-500/20 transition-all duration-300 transform hover:scale-105"
-          >
-            Sign Out
-          </button>
+          </div>
         </div>
       </header>
 
@@ -111,6 +169,20 @@ export default function PageContainer({ user, children, onRefresh = null }) {
 
       {/* Content with padding to account for sticky navbar */}
       <div className="mt-4 pb-16">
+        {/* Show auth error banner conditionally */}
+        {showAuthError && error && (
+          <div className="mx-4 mb-4">
+            <AuthErrorBanner 
+              message={typeof error === 'object' ? error.message : error} 
+              isNetworkError={typeof error === 'object' && error.isNetworkError}
+              failureCount={typeof error === 'object' && error.failureCount}
+              maxFailures={typeof error === 'object' && error.maxFailures}
+              forceSignOut={typeof error === 'object' && error.forceSignOut}
+              isAccessRevoked={typeof error === 'object' && error.isAccessRevoked}
+            />
+          </div>
+        )}
+        
         {children}
       </div>
     </div>

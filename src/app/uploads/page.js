@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSession, signOut } from 'next-auth/react';
-import { FaYoutube, FaUpload, FaSync, FaHistory, FaCalendarAlt, FaTable, FaClock, FaSpinner } from 'react-icons/fa';
+import { FaUpload, FaSync, FaHistory, FaCalendarAlt, FaTable, FaClock, FaSpinner } from 'react-icons/fa';
 import Image from "next/image";
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/contexts/UserContext';
@@ -16,6 +16,18 @@ import Link from 'next/link';
 import { useDrive } from '@/contexts/DriveContext';
 import ScheduleUploadForm from '@/components/ScheduleUploadForm';
 import PageContainer from '@/components/PageContainer';
+
+// Add a custom app logo component for consistency
+const AppLogoIcon = ({ className = "", size = 24 }) => (
+  <div className={`relative ${className}`} style={{ width: size, height: size }}>
+    <Image 
+      src="/android-chrome-192x192.png" 
+      alt="App Logo"
+      fill
+      className="object-cover"
+    />
+  </div>
+);
 
 export default function UploadsPage() {
   const [isMounted, setIsMounted] = useState(false);

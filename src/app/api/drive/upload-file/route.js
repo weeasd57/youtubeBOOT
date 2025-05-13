@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { authOptions } from '../../auth/[...nextauth]/options';
 import { getValidAccessToken } from '@/utils/refreshToken';
 import { saveTikTokVideoData } from '@/utils/supabase';
+import axios from 'axios';
 
 export async function POST(req) {
   try {
@@ -14,6 +15,7 @@ export async function POST(req) {
     const description = formData.get('description') || '';
     const originalUrl = formData.get('originalUrl') || '';
     const downloadUrl = formData.get('downloadUrl') || '';
+    const videoId = formData.get('videoId') || '';
     
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
@@ -48,34 +50,44 @@ export async function POST(req) {
 
     const drive = google.drive({ version: 'v3', auth: oauth2Client });
     
-    // Prepare the file as a buffer
-    const buffer = Buffer.from(await file.arrayBuffer());
+    // Get file as ArrayBuffer
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
     
-    // Upload the file to Google Drive
-    const response = await drive.files.create({
-      requestBody: {
-        name: file.name,
-        description: description,
-        parents: [folderId],
-        mimeType: file.type,
-      },
-      media: {
-        mimeType: file.type,
-        body: buffer,
-      },
-      fields: 'id,name,webViewLink',
+    // Using a two-step upload approach that works better with binary data
+    
+    // Step 1: Create the file metadata without content
+    const fileMetadata = {
+      name: file.name,
+      description: description,
+      parents: [folderId],
+      mimeType: file.type,
+    };
+    
+    // Create an empty file first
+    const createResponse = await drive.files.create({
+      requestBody: fileMetadata,
+      fields: 'id'
     });
     
-    // Extract video ID from the TikTok URL
-    let videoId = null;
-    if (originalUrl) {
-      // Handle different TikTok URL formats
-      const tiktokIdRegex = /\/video\/(\d+)|vm\.tiktok\.com\/(\w+)|tiktok\.com\/@[^\/]+\/video\/(\d+)/;
-      const matches = originalUrl.match(tiktokIdRegex);
-      if (matches) {
-        videoId = matches[1] || matches[2] || matches[3];
-      }
-    }
+    const fileId = createResponse.data.id;
+    
+    // Step 2: Update the file content using direct axios call which handles binary data better
+    await axios({
+      method: 'PATCH',
+      url: `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`,
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': file.type
+      },
+      data: buffer
+    });
+    
+    // Get the updated file info
+    const getResponse = await drive.files.get({
+      fileId: fileId,
+      fields: 'id,name,webViewLink'
+    });
     
     // Save video data to Supabase
     await saveTikTokVideoData(session.user.email, {
@@ -85,18 +97,47 @@ export async function POST(req) {
       originalUrl,
       downloadUrl,
       driveFolderId: folderId,
-      driveFileId: response.data.id
+      driveFileId: fileId
     });
     
     return NextResponse.json({
-      fileId: response.data.id,
-      fileName: response.data.name,
-      webViewLink: response.data.webViewLink
+      fileId: getResponse.data.id,
+      fileName: getResponse.data.name,
+      webViewLink: getResponse.data.webViewLink
     });
   } catch (error) {
     console.error('Error uploading file to Drive:', error);
+    
+    // Check for specific error types and provide better feedback
+    if (error.status === 403 || (error.response && error.response.status === 403)) {
+      return NextResponse.json(
+        { 
+          error: 'Insufficient permissions to upload to Google Drive. Please check your Google account permissions and try refreshing your authentication.',
+          errorCode: 'PERMISSION_DENIED',
+          status: 403
+        }, 
+        { status: 403 }
+      );
+    }
+    
+    // Handle network errors
+    if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND' || error.code === 'ETIMEDOUT') {
+      return NextResponse.json(
+        { 
+          error: 'Network error connecting to Google Drive. Please check your internet connection and try again.',
+          errorCode: 'NETWORK_ERROR',
+          status: 500
+        }, 
+        { status: 500 }
+      );
+    }
+    
     return NextResponse.json(
-      { error: 'Failed to upload file to Google Drive: ' + (error.message || 'Unknown error') },
+      { 
+        error: 'Failed to upload file to Google Drive: ' + (error.message || 'Unknown error'),
+        errorCode: 'UPLOAD_FAILED',
+        status: 500
+      },
       { status: 500 }
     );
   }

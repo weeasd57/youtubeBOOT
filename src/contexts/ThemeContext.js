@@ -18,8 +18,8 @@ export const THEMES = {
 
 // Provider component
 export function ThemeProvider({ children }) {
-  // Initialize with light theme by default
-  const [theme, setTheme] = useState(THEMES.LIGHT);
+  // Initialize with dark theme by default
+  const [theme, setTheme] = useState(THEMES.DARK);
   const [mounted, setMounted] = useState(false);
 
   // Initialize theme once on the client side
@@ -33,13 +33,13 @@ export function ThemeProvider({ children }) {
       if (savedTheme) {
         setTheme(savedTheme);
       } else {
-        // If no saved theme, check system preference
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        setTheme(prefersDark ? THEMES.DARK : THEMES.LIGHT);
+        // If no saved theme, use dark theme as default
+        setTheme(THEMES.DARK);
       }
     } catch (error) {
-      // Fallback to light theme on error
+      // Fallback to dark theme on error
       console.error('Error initializing theme:', error);
+      setTheme(THEMES.DARK);
     } finally {
       // Always set mounted to true
       setMounted(true);
@@ -99,10 +99,10 @@ export function useTheme() {
   if (!context) {
     console.error('useTheme: Theme context is undefined! Make sure you are using ThemeProvider.');
     return {
-      theme: THEMES.LIGHT,
+      theme: THEMES.DARK,
       toggleTheme: () => {},
       setTheme: () => {},
-      isDark: false
+      isDark: true
     };
   }
   

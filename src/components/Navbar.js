@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FaYoutube, FaTable, FaDownload, FaVideo } from 'react-icons/fa';
+import { FaTable, FaDownload } from 'react-icons/fa';
+import Image from "next/image";
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -22,7 +23,14 @@ export default function Navbar() {
               : 'text-gray-700 dark:text-amber-50 hover:bg-gray-100/80 dark:hover:bg-black/50'
           }`}
         >
-          <FaYoutube className={`${isActive('/home') ? "text-white" : "text-red-500"} transition-all`} />
+          <div className={`w-5 h-5 relative ${isActive('/home') ? "" : "opacity-80"} transition-all`}>
+            <Image 
+              src="/android-chrome-192x192.png" 
+              alt="App Logo"
+              fill
+              className="object-cover"
+            />
+          </div>
           <span className="relative">
             Dashboard
             {isActive('/home') && (
@@ -58,22 +66,6 @@ export default function Navbar() {
           <span className="relative">
             TikTok Downloader
             {isActive('/tiktok-downloader') && (
-              <span className="absolute -bottom-1 left-0 right-0 h-0.5 bg-white rounded-full animate-pulse"></span>
-            )}
-          </span>
-        </Link>
-        <Link
-          href="/tiktok-videos"
-          className={`px-6 py-3 font-medium flex items-center gap-2 transition-all duration-300 flex-1 justify-center ${
-            isActive('/tiktok-videos')
-              ? 'bg-amber-600/90 text-white shadow-sm dark:bg-amber-700/50'
-              : 'text-gray-700 dark:text-amber-50 hover:bg-gray-100/80 dark:hover:bg-black/50'
-          }`}
-        >
-          <FaVideo className={`${isActive('/tiktok-videos') ? "text-white" : "text-amber-500"} transition-all`} />
-          <span className="relative">
-            TikTok Videos
-            {isActive('/tiktok-videos') && (
               <span className="absolute -bottom-1 left-0 right-0 h-0.5 bg-white rounded-full animate-pulse"></span>
             )}
           </span>
