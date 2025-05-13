@@ -157,9 +157,45 @@ export function TikTokProvider({ children }) {
     }
   };
 
+  // Check if file exists in Google Drive
+  const checkFileExistsInDrive = async (videoId) => {
+    if (!videoId || !driveFolderId || !session) return false;
+    
+    try {
+      const response = await fetch(`/api/drive/check-file-exists?folderId=${driveFolderId}&videoId=${videoId}`);
+      
+      if (!response.ok) {
+        console.error(`Failed to check file existence: ${response.status}`);
+        return { exists: false };
+      }
+      
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error checking if file exists in Drive:', error);
+      return { exists: false };
+    }
+  };
+
   // Upload file to Google Drive
   const uploadToDrive = async (videoFile, videoDetails) => {
     try {
+      // Check if the file already exists in Drive
+      const videoId = videoDetails.videoId;
+      if (videoId) {
+        const fileExists = await checkFileExistsInDrive(videoId);
+        if (fileExists.exists) {
+          console.log(`File already exists in Drive, skipping upload: ${fileExists.fileId}`);
+          return { 
+            success: true, 
+            fileId: fileExists.fileId,
+            fileName: fileExists.fileName,
+            webViewLink: fileExists.webViewLink,
+            alreadyExists: true
+          };
+        }
+      }
+      
       // Ensure we have a folder ID
       const folderId = driveFolderId || await createDriveFolder();
       
@@ -168,9 +204,6 @@ export function TikTokProvider({ children }) {
         console.warn('Skipping Drive upload due to folder creation failure');
         return { success: false, error: 'Could not create or access Drive folder' };
       }
-      
-      // Show upload starting notification
-      toastHelper.info(`Uploading "${videoDetails.title}" to Google Drive...`);
       
       // Create form data for the file upload
       const formData = new FormData();
@@ -310,6 +343,28 @@ export function TikTokProvider({ children }) {
         } : v)
       );
       
+      // Check if the file already exists in Drive
+      if (saveToDrive && session && driveFolderId && videoId) {
+        const fileExists = await checkFileExistsInDrive(videoId);
+        if (fileExists.exists) {
+          console.log(`File already exists in Drive with ID: ${fileExists.fileId}`);
+          
+          // Update video status to completed without downloading
+          setVideos(prev => 
+            prev.map(v => v.id === videoDetails.id ? { 
+              ...v, 
+              status: 'completed',
+              progress: 100,
+              driveFileId: fileExists.fileId,
+              webViewLink: fileExists.webViewLink 
+            } : v)
+          );
+          
+          // Return without downloading anything
+          return;
+        }
+      }
+      
       // Make a HEAD request first to get content length without downloading
       try {
         const headResponse = await fetch(url, { method: 'HEAD' });
@@ -409,25 +464,21 @@ export function TikTokProvider({ children }) {
           
           const uploadResult = await uploadToDrive(videoFile, uploadDetails);
           if (uploadResult && uploadResult.success) {
-            // Show success message
-            toastHelper.success(`Video saved to Google Drive folder: ${folderName}`);
-            // Add a notification about processing time in Drive
-            toastHelper.info('Note: Videos may take some time to be processed by Google Drive before playback is available.');
-            
             // Set flag that Drive upload was successful
             driveUploadSuccessful = true;
             
-            // Ask if user wants to also download locally
-            const wantLocalDownload = saveToDrive && driveUploadSuccessful && confirm(
-              "Video was successfully uploaded to Drive. Do you also want to download a local copy?"
-            );
-            
-            // Return without downloading locally if saving to Drive succeeded and user doesn't want local copy
-            if (!wantLocalDownload) {
+            // Return without downloading locally if saving to Drive succeeded
+            if (uploadResult.alreadyExists) {
               return;
             }
             
-            // Otherwise continue to local download below
+            // Show success message if not already exists
+            if (!uploadResult.alreadyExists) {
+              toastHelper.success(`Video saved to Google Drive folder: ${folderName}`);
+            }
+            
+            // Return without downloading locally
+            return;
           } else {
             console.warn('Drive upload was not successful:', uploadResult?.error || 'Unknown error');
             
@@ -462,12 +513,15 @@ export function TikTokProvider({ children }) {
       document.body.removeChild(link);
       URL.revokeObjectURL(downloadUrl);
       
+      // No need to show success messages for local download
+      /*
       // Show a success message for local download
       if (driveUploadSuccessful) {
         toastHelper.success(`Local copy downloaded: ${filename}`);
       } else {
         toastHelper.success(`Video downloaded to your device: ${filename}`);
       }
+      */
     } catch (error) {
       console.error('Error downloading video:', error);
       throw error;
@@ -557,82 +611,137 @@ export function TikTokProvider({ children }) {
     // Mark toast as shown to prevent multiple notifications
     setJsonToastShown(true);
     
-    // Check if there was an error during parsing
     if (jsonData.error) {
-      toastHelper.error('Error parsing the file. Make sure it is a valid JSON file.');
+      // Handle JSON parsing error
+      toastHelper.error(`Error parsing JSON: ${jsonData.error}`);
       return;
     }
     
-    // Show success message for videos found
+    // Success notification
     if (videos.length > 0) {
       toastHelper.success(`Found ${videos.length} videos in the JSON file`);
     } else {
-      toastHelper.warning('No video URLs found in the JSON file. Please check the format.');
+      toastHelper.warning('No videos found in the JSON file');
     }
   }, [jsonData, videos, jsonToastShown]);
 
-  // Helper function to clean titles by removing #Shorts tag specifically
+  // Clean up title for filename
   const cleanTitle = (title) => {
-    // Remove #Shorts, #shorts, #SHORTS and variations with spaces
-    const withoutShorts = title.replace(/#\s*shorts\b/gi, '');
-    // Trim any extra whitespace
-    return withoutShorts.trim();
+    if (!title) return 'TikTok Video';
+    // Remove hashtags and handle special characters that might be problematic for filenames
+    return title.replace(/#\w+/g, '').replace(/[<>:"/\\|?*]/g, '_').trim();
   };
 
   // Download all videos
   const downloadAllVideos = async () => {
-    if (videos.length === 0 || downloadingAll) return;
-    
-    // Set downloading all flag to true to disable the button
-    setDownloadingAll(true);
-    
-    // Verify folder existence if saving to Drive
-    if (saveToDrive && driveFolderId) {
-      const folderExists = await verifyFolderBeforeDownload();
-      if (!folderExists) {
-        // Folder doesn't exist anymore, refresh the folder list
-        await fetchDriveFolders();
-        setDownloadingAll(false);
-        return;
-      }
-    }
-    
-    setLoading(true);
-    setProgress(0);
-    
-    // If save to drive is enabled, create folder at the beginning
-    if (saveToDrive && session && !driveFolderId) {
-      try {
-        await createDriveFolder();
-      } catch (error) {
-        console.error('Error preparing drive folder:', error);
-      }
-    }
+    if (loading || downloadingAll) return;
     
     try {
-      for (let i = 0; i < videos.length; i++) {
-        const video = videos[i];
+      setDownloadingAll(true);
+      setLoading(true);
+      setProgress(0);
+      
+      // Verify folder existence if saving to Drive
+      if (saveToDrive && driveFolderId) {
+        const folderExists = await verifyFolderBeforeDownload();
+        if (!folderExists) {
+          setDownloadingAll(false);
+          setLoading(false);
+          toastHelper.error('The selected Drive folder no longer exists. Please select another folder.');
+          await fetchDriveFolders();
+          return;
+        }
+      }
+      
+      // Check if videos are already in Drive
+      if (saveToDrive && session && driveFolderId) {
+        // Create a copy of videos to modify
+        let updatedVideos = [...videos];
+        let existingCount = 0;
+        
+        // For each video, check if it exists in Drive
+        for (let i = 0; i < updatedVideos.length; i++) {
+          const video = updatedVideos[i];
+          const videoId = video.videoId || extractVideoIdFromUrl(video.url);
+          
+          if (videoId) {
+            const fileExists = await checkFileExistsInDrive(videoId);
+            if (fileExists.exists) {
+              // Update video status to completed without downloading
+              updatedVideos[i] = {
+                ...video,
+                status: 'completed',
+                progress: 100,
+                driveFileId: fileExists.fileId,
+                webViewLink: fileExists.webViewLink
+              };
+              
+              existingCount++;
+            }
+          }
+        }
+        
+        // Update videos with existing files marked as completed
+        if (existingCount > 0) {
+          setVideos(updatedVideos);
+        }
+      }
+      
+      // Filter videos that need downloading (not completed)
+      const pendingVideos = videos.filter(v => v.status !== 'completed');
+      
+      if (pendingVideos.length === 0) {
+        setDownloadingAll(false);
+        setLoading(false);
+        setProgress(100);
+        return;
+      }
+      
+      let successCount = 0;
+      let failedCount = 0;
+      
+      for (let i = 0; i < pendingVideos.length; i++) {
+        const video = pendingVideos[i];
+        
+        // Skip videos that are already completed
+        if (video.status === 'completed') {
+          continue;
+        }
+        
         setCurrentVideo(video);
         
         try {
-          // Update video status to processing with 0% progress
+          // Update progress based on current video index
+          const currentProgress = Math.round((i / pendingVideos.length) * 100);
+          setProgress(currentProgress);
+          
+          // Update video status to processing
           setVideos(prev => 
             prev.map(v => v.id === video.id ? { ...v, status: 'processing', progress: 0 } : v)
           );
           
-          // Get download link
-          const downloadUrl = await getDownloadLink(video.url);
+          // Get download link if we don't have one already
+          let downloadUrl = video.downloadUrl;
+          if (!downloadUrl) {
+            downloadUrl = await getDownloadLink(video.url);
+            
+            // Update video with download URL
+            setVideos(prev => 
+              prev.map(v => v.id === video.id ? { ...v, downloadUrl } : v)
+            );
+          }
           
-          // Update video with download URL and prepare for downloading
-          setVideos(prev => 
-            prev.map(v => v.id === video.id ? { ...v, status: 'downloading', downloadUrl, progress: 0 } : v)
-          );
-          
-          // Download video
           if (downloadUrl) {
-            // Use title without hashtags for the filename
+            // Update video status to downloading
+            setVideos(prev => 
+              prev.map(v => v.id === video.id ? { ...v, status: 'downloading', progress: 0 } : v)
+            );
+            
+            // Create cleaned filename
             const cleanedTitle = cleanTitle(video.title);
             const filename = `${cleanedTitle}.mp4`;
+            
+            // Download the video
             await downloadVideo(downloadUrl, filename, {
               ...video,
               title: cleanedTitle,
@@ -641,44 +750,76 @@ export function TikTokProvider({ children }) {
               downloadUrl: downloadUrl,
               videoId: video.videoId || extractVideoIdFromUrl(video.url)
             });
+            
+            // Update video status to completed
+            setVideos(prev => 
+              prev.map(v => v.id === video.id ? { 
+                ...v, 
+                status: 'completed',
+                progress: 100 
+              } : v)
+            );
+            
+            successCount++;
+          } else {
+            // No download URL available
+            failedCount++;
+            setVideos(prev => 
+              prev.map(v => v.id === video.id ? { 
+                ...v, 
+                status: 'failed',
+                error: 'Could not get download URL' 
+              } : v)
+            );
           }
-          
-          // Update video status to completed with 100% progress
-          setVideos(prev => 
-            prev.map(v => v.id === video.id ? { ...v, status: 'completed', progress: 100 } : v)
-          );
         } catch (error) {
+          failedCount++;
+          console.error(`Error downloading video ${i+1}:`, error);
+          
           // Update video status to failed
           setVideos(prev => 
             prev.map(v => v.id === video.id ? { 
               ...v, 
-              status: 'failed', 
+              status: 'failed',
               error: error.message,
-              progress: 0 
+              progress: 0
             } : v)
           );
         }
-        
-        // Update overall progress
-        setProgress(Math.round(((i + 1) / videos.length) * 100));
-        
-        // Delay to avoid blocking
-        if (i < videos.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+      
+      // Clear current video
+      setCurrentVideo(null);
+      
+      // Set final progress to 100%
+      setProgress(100);
+      
+      // Show summary toast only if there were new operations
+      if (successCount > 0 || failedCount > 0) {
+        if (successCount > 0 && failedCount === 0) {
+          if (saveToDrive && driveFolderId) {
+            toastHelper.success(`All ${successCount} videos saved to Google Drive successfully`);
+          } else {
+            toastHelper.success(`All ${successCount} videos downloaded successfully`);
+          }
+        } else if (successCount > 0 && failedCount > 0) {
+          toastHelper.warning(`${successCount} videos processed successfully, ${failedCount} failed`);
+        } else {
+          toastHelper.error(`Failed to process all ${failedCount} videos`);
         }
       }
     } catch (error) {
-      console.error('Error during batch download:', error);
-      toastHelper.error('An error occurred during the download process');
+      console.error('Error in batch download:', error);
+      toastHelper.error(`Batch download error: ${error.message}`);
     } finally {
-      // Always make sure to reset the loading state
+      // Reset states
       setLoading(false);
-      setCurrentVideo(null);
       setDownloadingAll(false);
+      setCurrentVideo(null);
     }
   };
 
-  // Download a single video
+  // Download single video
   const downloadSingleVideo = async (video) => {
     // Prevent multiple downloads of the same video
     if (downloadingVideoIds.includes(video.id)) {
@@ -695,6 +836,33 @@ export function TikTokProvider({ children }) {
         if (!folderExists) {
           // Folder doesn't exist anymore, refresh the folder list
           await fetchDriveFolders();
+          return;
+        }
+      }
+      
+      // Extract video ID
+      const videoId = video.videoId || extractVideoIdFromUrl(video.url);
+      
+      // Check if the file already exists in Drive
+      if (saveToDrive && session && driveFolderId && videoId) {
+        const fileExists = await checkFileExistsInDrive(videoId);
+        if (fileExists.exists) {
+          console.log(`File already exists in Drive with ID: ${fileExists.fileId}`);
+          
+          // Update video status to completed without downloading
+          setVideos(prev => 
+            prev.map(v => v.id === video.id ? { 
+              ...v, 
+              status: 'completed',
+              progress: 100,
+              driveFileId: fileExists.fileId,
+              webViewLink: fileExists.webViewLink 
+            } : v)
+          );
+          
+          // Remove the video ID from the downloading array
+          setDownloadingVideoIds(prev => prev.filter(id => id !== video.id));
+          
           return;
         }
       }
@@ -734,9 +902,6 @@ export function TikTokProvider({ children }) {
           );
         } catch (e) {
           console.error('Error initiating download:', e);
-          // Open in new tab as an alternative
-          window.open(video.downloadUrl, '_blank');
-          
           // Update video status to failed
           setVideos(prev => 
             prev.map(v => v.id === video.id ? { 
@@ -787,15 +952,14 @@ export function TikTokProvider({ children }) {
           );
         } catch (e) {
           console.error('Error downloading video:', e);
-          // Open in new tab as an alternative
-          window.open(downloadUrl, '_blank');
           
           // Still mark as completed since the link works
           setVideos(prev => 
             prev.map(v => v.id === video.id ? { 
               ...v, 
-              status: 'completed',
-              progress: 100 
+              status: 'failed',
+              error: e.message,
+              progress: 0 
             } : v)
           );
         }

@@ -470,7 +470,6 @@ function TikTokDownloaderContent() {
                             // Set loading state
                             setLoadingFolders(true);
                             setFoldersError(false);
-                            toastHelper.info('Refreshing folders from Google Drive...');
                             
                             try {
                               // Force refresh from API, not cache
@@ -478,17 +477,14 @@ function TikTokDownloaderContent() {
                               
                               if (result && result.success) {
                                 setFoldersLoaded(true);
-                                toastHelper.success('Folder list refreshed successfully');
                               } else {
                                 setFoldersError(true);
                                 setErrorMessage(result.error || 'Failed to refresh folders');
-                                toastHelper.error('Failed to refresh folders');
                               }
                             } catch (error) {
                               console.error('Error refreshing folders:', error);
                               setFoldersError(true);
                               setErrorMessage(error.message || 'An error occurred while refreshing folders');
-                              toastHelper.error('Error refreshing folders');
                             } finally {
                               setLoadingFolders(false);
                             }
@@ -927,10 +923,7 @@ function TikTokDownloaderContent() {
                               {video.status === 'completed' && saveToDrive && driveFolderId && (
                                 <button
                                   onClick={() => {
-                                    const choice = confirm("Note: The video may need time to be processed by Google Drive before viewing. Do you want to continue?");
-                                    if (choice) {
-                                      window.open(`${getDriveFolderUrl()}?resourcekey=${video.videoId || ''}`, '_blank');
-                                    }
+                                    window.open(`${getDriveFolderUrl()}?resourcekey=${video.videoId || ''}`, '_blank');
                                   }}
                                   className="px-3 py-1.5 rounded-md flex items-center gap-1 bg-purple-200 hover:bg-purple-300 text-purple-700 dark:bg-purple-700 dark:text-purple-200 dark:hover:bg-purple-600 hover:scale-105 transition-all"
                                 >
