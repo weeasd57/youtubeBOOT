@@ -1,5 +1,10 @@
 import { google } from 'googleapis';
-import { supabaseAdmin } from './supabase';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
 // Log limiting variables
 const LOG_TIMESTAMPS = new Map();
@@ -52,7 +57,7 @@ export async function refreshAccessToken(email) {
   while (retryCount <= MAX_RETRIES) {
     try {
       // Get the user's tokens from the database
-      const { data: userTokens, error } = await supabaseAdmin
+      const { data: userTokens, error } = await supabase
         .from('user_tokens')
         .select('*')
         .eq('user_email', email)
@@ -105,7 +110,7 @@ export async function refreshAccessToken(email) {
         const scopes = credentials.scope;
         
         // Update the tokens in the database
-        await supabaseAdmin
+        await supabase
           .from('user_tokens')
           .update({
             access_token: accessToken,
@@ -138,7 +143,7 @@ export async function refreshAccessToken(email) {
           throttledLog(`Network timeout (ETIMEDOUT) when refreshing token. Retry ${retryCount}/${MAX_RETRIES}`, null, 'warn');
           
           // Update database with retry information
-          await supabaseAdmin
+          await supabase
             .from('user_tokens')
             .update({
               error_message: `ETIMEDOUT - Retry ${retryCount}/${MAX_RETRIES}`,
@@ -180,7 +185,7 @@ export async function refreshAccessToken(email) {
           throttledLog('User has likely revoked access:', email, 'warn');
           
           // Delete token from the database
-          await supabaseAdmin
+          await supabase
             .from('user_tokens')
             .delete()
             .eq('user_email', email);
@@ -194,7 +199,7 @@ export async function refreshAccessToken(email) {
         }
         
         // Mark token status in database based on error type
-        await supabaseAdmin
+        await supabase
           .from('user_tokens')
           .update({
             error_message: refreshError.message,
@@ -271,78 +276,98 @@ export async function refreshAccessToken(email) {
  * @param {string} email User's email
  * @returns {Promise<string|null>} Valid access token or null if unavailable
  */
-export async function getValidAccessToken(email) {
+export async function getValidAccessToken(userEmail) {
   try {
-    // Log attempt to get valid token
-    console.log(`Attempting to get valid access token for user: ${email}`);
-    
-    // Get the user's tokens from the database
-    const { data: userTokens, error } = await supabaseAdmin
+    if (!userEmail) {
+      console.error('لم يتم توفير بريد المستخدم');
+      return null;
+    }
+
+    // استرجاع بيانات المستخدم من قاعدة البيانات
+    const { data: tokenData, error } = await supabase
       .from('user_tokens')
-      .select('*')
-      .eq('user_email', email)
+      .select('access_token, refresh_token, expires_at')
+      .eq('user_email', userEmail)
       .single();
-    
-    if (error) {
-      console.error('Failed to get tokens from database:', error);
-      throw new Error(`Database error: ${error.message}`);
+
+    if (error || !tokenData) {
+      console.error('خطأ في استرجاع بيانات رموز المستخدم:', error?.message || 'لم يتم العثور على رموز المستخدم');
+      return null;
     }
-    
-    if (!userTokens) {
-      console.error('No tokens found for user:', email);
-      throw new Error('No authentication tokens found for this user');
-    }
-    
-    // Check if the token is expired (with 5 minute buffer)
-    const now = Math.floor(Date.now() / 1000);
-    const isExpired = !userTokens.expires_at || userTokens.expires_at < now - 300;
-    
-    // If token is not expired and we have a token, use it
-    if (!isExpired && userTokens.access_token) {
-      console.log(`Using existing valid token for ${email} that expires in ${userTokens.expires_at - now} seconds`);
+
+    // التحقق مما إذا كان رمز الوصول الحالي لا يزال صالحًا
+    if (tokenData.access_token && tokenData.expires_at) {
+      const expiryTime = new Date(tokenData.expires_at * 1000); // تحويل الطابع الزمني إلى تاريخ JavaScript
+      // إضافة هامش أمان بمقدار 5 دقائق
+      const safeExpiryTime = new Date(expiryTime.getTime() - 5 * 60 * 1000);
       
-      // Log scopes if available for debugging
-     
-      return userTokens.access_token;
-    }
-    
-    // Token needs refresh - either expired or missing
-    console.log(`Token for user ${email} needs refresh (expired: ${isExpired})`);
-    
-    // Refresh the token
-    const refreshResult = await refreshAccessToken(email);
-    
-    if (!refreshResult.success) {
-      // Check if access was revoked
-      if (refreshResult.errorCode === 'ACCESS_REVOKED') {
-        console.error(`Access revoked for user ${email}, token deleted`);
-        throw new Error('Access revoked. Please sign in again to reconnect your Google account.');
+      if (safeExpiryTime > new Date()) {
+        return tokenData.access_token;
       }
-      
-      // Other errors
-      console.error(`Failed to refresh token for ${email}:`, refreshResult.error);
-      throw new Error(refreshResult.error || 'Failed to refresh access token');
     }
-    
-    console.log(`Successfully refreshed token for ${email}`);
-    
-    // Update scopes in database if available
-    if (refreshResult.scopes) {
-      console.log(`Received scopes from refresh: ${refreshResult.scopes}`);
-      await supabaseAdmin
-        .from('user_tokens')
-        .update({
-          scopes: refreshResult.scopes,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('user_email', email);
-    } else {
-      console.log('No scopes received from token refresh');
+
+    // رمز الوصول منتهي الصلاحية أو غير موجود، تحديث
+    if (!tokenData.refresh_token) {
+      console.error('رمز التحديث غير متوفر للمستخدم:', userEmail);
+      return null;
     }
-    
-    return refreshResult.accessToken;
+
+    // تهيئة OAuth2 client
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    );
+
+    // تحديث رمز الوصول
+    oauth2Client.setCredentials({
+      refresh_token: tokenData.refresh_token
+    });
+
+    const { credentials } = await oauth2Client.refreshAccessToken();
+
+    // حساب وقت انتهاء الصلاحية
+    const expiresAt = Math.floor(Date.now() / 1000 + credentials.expires_in); // تخزين كطابع زمني
+
+    // تحديث قاعدة البيانات برمز الوصول الجديد ووقت انتهاء الصلاحية
+    const { error: updateError } = await supabase
+      .from('user_tokens')
+      .update({
+        access_token: credentials.access_token,
+        expires_at: expiresAt,
+        updated_at: new Date().toISOString()
+      })
+      .eq('user_email', userEmail);
+
+    if (updateError) {
+      console.error('خطأ في تحديث رمز الوصول:', updateError.message);
+      return null;
+    }
+
+    return credentials.access_token;
   } catch (error) {
-    console.error(`Error getting valid access token for ${email}:`, error);
-    throw error;
+    console.error('خطأ في تحديث رمز الوصول:', error.message);
+    return null;
+  }
+}
+
+// التحقق من صلاحية رمز الوصول مباشرة مع Google API
+export async function validateToken(accessToken) {
+  try {
+    if (!accessToken) return false;
+
+    const oauth2Client = new google.auth.OAuth2();
+    oauth2Client.setCredentials({ access_token: accessToken });
+    const oauth2 = google.oauth2({
+      auth: oauth2Client,
+      version: 'v2'
+    });
+
+    // استعلام عن معلومات المستخدم للتحقق من صلاحية الرمز
+    await oauth2.userinfo.get();
+    return true;
+  } catch (error) {
+    // خطأ يعني أن الرمز غير صالح
+    return false;
   }
 } 

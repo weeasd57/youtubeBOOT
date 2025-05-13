@@ -22,9 +22,9 @@ export async function GET(request) {
     const authHeader = request.headers.get('authorization');
     const headerToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
     
-    // Check if either the API key or the authorization header matches the secret
+    // Check if either the API key or the authorization header matches the expected values
     const isAuthorized = (apiKey && apiKey === process.env.CRON_API_KEY) || 
-                         (headerToken && headerToken === process.env.CRON_SECRET);
+                         (headerToken && (headerToken === process.env.CRON_API_KEY || headerToken === process.env.CRON_SECRET));
     
     if (process.env.NODE_ENV === 'production' && !isAuthorized) {
       console.log('Unauthorized cron job access attempt');
@@ -197,16 +197,121 @@ export async function GET(request) {
           const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
           
           // Format title to include #Shorts if not already present
-          const formattedTitle = upload.title.includes('#Shorts') 
-            ? upload.title 
-            : `${upload.title} #Shorts`;
+          // تحقق من وجود عنوان صالح وتوفير قيمة افتراضية إذا كان فارغا
+          let videoTitle = upload.title || fileDetails.data.name || `Video Upload ${new Date().toISOString().split('T')[0]}`;
+          
+          // حفظ نسخة من العنوان الأصلي للرجوع إليها
+          const originalTitle = videoTitle;
+          
+          // للتشخيص: سجل العنوان الأصلي
+          console.log(`Original title before processing: "${originalTitle}"`);
+          
+          // تنظيف العنوان من أي أحرف غير صالحة
+          videoTitle = videoTitle.trim()
+            // استبدل أحرف التحكم (\u0000-\u001F) والأحرف غير المرئية (\u007F-\u009F)
+            .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+            // استبدل الرموز الخاصة التي قد تسبب مشاكل في YouTube API
+            .replace(/[<>:"\/\\|?*%&{}$~^]/g, ' ')
+            // تحويل علامات الهاشتاج إلى شكل متوافق
+            .replace(/(^|\s)#/g, '$1hashtag_')
+            // تصحيح المسافات المتعددة
+            .replace(/\s+/g, ' ');
+          
+          console.log(`Title after special character cleanup: "${videoTitle}"`);
+          
+          // معالجة خاصة للنص العربي
+          // 1. التأكد من عدم وجود مشاكل مع ترتيب النص واتجاهه
+          // 2. إضافة مسافة بين الكلمات العربية وعلامات الترقيم إذا لزم الأمر
+          // 3. التأكد من أن الهاشتاج يعمل بشكل صحيح مع النص العربي
+          
+          // تحديد ما إذا كان العنوان يحتوي على نص عربي
+          const containsArabic = /[\u0600-\u06FF]/.test(videoTitle);
+          
+          if (containsArabic) {
+            console.log(`Title contains Arabic text: "${videoTitle}"`);
+            
+            // إضافة مسافة بعد علامات الترقيم لتحسين التوافق
+            videoTitle = videoTitle
+              .replace(/([،؛؟!])([^\s])/g, '$1 $2')
+              // تأكد من وجود مسافة قبل الهاشتاج في النص العربي
+              .replace(/([^\s])hashtag_/g, '$1 hashtag_')
+              // استعادة علامات الهاشتاج الحقيقية
+              .replace(/hashtag_/g, '#');
+            
+            console.log(`Arabic-optimized title: "${videoTitle}"`);
+          } else {
+            // استعادة علامات الهاشتاج الحقيقية للنص غير العربي
+            videoTitle = videoTitle.replace(/hashtag_/g, '#');
+          }
+          
+          // اختبار خاص للتأكد من صحة العنوان
+          // اختبار خاص للتأكد من صحة العنوان مع النصوص العربية
+          // YouTube API قد ترفض بعض أنماط النصوص العربية
+          // إنشاء نسخة من العنوان يحتوي فقط على الأحرف المسموحة من وجهة نظر YouTube
+          // a-z, A-Z, 0-9 والأحرف العربية وبعض الرموز المسموحة مثل !،. -_()[]
+          const validCharsRegex = /^[a-zA-Z0-9\u0600-\u06FF\s!,.'\-_\(\)\[\]]+$/;
+          
+          if (!validCharsRegex.test(videoTitle)) {
+            // إذا كان العنوان يحتوي على أحرف غير مسموحة
+            // يمكننا إما تنظيفه أكثر أو استخدام عنوان بديل
+            console.log(`Title contains potentially problematic characters: "${videoTitle}"`);
+            
+            // حفظ العنوان الأصلي للأرشفة
+            const originalTitle = videoTitle;
+            
+            // إزالة أي شيء غير الأحرف العربية والإنجليزية والأرقام والمسافات
+            videoTitle = videoTitle.replace(/[^\p{L}\p{N}\s]/gu, ' ').trim();
+            
+            if (!videoTitle || videoTitle.trim() === '') {
+              // إذا أصبح العنوان فارغًا بعد التنظيف، استخدم عنوانًا افتراضيًا
+              videoTitle = `YouTube Video ${upload.id}`;
+            }
+            
+            console.log(`Cleaned title: "${videoTitle}"`);
+          }
+          
+          // التأكد من أن العنوان ليس فارغا بعد التنظيف
+          if (!videoTitle || videoTitle.trim() === '') {
+            videoTitle = `YouTube Short ${new Date().toISOString().split('T')[0]}`;
+          }
+          
+          // إضافة علامة #Shorts إذا لم تكن موجودة - تأكد من أنها بالإنجليزية
+          let formattedTitle;
+          if (videoTitle.includes('#Shorts') || videoTitle.includes('#shorts')) {
+            formattedTitle = videoTitle;
+          } else {
+            // حاول إضافة #Shorts في نهاية العنوان
+            formattedTitle = `${videoTitle} #Shorts`;
+          }
+          
+          // تأكد من أن العنوان ليس أطول من 100 حرف (حد YouTube API)
+          if (formattedTitle.length > 100) {
+            // إذا كان العنوان أطول من 100، قصه واحتفظ بـ #Shorts
+            const maxLength = 93; // 100 - 7 (#Shorts)
+            formattedTitle = `${videoTitle.substring(0, maxLength).trim()} #Shorts`;
+          }
+          
+          // التأكد من أن الوصف ليس فارغا
+          const videoDescription = (upload.description || `Video uploaded automatically on ${new Date().toISOString().split('T')[0]}`).trim();
+          
+          console.log(`Preparing to upload video with title: "${formattedTitle}"`);
+          
+          // إضافة تعليق في سجلات النظام يحتوي على صورة كاملة عن البيانات
+          console.log(`Upload details: 
+            ID: ${upload.id}
+            Title: ${formattedTitle}
+            File ID: ${upload.file_id}
+            File Name: ${upload.file_name}
+            User: ${upload.user_email}
+          `);
           
           // Create the video resource
           const videoResource = {
             snippet: {
-              title: formattedTitle,
-              description: upload.description || 'Uploaded from Google Drive',
+              title: formattedTitle.substring(0, 100), // YouTube يقبل فقط العناوين حتى 100 حرف
+              description: videoDescription.substring(0, 5000), // تقييد الوصف إلى الحد الأقصى
               categoryId: '22', // People & Blogs category
+              tags: ['shorts', 'tiktok'] // إضافة تاجات افتراضية للمساعدة في الاكتشاف
             },
             status: {
               privacyStatus: 'public',
@@ -265,12 +370,98 @@ export async function GET(request) {
         } catch (error) {
           console.error(`Error processing scheduled upload ${upload.id}:`, error);
           
-          // Update scheduled upload with error
+          // تصنيف الخطأ لتوفير رسائل خطأ أكثر وضوحا
+          let errorMessage = error.message;
+          let errorCategory = 'unknown';
+          
+          // سجل الخطأ الأصلي بالكامل للتشخيص
+          console.error(`Original error for upload ${upload.id}: ${error.stack || error.message}`);
+          
+          // معالجة أخطاء YouTube API الشائعة
+          if (errorMessage.includes('invalid or empty video title')) {
+            errorMessage = 'العنوان غير صالح أو فارغ. سيتم استخدام عنوان افتراضي في المحاولة التالية.';
+            errorCategory = 'title_invalid';
+          } else if (errorMessage.includes('quota')) {
+            errorMessage = 'تم تجاوز حصة YouTube API اليومية. يرجى المحاولة مرة أخرى غدا.';
+            errorCategory = 'quota_exceeded';
+          } else if (errorMessage.includes('forbidden') || errorMessage.includes('permission')) {
+            errorMessage = 'خطأ في صلاحيات الوصول. يرجى التحقق من إعدادات المصادقة.';
+            errorCategory = 'auth_error';
+          } else if (errorMessage.includes('network') || errorMessage.includes('timeout')) {
+            errorMessage = 'خطأ في الاتصال الشبكي. سيتم إعادة المحاولة تلقائيا.';
+            errorCategory = 'network_error';
+          } else if (errorMessage.includes('file not found') || errorMessage.includes('File not found')) {
+            errorMessage = 'الملف غير موجود في جوجل درايف. قد يكون تم حذفه أو نقله.';
+            errorCategory = 'file_not_found';
+          } else if (errorMessage.includes('format') || errorMessage.includes('codec') || errorMessage.includes('unsupported')) {
+            errorMessage = 'تنسيق الملف غير مدعوم. يجب استخدام تنسيق فيديو متوافق مع YouTube.';
+            errorCategory = 'format_error';
+          } else if (errorMessage.includes('length') || errorMessage.includes('duration')) {
+            errorMessage = 'مدة الفيديو غير مناسبة. تأكد من أن مدة الفيديو مناسبة للنشر على YouTube.';
+            errorCategory = 'duration_error';
+          } else if (errorMessage.includes('size')) {
+            errorMessage = 'حجم الملف كبير جدًا. يرجى استخدام ملف أصغر.';
+            errorCategory = 'size_error';
+          } else if (errorMessage.includes('metadata') || errorMessage.includes('snippet')) {
+            errorMessage = 'خطأ في بيانات الفيديو (العنوان، الوصف، إلخ). يرجى مراجعة البيانات.';
+            errorCategory = 'metadata_error';
+          }
+          
+          // سجل الخطأ المصنف للمساعدة في تحليل الأخطاء
+          console.error(`Categorized error for upload ${upload.id}: ${errorCategory} - ${errorMessage}`);
+          
+          // تسجيل تفاصيل الفيديو التي فشلت
+          console.error(`Failed upload details:
+            ID: ${upload.id}
+            File ID: ${upload.file_id}
+            File Name: ${upload.file_name || 'unknown'}
+            Title: ${upload.title || 'not provided'}
+            User: ${upload.user_email}
+            Scheduled Time: ${upload.scheduled_time}
+            Error Category: ${errorCategory}
+          `);
+          
+          // تحديد ما إذا كان يجب إعادة محاولة الرفع لاحقا
+          const shouldRetry = 
+            errorCategory === 'network_error' || 
+            errorCategory === 'quota_exceeded' || 
+            errorCategory === 'title_invalid' ||
+            errorMessage.includes('timeout');
+          
+          // إذا كان الخطأ مرتبطًا بالعنوان، قم بتسجيل العنوان الأصلي للمساعدة في التشخيص
+          if (errorCategory === 'title_invalid' || errorCategory === 'metadata_error') {
+            console.error(`Original title that caused error: "${upload.title}"`);
+            
+            // محاولة إصلاح العنوان تلقائيًا للمحاولة التالية
+            try {
+              // حفظ نسخة من العنوان الأصلي لإضافتها للسجل
+              const originalTitle = upload.title;
+              
+              // إنشاء عنوان بسيط يعمل بشكل مؤكد مع YouTube API
+              const fixedTitle = `YouTube Video ${new Date().toISOString().split('T')[0]} - ${Math.floor(Math.random() * 1000)} #Shorts`;
+              
+              // تحديث العنوان في قاعدة البيانات لضمان نجاح المحاولة التالية
+              await supabaseAdmin
+                .from('scheduled_uploads')
+                .update({
+                  title: fixedTitle,
+                  original_title: originalTitle, // حفظ العنوان الأصلي في حقل منفصل
+                  title_fixed: true // علامة لتتبع أن العنوان تم إصلاحه تلقائيًا
+                })
+                .eq('id', upload.id);
+                
+              console.log(`Auto-fixed title for upload ${upload.id}. New title: "${fixedTitle}"`);
+            } catch (titleFixError) {
+              console.error(`Failed to auto-fix title: ${titleFixError.message}`);
+            }
+          }
+          
+          // تحديث حالة الرفع المجدول
           await supabaseAdmin
             .from('scheduled_uploads')
             .update({
-              status: 'failed',
-              error_message: error.message,
+              status: shouldRetry ? 'pending' : 'failed', // وضع العملية في قائمة الانتظار للمحاولة مرة أخرى إذا كان الخطأ مؤقتا
+              error_message: errorMessage,
               updated_at: new Date().toISOString()
             })
             .eq('id', upload.id);
@@ -284,14 +475,14 @@ export async function GET(request) {
               file_name: upload.file_name,
               title: upload.title,
               status: 'error',
-              error_message: error.message,
+              error_message: errorMessage,
               created_at: new Date().toISOString()
             });
           
           allResults.push({
             id: upload.id,
             status: 'error',
-            error: error.message,
+            error: errorMessage,
             scheduledFor: upload.scheduled_time
           });
         }

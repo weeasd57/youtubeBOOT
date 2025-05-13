@@ -1,10 +1,4 @@
 {
-  "crons": [
-    {
-      "path": "/api/cron/process-scheduled-uploads",
-      "schedule": "0 9 * * *"
-    }
-  ],
   "headers": [
     {
       "source": "/(.*)",

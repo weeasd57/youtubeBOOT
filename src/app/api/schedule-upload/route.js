@@ -104,13 +104,52 @@ export async function POST(request) {
       return NextResponse.json({ error: 'File ID is required' }, { status: 400 });
     }
     
-    if (!uploadData.title) {
+    // تنظيف وتحقق من العنوان
+    let videoTitle = uploadData.title;
+    if (!videoTitle || videoTitle.trim() === '') {
       return NextResponse.json({ error: 'Title is required' }, { status: 400 });
+    }
+    
+    // تنظيف العنوان من الأحرف غير الصالحة
+    videoTitle = videoTitle.trim().replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
+    
+    // التأكد مرة أخرى أن العنوان ليس فارغا بعد التنظيف
+    if (videoTitle === '') {
+      return NextResponse.json({ 
+        error: 'Title contains only invalid characters. Please provide a valid title.' 
+      }, { status: 400 });
+    }
+    
+    // تقييد طول العنوان إلى 100 حرف (حد YouTube)
+    if (videoTitle.length > 100) {
+      videoTitle = videoTitle.substring(0, 100);
+    }
+    
+    // تنظيف الوصف
+    let videoDescription = uploadData.description || '';
+    videoDescription = videoDescription.trim();
+    
+    // تقييد طول الوصف
+    if (videoDescription.length > 5000) {
+      videoDescription = videoDescription.substring(0, 5000);
     }
     
     if (!uploadData.scheduledTime) {
       return NextResponse.json({ error: 'Scheduled time is required' }, { status: 400 });
     }
+    
+    // التحقق من أن وقت الجدولة مستقبلي
+    const scheduledDate = new Date(uploadData.scheduledTime);
+    const now = new Date();
+    
+    if (scheduledDate <= now) {
+      return NextResponse.json({ 
+        error: 'Scheduled time must be in the future' 
+      }, { status: 400 });
+    }
+    
+    // التحقق من أن الملف موجود في Google Drive
+    // هذا يمكن أن يكون خطوة إضافية للتحقق من صحة الملف قبل الجدولة
     
     // Create the scheduled upload in the database
     const { data: scheduledUpload, error } = await supabaseAdmin
@@ -118,8 +157,8 @@ export async function POST(request) {
       .insert({
         file_id: uploadData.fileId,
         file_name: uploadData.fileName || '',
-        title: uploadData.title,
-        description: uploadData.description || '',
+        title: videoTitle,
+        description: videoDescription,
         user_email: session.user.email,
         scheduled_time: uploadData.scheduledTime,
         status: 'pending',
