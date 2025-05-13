@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { FaFileVideo } from 'react-icons/fa';
+import { FaFileVideo, FaFolder } from 'react-icons/fa';
 import DriveThumbnail from './DriveThumbnail';
 
 export default function FileListItem({ 
@@ -11,6 +11,9 @@ export default function FileListItem({
 }) {
   const [hovered, setHovered] = useState(false);
 
+  // التحقق مما إذا كان الملف مجلدًا
+  const isFolder = file.mimeType === 'application/vnd.google-apps.folder';
+  
   // استخدام عنوان من بيانات TikTok أو اسم الملف
   const displayTitle = file.tiktokData?.title || file.name;
   
@@ -19,6 +22,11 @@ export default function FileListItem({
   
   // تحقق من وجود هاشتاجات من بيانات TikTok
   const hasHashtags = file.tiktokData?.hashtags && file.tiktokData.hashtags.length > 0;
+
+  // لا نعرض المجلدات في شبكة عرض الفيديوهات
+  if (isFolder) {
+    return null;
+  }
 
   return (
     <div 

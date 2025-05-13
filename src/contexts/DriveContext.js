@@ -535,7 +535,7 @@ export function DriveProvider({ children }) {
   // Clear selected folder and reload all files
   const clearSelectedFolder = async () => {
     setSelectedFolder(null);
-    await fetchDriveFiles(true);
+    // No need to reload files, just change the filter
   };
 
   // Reset cache - useful for testing or when authentication changes

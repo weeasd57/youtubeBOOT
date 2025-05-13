@@ -209,33 +209,6 @@ function LandingPageContent() {
                 </div>
               </div>
             </div>
-            
-            {/* Call to action */}
-            <div className="text-center mt-8">
-              <p className="text-lg text-gray-700 dark:text-amber-200/80 mb-4">
-                Automate your entire content workflow with just a few clicks
-              </p>
-              <button
-                onClick={() => signIn('google')}
-                className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white dark:bg-amber-600 dark:hover:bg-amber-700 px-5 py-2 rounded-md font-medium transition-all duration-300 hover:scale-105"
-              >
-                <FaGoogle /> Get Started Now
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <section className="py-16 px-4">
-          <div className="max-w-4xl mx-auto text-center">
-            <h2 className="text-3xl font-bold text-gray-900 dark:text-amber-50 mb-8">
-              Ready to Simplify Your Video Workflow?
-            </h2>
-            <button
-              onClick={() => signIn('google')}
-              className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white dark:bg-amber-600 dark:hover:bg-amber-700 px-6 py-3 rounded-md text-lg font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-lg dark:border dark:border-amber-500/20"
-            >
-              <FaGoogle /> Sign In with Google
-            </button>
           </div>
         </section>
       </main>

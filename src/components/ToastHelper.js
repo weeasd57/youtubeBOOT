@@ -9,48 +9,32 @@ let toastHelperInstance = null;
 class ToastHelper {
   constructor() {
     this.addToast = null;
-    this.initialized = false;
+    this.initialized = true; // Always consider initialized
   }
 
   initialize(addToastFunction) {
-    this.addToast = addToastFunction;
+    // Do nothing
     this.initialized = true;
   }
 
   success(message, duration = 5000) {
-    if (!this.initialized) {
-      console.warn('Toast not initialized. Falling back to alert');
-      alert(message);
-      return;
-    }
-    return this.addToast(message, 'success', duration);
+    // No-op function
+    return null;
   }
 
   error(message, duration = 5000) {
-    if (!this.initialized) {
-      console.warn('Toast not initialized. Falling back to alert');
-      alert(message);
-      return;
-    }
-    return this.addToast(message, 'error', duration);
+    // No-op function
+    return null;
   }
 
   warning(message, duration = 5000) {
-    if (!this.initialized) {
-      console.warn('Toast not initialized. Falling back to alert');
-      alert(message);
-      return;
-    }
-    return this.addToast(message, 'warning', duration);
+    // No-op function
+    return null;
   }
 
   info(message, duration = 5000) {
-    if (!this.initialized) {
-      console.warn('Toast not initialized. Falling back to alert');
-      alert(message);
-      return;
-    }
-    return this.addToast(message, 'info', duration);
+    // No-op function
+    return null;
   }
 }
 
@@ -59,14 +43,6 @@ export const toastHelper = toastHelperInstance || new ToastHelper();
 
 // Component to initialize the toast helper
 export function ToastInitializer() {
-  const { addToast } = useToast();
-  
-  // Use useEffect to initialize the toast helper after the component has mounted
-  useEffect(() => {
-    if (!toastHelper.initialized && addToast) {
-      toastHelper.initialize(addToast);
-    }
-  }, [addToast]);
-  
+  // No need to do anything anymore
   return null;
 } 

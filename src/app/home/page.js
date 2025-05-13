@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { FaUpload, FaSync, FaHistory, FaEye, FaThumbsUp, FaCalendarAlt, FaClock, FaCloudUploadAlt, FaTable, FaDownload, FaHashtag, FaTiktok } from 'react-icons/fa';
 import Image from "next/image";
@@ -383,18 +383,49 @@ function HomeDashboard({ session, status }) {
     console.log(`Folder selected: ${folderId}`);
     
     if (folderId === 'all') {
-      console.log('Clearing selected folder and fetching all files');
-      await clearSelectedFolder();
+      console.log('Showing all files from all folders');
+      // Use clearSelectedFolder function from the Drive context
+      clearSelectedFolder();
     } else {
       const folder = driveFolders.find(f => f.id === folderId);
       if (folder) {
         console.log(`Found folder: ${folder.name} (${folder.id})`);
-        await selectFolder(folder);
+        // Use selectFolder function from the Drive context
+        selectFolder(folder);
       } else {
         console.error(`Folder with ID ${folderId} not found in driveFolders list`);
       }
     }
   };
+
+  // Filter files based on selected folder
+  const filteredFiles = useMemo(() => {
+    if (!driveFiles || driveFiles.length === 0) {
+      console.log('No drive files to filter');
+      return [];
+    }
+    
+    // إستبعاد المجلدات من القائمة أولاً
+    const videoFiles = driveFiles.filter(file => file.mimeType !== 'application/vnd.google-apps.folder');
+    
+    // If selectedFolder is null or 'all', return all files (excluding folders)
+    if (!selectedFolder) {
+      console.log(`Showing all ${videoFiles.length} files because selectedFolder is null`);
+      return videoFiles;
+    }
+    
+    // Otherwise filter by selected folder
+    console.log(`Filtering ${videoFiles.length} files by folder: ${selectedFolder.id}`);
+    const filtered = videoFiles.filter(file => file.parents && file.parents.includes(selectedFolder.id));
+    console.log(`Found ${filtered.length} files in folder ${selectedFolder.id}`);
+    return filtered;
+  }, [driveFiles, selectedFolder]);
+
+  // Add some debug logging for folder selection
+  useEffect(() => {
+    console.log('Selected folder changed:', selectedFolder);
+    console.log('Filtered files count:', filteredFiles.length);
+  }, [selectedFolder, filteredFiles.length]);
 
   // Show loading spinner while checking authentication
   if (status === 'loading' || (status === 'authenticated' && initialLoading && !driveFiles.length)) {
@@ -423,27 +454,6 @@ function HomeDashboard({ session, status }) {
           <div className="bg-white dark:bg-black rounded-lg shadow-md p-6 border dark:border-amber-700/30 transition-all duration-300">
             <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-semibold dark:text-amber-50">Manage Content</h2>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    syncDriveChanges(true);
-                    fetchDriveFolders(true);
-                  }}
-                  className="p-2 bg-blue-100 text-blue-600 dark:bg-amber-900/30 dark:text-amber-300 rounded-full hover:bg-blue-200 dark:hover:bg-amber-800/40 transition-all duration-300 transform hover:rotate-12"
-                  disabled={loadingCombined}
-                  title="Refresh All Drive Content"
-                >
-                  <FaSync className={driveLoading || foldersLoading ? 'animate-spin' : ''} />
-                </button>
-                <button
-                  onClick={refreshYouTube}
-                  className="p-2 bg-red-100 text-red-600 dark:bg-amber-900/30 dark:text-amber-300 rounded-full hover:bg-red-200 dark:hover:bg-amber-800/40 transition-all duration-300 transform hover:rotate-12"
-                  disabled={youtubeLoading}
-                  title="Refresh YouTube videos"
-                >
-                  <FaSync className={youtubeLoading ? 'animate-spin' : ''} />
-                </button>
-              </div>
             </div>
             
             {/* Full width refresh button to sync with Drive changes */}
@@ -497,16 +507,16 @@ function HomeDashboard({ session, status }) {
                 {/* Add folder filter dropdown */}
                 <div className="mb-3 w-full">
                     <select
-                    value={selectedFolder?.id || 'all'} 
+                      value={selectedFolder ? selectedFolder.id : 'all'} 
                       onChange={handleFolderSelect}
-                    className="w-full p-2 text-sm border border-amber-200 dark:border-amber-700/30 rounded-lg bg-white dark:bg-black text-black dark:text-amber-50"
-                  >
-                    <option value="all">All Folders</option>
-                    {driveFolders.map(folder => (
-                          <option key={folder.id} value={folder.id}>
-                            {folder.name}
-                          </option>
-                    ))}
+                      className="w-full p-2 text-sm border border-amber-200 dark:border-amber-700/30 rounded-lg bg-white dark:bg-black text-black dark:text-amber-50"
+                    >
+                      <option value="all">All Folders</option>
+                      {driveFolders.map(folder => (
+                            <option key={folder.id} value={folder.id}>
+                              {folder.name}
+                            </option>
+                      ))}
                     </select>
                 </div>
 
@@ -514,7 +524,7 @@ function HomeDashboard({ session, status }) {
                 <div className="overflow-y-auto max-h-[500px] w-full rounded-lg bg-white/50 dark:bg-black shadow-inner border border-amber-200 dark:border-amber-700/20 transition-all duration-300">
                   {driveFiles.length > 0 ? (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 p-3">
-                      {driveFiles.map((file) => (
+                      {filteredFiles.map((file) => (
                           <div
                             key={file.id}
                           className={`w-full h-full transition-all duration-300 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900/20 p-3 rounded-lg border ${

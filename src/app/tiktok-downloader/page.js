@@ -424,7 +424,7 @@ function TikTokDownloaderContent() {
             </div>
           </div>
 
-          <div className="flex flex-col md:flex-row gap-4 mb-4">
+          <div className="flex flex-col md:flex-row gap-4 mb-4 justify-center items-center">
             <button
               onClick={() => fileInputRef.current.click()}
               className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-md flex items-center gap-2"
@@ -653,6 +653,81 @@ function TikTokDownloaderContent() {
           </div>
         )}
 
+        {/* Add folder destination display - تحسين وإزالة الكلام المكرر */}
+        {driveFolderId && false ? (
+          <div className="mt-4 p-3 bg-white dark:bg-gray-800 border border-amber-500 dark:border-amber-500 rounded-md">
+            <div className="flex items-center justify-between py-4 px-3">
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                  Videos will be saved to: <span className="font-bold text-amber-600 dark:text-amber-400">{folderName}</span>
+                </p>
+              </div>
+              <a
+                href={getDriveFolderUrl()}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-md flex items-center gap-2 text-sm"
+              >
+                <FaEye size={14} /> View Folder
+              </a>
+            </div>
+          </div>
+        ) : saveToDrive && !driveFolderId && false ? (
+          <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded-md">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-yellow-700 dark:text-yellow-400">
+                  Please select or create a folder in Google Drive
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Add local download notice when Drive is disabled */}
+        {!saveToDrive && false ? (
+          <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700 rounded-md">
+            <div className="flex items-center">
+              <div>
+                <p className="text-sm font-medium text-blue-700 dark:text-blue-400">
+                  Google Drive saving is disabled
+                </p>
+                <p className="text-xs text-blue-600 dark:text-blue-500 mt-1">
+                  Videos will be downloaded directly to your device
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Current status message - تحسين عرض حالة المجلد المختار */}
+        {!showFolderInput && !loadingFolders && !foldersError && (
+          <div className="mt-4 p-5 rounded-md bg-opacity-90 dark:bg-opacity-90 bg-slate-800 dark:bg-slate-900 border-2 border-amber-500 dark:border-amber-500 shadow-lg">
+            <div className="flex items-center justify-between">
+              <p className="text-md flex items-center">
+                <span className="mr-3 w-3 h-3 rounded-full inline-block" style={{ 
+                  backgroundColor: selectedFolderId ? '#22c55e' : '#f59e0b' 
+                }}></span>
+                <span className="font-medium text-white dark:text-white">
+                  {selectedFolderId 
+                    ? <span>Videos will be saved to: <span className="text-amber-400 dark:text-amber-400 font-bold">{folderName}</span></span>
+                    : <span className="text-amber-400 dark:text-amber-400 font-bold">No folder selected - videos will download locally</span>
+                  }
+                </span>
+              </p>
+              {driveFolderId && (
+                <a
+                  href={getDriveFolderUrl()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-md flex items-center gap-2 text-sm"
+                >
+                  <FaEye size={14} /> View Folder
+                </a>
+              )}
+            </div>
+          </div>
+        )}
         {jsonData && (
           <div className="mb-4">
             <div className="flex justify-between items-center mb-2">
@@ -662,7 +737,7 @@ function TikTokDownloaderContent() {
                   <button
                     onClick={downloadAllVideos}
                     disabled={loading || downloadingAll}
-                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-md flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-md flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed "
                   >
                     {loading || downloadingAll ? (
                       <>
@@ -878,81 +953,7 @@ function TikTokDownloaderContent() {
           </div>
         )}
 
-        {/* Add folder destination display */}
-        {driveFolderId ? (
-          <div className="mt-4 p-3 bg-white dark:bg-gray-800 border border-amber-500 dark:border-amber-500 rounded-md">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
-                  Videos will be saved to: <span className="font-bold text-amber-600 dark:text-amber-400">{folderName}</span>
-                </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  Videos will only be uploaded to Google Drive and not downloaded locally
-                </p>
-                <p className="text-xs text-blue-600 dark:text-blue-400 mt-2 flex items-center">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  Note: Videos may need processing time after upload before they can be played in Google Drive
-                </p>
-              </div>
-              <a
-                href={getDriveFolderUrl()}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-md flex items-center gap-2 text-sm"
-              >
-                <FaEye size={14} /> View Folder
-              </a>
-            </div>
-          </div>
-        ) : saveToDrive && (
-          <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded-md">
-            <div className="flex items-center">
-              <div>
-                <p className="text-sm font-medium text-yellow-700 dark:text-yellow-400">
-                  Please select or create a folder in Google Drive
-                </p>
-                <p className="text-xs text-yellow-600 dark:text-yellow-500 mt-1">
-                  Until a folder is selected, videos will be downloaded to your device
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Add local download notice when Drive is disabled */}
-        {!saveToDrive && (
-          <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700 rounded-md">
-            <div className="flex items-center">
-              <div>
-                <p className="text-sm font-medium text-blue-700 dark:text-blue-400">
-                  Google Drive saving is disabled
-                </p>
-                <p className="text-xs text-blue-600 dark:text-blue-500 mt-1">
-                  Videos will be downloaded directly to your device
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Current status message */}
-        {!showFolderInput && !loadingFolders && !foldersError && driveFolders.length > 0 && (
-          <div className="mt-4 p-2 rounded-md bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800">
-            <p className="text-sm flex items-center">
-              <span className="mr-2 w-2 h-2 rounded-full inline-block" style={{ 
-                backgroundColor: selectedFolderId ? '#22c55e' : '#f59e0b' 
-              }}></span>
-              <span>
-                {selectedFolderId 
-                  ? <span>Videos will be saved to Google Drive in <span className="font-medium text-amber-600 dark:text-amber-400">{folderName}</span></span>
-                  : <span className="text-amber-600 dark:text-amber-400 font-medium">No folder selected - videos will download locally</span>
-                }
-              </span>
-            </p>
-          </div>
-        )}
+       
       </div>
     </PageContainer>
   );
