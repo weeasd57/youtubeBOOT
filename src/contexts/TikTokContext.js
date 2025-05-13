@@ -27,10 +27,10 @@ export function TikTokProvider({ children }) {
   const { data: session } = useSession();
 
   // Function to fetch Google Drive folders - using useCallback to avoid dependency cycle
-  const fetchDriveFolders = useCallback(async () => {
+  const fetchDriveFolders = useCallback(async (options = {}) => {
     // Use the shared utility function
     const result = await fetchDriveFoldersWithCache({
-      forceRefresh: false,
+      forceRefresh: options.forceRefresh || false,
       setLoadingState: setLoadingFolders,
       setFoldersState: setDriveFolders,
       onFolderCheck: (folders) => {
@@ -124,7 +124,7 @@ export function TikTokProvider({ children }) {
     return true;
   };
 
-  // Create a folder in Google Drive
+  // Handle creating a new folder
   const createDriveFolder = async (customFolderName) => {
     try {
       // Use custom folder name if provided, otherwise use the state value
@@ -144,7 +144,12 @@ export function TikTokProvider({ children }) {
       }
 
       const data = await response.json();
-      setDriveFolderId(data.folderId);
+      // Don't set the folder ID here, let the calling component decide when to use it
+      // setDriveFolderId(data.folderId);
+      
+      // No need to refresh here - we'll handle the refresh in the component
+      // that called this function to better control the UI state
+      
       return data.folderId;
     } catch (error) {
       console.error('Error creating Drive folder:', error);
@@ -209,12 +214,11 @@ export function TikTokProvider({ children }) {
           
           // Handle specific error codes
           if (response.status === 403 || errorData.status === 403 || errorData.errorCode === 'PERMISSION_DENIED') {
-            toastHelper.error('Permission denied: Your Google account does not have permission to upload files to Drive. Please try refreshing your authentication or sign in with a different account.');
+            toastHelper.error('Permission denied: Your Google account does not have permission to upload files to Drive.');
             return { 
               success: false, 
               error: errorData.error || 'Permission denied when uploading to Google Drive',
-              errorCode: 'PERMISSION_DENIED',
-              alertShown: true
+              errorCode: 'PERMISSION_DENIED'
             };
           }
           
@@ -224,8 +228,7 @@ export function TikTokProvider({ children }) {
             return {
               success: false,
               error: errorData.error || 'Network error',
-              errorCode: 'NETWORK_ERROR',
-              alertShown: true
+              errorCode: 'NETWORK_ERROR'
             };
           }
           
@@ -280,6 +283,12 @@ export function TikTokProvider({ children }) {
 
       const data = await response.json();
       console.log('Got download URL:', data.downloadUrl);
+      
+      // If the API returned a fileSize, save it
+      if (data.fileSize) {
+        console.log('API returned file size:', data.fileSize);
+      }
+      
       return data.downloadUrl;
     } catch (error) {
       console.error('Error getting download link:', error);
@@ -290,40 +299,143 @@ export function TikTokProvider({ children }) {
   // Download video and save to Drive if enabled
   const downloadVideo = async (url, filename, videoDetails) => {
     try {
+      // Set up progress tracking
+      const videoId = videoDetails.videoId || extractVideoIdFromUrl(videoDetails.originalUrl);
+      
+      // Update video with progress at 0%
+      setVideos(prev => 
+        prev.map(v => v.id === videoDetails.id ? { 
+          ...v, 
+          progress: 0 
+        } : v)
+      );
+      
+      // Make a HEAD request first to get content length without downloading
+      try {
+        const headResponse = await fetch(url, { method: 'HEAD' });
+        if (headResponse.ok) {
+          const contentLength = headResponse.headers.get('content-length');
+          if (contentLength) {
+            const size = parseInt(contentLength, 10);
+            console.log(`HEAD request for ${videoDetails.id}: content-length = ${size} bytes`);
+            
+            // Update file size immediately
+            setVideos(prev => 
+              prev.map(v => v.id === videoDetails.id ? { 
+                ...v, 
+                fileSize: size
+              } : v)
+            );
+          }
+        }
+      } catch (headError) {
+        console.warn('HEAD request failed, will get size during download:', headError);
+      }
+      
+      // Create fetch with progress tracking
       const response = await fetch(url);
       if (!response.ok) throw new Error(`Failed to download: ${response.status}`);
       
-      const blob = await response.blob();
+      // Get the total size for progress calculation
+      const contentLength = response.headers.get('content-length');
+      const totalSize = contentLength ? parseInt(contentLength, 10) : 0;
+      
+      // Update video with file size
+      if (totalSize) {
+        console.log(`GET request content-length for ${videoDetails.id}: ${totalSize} bytes`);
+        setVideos(prev => 
+          prev.map(v => v.id === videoDetails.id ? { 
+            ...v, 
+            fileSize: totalSize 
+          } : v)
+        );
+      }
+      
+      // Set up a reader to track download progress
+      const reader = response.body.getReader();
+      let receivedLength = 0;
+      const chunks = [];
+      
+      while(true) {
+        const { done, value } = await reader.read();
+        
+        if (done) {
+          break;
+        }
+        
+        chunks.push(value);
+        receivedLength += value.length;
+        
+        // Calculate progress percentage
+        if (totalSize) {
+          const progressPercentage = Math.round((receivedLength / totalSize) * 100);
+          
+          // Update the video progress
+          setVideos(prev => 
+            prev.map(v => v.id === videoDetails.id ? { 
+              ...v, 
+              progress: progressPercentage 
+            } : v)
+          );
+        }
+      }
+      
+      // Concatenate all chunks into a single Uint8Array
+      let chunksAll = new Uint8Array(receivedLength);
+      let position = 0;
+      for (let chunk of chunks) {
+        chunksAll.set(chunk, position);
+        position += chunk.length;
+      }
+      
+      // Create a blob from the bytes
+      const blob = new Blob([chunksAll], { type: 'video/mp4' });
       const videoFile = new File([blob], filename, { type: 'video/mp4' });
       
-      // If save to drive is enabled, upload to Google Drive
-      if (saveToDrive && session) {
+      // Flag to track if Drive upload was successful
+      let driveUploadSuccessful = false;
+      
+      // Only upload to Drive if saveToDrive is enabled AND we have a selected folder ID
+      // This prevents creating a Drive folder when just creating a folder but not selecting it
+      if (saveToDrive && session && driveFolderId) {
         try {
           // Include videoId in the uploaded file details for consistent tracking
           const uploadDetails = {
             ...videoDetails,
-            videoId: videoDetails.videoId || extractVideoIdFromUrl(videoDetails.originalUrl)
+            videoId: videoId,
+            id: videoDetails.id, // Pass the id to track progress
+            fileSize: totalSize
           };
           
           const uploadResult = await uploadToDrive(videoFile, uploadDetails);
           if (uploadResult && uploadResult.success) {
             // Show success message
             toastHelper.success(`Video saved to Google Drive folder: ${folderName}`);
-            // Return without downloading locally if saving to Drive succeeded
-            return;
+            // Add a notification about processing time in Drive
+            toastHelper.info('Note: Videos may take some time to be processed by Google Drive before playback is available.');
+            
+            // Set flag that Drive upload was successful
+            driveUploadSuccessful = true;
+            
+            // Ask if user wants to also download locally
+            const wantLocalDownload = saveToDrive && driveUploadSuccessful && confirm(
+              "Video was successfully uploaded to Drive. Do you also want to download a local copy?"
+            );
+            
+            // Return without downloading locally if saving to Drive succeeded and user doesn't want local copy
+            if (!wantLocalDownload) {
+              return;
+            }
+            
+            // Otherwise continue to local download below
           } else {
             console.warn('Drive upload was not successful:', uploadResult?.error || 'Unknown error');
             
             // Check for permission errors
             if (uploadResult.errorCode === 'PERMISSION_DENIED' || 
                 (uploadResult.error && uploadResult.error.toLowerCase().includes('permission'))) {
-              // Store the permission error in localStorage so we can display a warning on page reload
-              localStorage.setItem('drive_permission_error', 'true');
-              
-              // Alert user about how to fix permission issues if not already shown
-              if (!uploadResult.alertShown) {
-                alert('Permission error: Your Google account may not have sufficient permissions to upload to Drive. Try signing out and back in with full Drive permissions.');
-              }
+              // Show permission error message
+              toastHelper.error('Permission error: Your Google account may not have sufficient permissions to upload to Drive.');
             }
             
             // Since Drive upload failed, show a message and fall back to local download
@@ -335,19 +447,25 @@ export function TikTokProvider({ children }) {
         }
       }
       
-      // Only download locally if saveToDrive is false or if Drive upload failed
-      if (!saveToDrive || !session) {
-        // Create a download link for the user's browser
-        const downloadUrl = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(downloadUrl);
-        
-        // Show a success message for local download
+      // Always download locally if:
+      // 1. saveToDrive is false, OR
+      // 2. We don't have a session, OR
+      // 3. We don't have a selected folder ID, OR
+      // 4. User wants a local copy even after successful Drive upload
+      // Create a download link for the user's browser
+      const downloadUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(downloadUrl);
+      
+      // Show a success message for local download
+      if (driveUploadSuccessful) {
+        toastHelper.success(`Local copy downloaded: ${filename}`);
+      } else {
         toastHelper.success(`Video downloaded to your device: ${filename}`);
       }
     } catch (error) {
@@ -378,6 +496,33 @@ export function TikTokProvider({ children }) {
           const items = data;
           for (let i = 0; i < items.length; i++) {
             const item = items[i];
+            
+            // Try to extract file size from various locations in the JSON structure
+            let fileSize = null;
+            
+            // Check all possible locations where file size might be stored
+            if (item.videoData && typeof item.videoData.fileSize === 'number') {
+              fileSize = item.videoData.fileSize;
+            } else if (item.videoMeta && typeof item.videoMeta.size === 'number') {
+              fileSize = item.videoMeta.size;
+            } else if (item.video && typeof item.video.size === 'number') {
+              fileSize = item.video.size;
+            } else if (item.videoDetails && typeof item.videoDetails.fileSize === 'number') {
+              fileSize = item.videoDetails.fileSize;
+            } else if (item.file && typeof item.file.size === 'number') {
+              fileSize = item.file.size;
+            }
+            
+            // Special case for newer TikTok format
+            if (item.video && item.video.playAddr && item.video.playAddr.byteCount) {
+              fileSize = parseInt(item.video.playAddr.byteCount, 10);
+            }
+            
+            // Log the file size extraction
+            if (fileSize) {
+              console.log(`Extracted file size for video ${i+1}: ${fileSize} bytes`);
+            }
+            
             extractedVideos.push({
               id: `video_${i}_${Date.now()}`,
               url: item.webVideoUrl || item.url || (item.videoData ? item.videoData.playAddr : null),
@@ -387,7 +532,9 @@ export function TikTokProvider({ children }) {
               text: item.text || '',
               desc: item.desc || '',
               status: 'pending',
-              downloadUrl: null
+              downloadUrl: null,
+              progress: 0,
+              fileSize: fileSize
             });
           }
         }
@@ -468,17 +615,17 @@ export function TikTokProvider({ children }) {
         setCurrentVideo(video);
         
         try {
-          // Update video status to processing
+          // Update video status to processing with 0% progress
           setVideos(prev => 
-            prev.map(v => v.id === video.id ? { ...v, status: 'processing' } : v)
+            prev.map(v => v.id === video.id ? { ...v, status: 'processing', progress: 0 } : v)
           );
           
           // Get download link
           const downloadUrl = await getDownloadLink(video.url);
           
-          // Update video with download URL
+          // Update video with download URL and prepare for downloading
           setVideos(prev => 
-            prev.map(v => v.id === video.id ? { ...v, status: 'downloading', downloadUrl } : v)
+            prev.map(v => v.id === video.id ? { ...v, status: 'downloading', downloadUrl, progress: 0 } : v)
           );
           
           // Download video
@@ -487,6 +634,7 @@ export function TikTokProvider({ children }) {
             const cleanedTitle = cleanTitle(video.title);
             const filename = `${cleanedTitle}.mp4`;
             await downloadVideo(downloadUrl, filename, {
+              ...video,
               title: cleanedTitle,
               description: video.text || video.desc || video.title,
               originalUrl: video.url,
@@ -495,18 +643,23 @@ export function TikTokProvider({ children }) {
             });
           }
           
-          // Update video status to completed
+          // Update video status to completed with 100% progress
           setVideos(prev => 
-            prev.map(v => v.id === video.id ? { ...v, status: 'completed' } : v)
+            prev.map(v => v.id === video.id ? { ...v, status: 'completed', progress: 100 } : v)
           );
         } catch (error) {
           // Update video status to failed
           setVideos(prev => 
-            prev.map(v => v.id === video.id ? { ...v, status: 'failed', error: error.message } : v)
+            prev.map(v => v.id === video.id ? { 
+              ...v, 
+              status: 'failed', 
+              error: error.message,
+              progress: 0 
+            } : v)
           );
         }
         
-        // Update progress
+        // Update overall progress
         setProgress(Math.round(((i + 1) / videos.length) * 100));
         
         // Delay to avoid blocking
@@ -552,24 +705,53 @@ export function TikTokProvider({ children }) {
           // Use title without hashtags for the filename
           const cleanedTitle = cleanTitle(video.title);
           const filename = `${cleanedTitle}.mp4`;
+          
+          // Reset progress to 0 before starting
+          setVideos(prev => 
+            prev.map(v => v.id === video.id ? { 
+              ...v, 
+              progress: 0,
+              status: 'downloading'
+            } : v)
+          );
+          
           await downloadVideo(video.downloadUrl, filename, {
+            ...video,
             title: cleanedTitle,
             description: video.text || video.desc || video.title,
             originalUrl: video.url,
             downloadUrl: video.downloadUrl,
             videoId: video.videoId || extractVideoIdFromUrl(video.url)
           });
+          
+          // Update video status to completed with 100% progress
+          setVideos(prev => 
+            prev.map(v => v.id === video.id ? { 
+              ...v, 
+              status: 'completed',
+              progress: 100 
+            } : v)
+          );
         } catch (e) {
           console.error('Error initiating download:', e);
           // Open in new tab as an alternative
           window.open(video.downloadUrl, '_blank');
+          
+          // Update video status to failed
+          setVideos(prev => 
+            prev.map(v => v.id === video.id ? { 
+              ...v, 
+              status: 'failed',
+              error: e.message 
+            } : v)
+          );
         }
         return;
       }
       
       // Update video status to processing
       setVideos(prev => 
-        prev.map(v => v.id === video.id ? { ...v, status: 'processing' } : v)
+        prev.map(v => v.id === video.id ? { ...v, status: 'processing', progress: 0 } : v)
       );
       
       // Get download link
@@ -577,7 +759,7 @@ export function TikTokProvider({ children }) {
       
       // Update video with download URL
       setVideos(prev => 
-        prev.map(v => v.id === video.id ? { ...v, status: 'downloading', downloadUrl } : v)
+        prev.map(v => v.id === video.id ? { ...v, status: 'downloading', downloadUrl, progress: 0 } : v)
       );
       
       // Download video
@@ -587,6 +769,7 @@ export function TikTokProvider({ children }) {
           const cleanedTitle = cleanTitle(video.title);
           const filename = `${cleanedTitle}.mp4`;
           await downloadVideo(downloadUrl, filename, {
+            ...video,
             title: cleanedTitle,
             description: video.text || video.desc || video.title,
             originalUrl: video.url,
@@ -594,9 +777,13 @@ export function TikTokProvider({ children }) {
             videoId: video.videoId || extractVideoIdFromUrl(video.url)
           });
           
-          // Update video status to completed
+          // Update video status to completed with 100% progress
           setVideos(prev => 
-            prev.map(v => v.id === video.id ? { ...v, status: 'completed' } : v)
+            prev.map(v => v.id === video.id ? { 
+              ...v, 
+              status: 'completed',
+              progress: 100 
+            } : v)
           );
         } catch (e) {
           console.error('Error downloading video:', e);
@@ -605,7 +792,11 @@ export function TikTokProvider({ children }) {
           
           // Still mark as completed since the link works
           setVideos(prev => 
-            prev.map(v => v.id === video.id ? { ...v, status: 'completed' } : v)
+            prev.map(v => v.id === video.id ? { 
+              ...v, 
+              status: 'completed',
+              progress: 100 
+            } : v)
           );
         }
       }
@@ -616,6 +807,7 @@ export function TikTokProvider({ children }) {
           ...v, 
           status: 'failed', 
           error: error.message,
+          progress: 0,
           downloadUrl: video.url // In case of failure, set the original URL to open directly
         } : v)
       );

@@ -22,6 +22,12 @@ export async function fetchDriveFoldersWithCache(options = {}) {
     setLoadingState(true);
   }
   
+  if (forceRefresh) {
+    console.log('Forcing refresh of Drive folders from API (bypassing cache)');
+    localStorage.removeItem('driveFolders');
+    localStorage.removeItem('driveFoldersTimestamp');
+  }
+  
   try {
     // Check cache first if not forcing refresh
     if (!forceRefresh) {
@@ -223,6 +229,44 @@ export async function fetchDriveFoldersWithCache(options = {}) {
         ? 'Fetching Drive folders timed out' 
         : `Error fetching Drive folders: ${error.message}`,
       isTimeout: isTimeout
+    };
+  }
+}
+
+/**
+ * Checks the processing status of a video in Google Drive
+ * 
+ * @param {string} fileId - The ID of the file in Google Drive
+ * @returns {Promise<object>} - Processing status information 
+ */
+export async function checkDriveVideoProcessing(fileId) {
+  if (!fileId) return { error: 'No file ID provided' };
+  
+  try {
+    const response = await fetch(`/api/drive/check-processing?fileId=${fileId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    
+    if (!response.ok) {
+      return { 
+        error: `Failed to check processing status: ${response.status}`,
+        status: 'error'
+      };
+    }
+    
+    const data = await response.json();
+    return {
+      ...data,
+      status: data.isProcessing ? 'processing' : 'ready'
+    };
+  } catch (error) {
+    console.error('Error checking video processing status:', error);
+    return { 
+      error: error.message || 'Unknown error checking processing status',
+      status: 'error'
     };
   }
 } 

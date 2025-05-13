@@ -472,7 +472,7 @@ function HomeDashboard({ session, status }) {
                 className={`px-4 py-2.5 border-b-2 font-medium transition-colors border-amber-500 text-black dark:text-white`}
               >
                 <span className="flex items-center gap-2">
-                  <FaCalendarAlt className="text-amber-500" />
+                    <FaCalendarAlt className="text-amber-500" />
                   Schedule Uploads
                 </span>
               </button>
@@ -483,11 +483,11 @@ function HomeDashboard({ session, status }) {
               {/* Drive Files Column - full width */}
               <div className="w-full mb-6">
                 <div className="flex justify-between items-center mb-3">
-                  <h3 className="text-lg font-medium text-black dark:text-amber-50">Your Drive Videos</h3>
+                    <h3 className="text-lg font-medium text-black dark:text-amber-50">Your Drive Videos</h3>
                   {driveFiles.length > 0 && (
                     <button 
                       onClick={selectAllFiles}
-                      className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-black/60 dark:hover:bg-black/80 text-black dark:text-amber-200/70 rounded border border-amber-200 dark:border-amber-700/30"
+                        className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-black/60 dark:hover:bg-black/80 text-black dark:text-amber-200/70 rounded border border-amber-200 dark:border-amber-700/30"
                     >
                       {selectedFiles.length === driveFiles.length ? 'Deselect All' : 'Select All'}
                     </button>
@@ -496,18 +496,18 @@ function HomeDashboard({ session, status }) {
 
                 {/* Add folder filter dropdown */}
                 <div className="mb-3 w-full">
-                  <select 
+                    <select
                     value={selectedFolder?.id || 'all'} 
-                    onChange={handleFolderSelect}
+                      onChange={handleFolderSelect}
                     className="w-full p-2 text-sm border border-amber-200 dark:border-amber-700/30 rounded-lg bg-white dark:bg-black text-black dark:text-amber-50"
                   >
                     <option value="all">All Folders</option>
                     {driveFolders.map(folder => (
-                      <option key={folder.id} value={folder.id}>
-                        {folder.name}
-                      </option>
+                          <option key={folder.id} value={folder.id}>
+                            {folder.name}
+                          </option>
                     ))}
-                  </select>
+                    </select>
                 </div>
 
                 {/* قائمة الفيديوهات بشكل شبكة */}
@@ -515,22 +515,22 @@ function HomeDashboard({ session, status }) {
                   {driveFiles.length > 0 ? (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 p-3">
                       {driveFiles.map((file) => (
-                        <div
-                          key={file.id}
+                          <div
+                            key={file.id}
                           className={`w-full h-full transition-all duration-300 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900/20 p-3 rounded-lg border ${
-                            selectedFiles.some(f => f.id === file.id)
+                              selectedFiles.some(f => f.id === file.id)
                               ? 'border-amber-500 bg-amber-50/30 dark:bg-amber-900/20'
                               : 'border-transparent'
-                          }`}
-                          onClick={() => handleScheduleSelect(file)}
-                        >
+                            }`}
+                            onClick={() => handleScheduleSelect(file)}
+                          >
                           <div className="flex flex-col h-full">
                             <div className="absolute top-2 left-2">
-                              <input 
-                                type="checkbox" 
-                                checked={selectedFiles.some(f => f.id === file.id)}
-                                onChange={() => handleScheduleSelect(file)}
-                                onClick={(e) => e.stopPropagation()}
+                                <input 
+                                  type="checkbox" 
+                                  checked={selectedFiles.some(f => f.id === file.id)}
+                                  onChange={() => handleScheduleSelect(file)}
+                                  onClick={(e) => e.stopPropagation()}
                                 className="w-4 h-4 text-amber-600"
                               />
                             </div>
@@ -542,7 +542,7 @@ function HomeDashboard({ session, status }) {
                           </div>
                         </div>
                       ))}
-                    </div>
+                      </div>
                   ) : (
                     <div className="p-4 text-center text-gray-500 dark:text-gray-400">
                       {loadingCombined ? (
@@ -552,7 +552,7 @@ function HomeDashboard({ session, status }) {
                       ) : (
                         <p>No videos found in your Drive</p>
                       )}
-                    </div>
+                      </div>
                   )}
                 </div>
               </div>

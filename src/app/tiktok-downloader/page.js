@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState, useEffect } from 'react';
-import { FaFileUpload, FaDownload, FaSpinner, FaEye, FaSync, FaPlus, FaFolder, FaGoogle, FaSyncAlt, FaExclamationTriangle } from 'react-icons/fa';
+import { FaFileUpload, FaDownload, FaSpinner, FaEye, FaSync, FaPlus, FaFolder, FaExclamationTriangle } from 'react-icons/fa';
 import { useSession } from 'next-auth/react';
 import Image from "next/image";
 import Link from "next/link";
@@ -147,22 +147,6 @@ function TikTokDownloaderContent() {
     }
   }, [session, saveToDrive, foldersLoaded]);
 
-  // Show a permissions warning if needed
-  useEffect(() => {
-    const hasPermissionError = localStorage.getItem('drive_permission_error');
-    if (hasPermissionError === 'true') {
-      setErrorMessage('Your Google account may have insufficient permissions to upload to Drive. Try signing out and back in with full Drive permissions.');
-      setFoldersError(true);
-    }
-  }, []);
-
-  // Helper function to handle permission errors
-  const handlePermissionError = () => {
-    localStorage.setItem('drive_permission_error', 'true');
-    setErrorMessage('Your Google account may have insufficient permissions to upload to Drive. Try signing out and back in with full Drive permissions.');
-    setFoldersError(true);
-  };
-
   // Load the folders with better error handling
   const loadFolders = async () => {
     // Don't call setLoadingFolders directly since it seems to have issues
@@ -179,24 +163,21 @@ function TikTokDownloaderContent() {
         setFoldersError(true);
 
         if (result.error && (result.error.includes('permission') || result.error.includes('Permission'))) {
-          handlePermissionError();
+          setErrorMessage('Your Google account may have insufficient permissions to upload to Drive.');
           return;
         }
 
         if (result.error && result.error.includes('timed out')) {
-          setErrorMessage(`${result.error} Try using the "Refresh Auth" button at the top of the page or try again later.`);
+          setErrorMessage(`${result.error} Please try again later.`);
         } else if (result.fromCache) {
           if (result.networkError) {
-            setErrorMessage('Network connectivity issue. Showing folders from cache. Try refreshing your authentication or check your internet connection.');
+            setErrorMessage('Network connectivity issue. Showing folders from cache. Check your internet connection.');
           } else {
-            setErrorMessage('Showing folders from cache. Some folders may be outdated. Try refreshing your authentication if you need the latest folders.');
+            setErrorMessage('Showing folders from cache. Some folders may be outdated.');
           }
         } else {
           setErrorMessage(result.error || 'Failed to load folders from Google Drive');
         }
-      } else {
-        // Success - clear any permission errors
-        localStorage.removeItem('drive_permission_error');
       }
 
       setFoldersLoaded(true);
@@ -212,24 +193,6 @@ function TikTokDownloaderContent() {
     console.log('Retrying folder fetch...');
     setFoldersLoaded(false);
     loadFolders();
-  };
-
-  // Add function to handle authentication refresh
-  const handleRefreshAuth = async () => {
-    toastHelper.info('Attempting to refresh Google authentication...');
-    
-    try {
-      // Clear any cached data that might be causing issues
-      localStorage.removeItem('driveFolders');
-      localStorage.removeItem('driveFoldersTimestamp');
-      localStorage.removeItem('drive_permission_error');
-      
-      // Redirect to the sign-in page with a force_reauth parameter
-      window.location.href = `/api/auth/signin?force_reauth=true&callbackUrl=${encodeURIComponent(window.location.href)}`;
-    } catch (error) {
-      console.error('Error attempting to refresh authentication:', error);
-      toastHelper.error('Failed to refresh authentication');
-    }
   };
 
   // Reset folders loaded flag when saveToDrive changes
@@ -254,7 +217,28 @@ function TikTokDownloaderContent() {
       const result = await createDriveFolder(folderName);
       if (result) {
         toastHelper.success(`Folder "${folderName}" created successfully!`);
-        await fetchDriveFolders(); // Refresh the folder list
+        
+        // Refresh the folder list with force refresh to ensure we see the new folder
+        setLoadingFolders(true);
+        try {
+          const refreshResult = await fetchDriveFolders({ forceRefresh: true });
+          
+          if (refreshResult && refreshResult.success) {
+            setFoldersLoaded(true);
+            
+            // Show notification about manually selecting the folder
+            toastHelper.info('Folder created. You need to select it to save videos to Drive.');
+            
+            // Hide the folder input form
+            setShowFolderInput(false);
+          } else {
+            console.error('Error refreshing folders after creation:', refreshResult?.error);
+          }
+        } catch (refreshError) {
+          console.error('Error refreshing folders after creation:', refreshError);
+        } finally {
+          setLoadingFolders(false);
+        }
       } else {
         toastHelper.error('Failed to create folder. Please check your connection and try again.');
       }
@@ -282,6 +266,7 @@ function TikTokDownloaderContent() {
       setSelectedFolderId('');
       // Clear the drive folder ID directly instead of calling useExistingFolder
       setDriveFolderId(null);
+      
       // Focus on folder name input when shown (in next render)
       setTimeout(() => {
         const inputElement = document.querySelector('input[placeholder="Enter folder name"]');
@@ -323,46 +308,92 @@ function TikTokDownloaderContent() {
   };
 
   // Status badge component
-  const getStatusBadge = (status) => {
+  const getStatusBadge = (status, videoProgress = 0, size = null) => {
     switch (status) {
       case 'pending':
         return (
-          <span className="px-3 py-1.5 text-xs bg-gray-700 text-gray-300 dark:bg-gray-700/50 dark:text-gray-300 rounded-full inline-flex items-center gap-1.5 font-medium border border-gray-600 dark:border-gray-600 shadow-sm">
-            <span className="w-2 h-2 rounded-full bg-gray-400 animate-pulse"></span>
-            Pending
-          </span>
+          <div className="space-y-1">
+            <span className="px-3 py-1.5 text-xs bg-gray-700 text-gray-300 dark:bg-gray-700/50 dark:text-gray-300 rounded-full inline-flex items-center gap-1.5 font-medium border border-gray-600 dark:border-gray-600 shadow-sm">
+              <span className="w-2 h-2 rounded-full bg-gray-400 animate-pulse"></span>
+              Pending
+            </span>
+            <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div className="h-full bg-gray-400 dark:bg-gray-500 rounded-full" style={{ width: '5%' }}></div>
+            </div>
+          </div>
         );
       case 'processing':
         return (
-          <span className="px-3 py-1.5 text-xs bg-amber-900/40 text-amber-400 dark:bg-amber-900/40 dark:text-amber-400 rounded-full inline-flex items-center gap-1.5 font-medium border border-amber-800 dark:border-amber-800 shadow-sm">
-            <FaSpinner className="animate-spin" size={12} />
-            Processing
-          </span>
+          <div className="space-y-1">
+            <span className="px-3 py-1.5 text-xs bg-amber-900/40 text-amber-400 dark:bg-amber-900/40 dark:text-amber-400 rounded-full inline-flex items-center gap-1.5 font-medium border border-amber-800 dark:border-amber-800 shadow-sm">
+              <FaSpinner className="animate-spin" size={12} />
+              Processing
+            </span>
+            <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div className="h-full bg-amber-500 dark:bg-amber-600 rounded-full" style={{ width: '30%' }}></div>
+            </div>
+          </div>
         );
       case 'downloading':
         return (
-          <span className="px-3 py-1.5 text-xs bg-amber-900/40 text-amber-400 dark:bg-amber-900/40 dark:text-amber-400 rounded-full inline-flex items-center gap-1.5 font-medium border border-amber-800 dark:border-amber-800 shadow-sm">
-            <FaSpinner className="animate-spin" size={12} />
-            Downloading
-          </span>
+          <div className="space-y-1">
+            <span className="px-3 py-1.5 text-xs bg-amber-900/40 text-amber-400 dark:bg-amber-900/40 dark:text-amber-400 rounded-full inline-flex items-center gap-1.5 font-medium border border-amber-800 dark:border-amber-800 shadow-sm">
+              <FaSpinner className="animate-spin" size={12} />
+              Downloading {videoProgress > 0 ? `(${videoProgress}%)` : ''}
+            </span>
+            <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div className="h-full bg-amber-500 dark:bg-amber-600 rounded-full relative overflow-hidden" 
+                  style={{ width: `${videoProgress || 50}%` }}>
+                <div className="absolute inset-0 overflow-hidden">
+                  <span className="absolute top-0 bottom-0 w-8 bg-white/30 -skew-x-30 animate-shimmer"></span>
+                </div>
+              </div>
+            </div>
+          </div>
         );
       case 'completed':
         return (
-          <span className="px-3 py-1.5 text-xs bg-amber-900/40 text-amber-400 dark:bg-amber-900/40 dark:text-amber-400 rounded-full inline-flex items-center gap-1.5 font-medium border border-amber-800 dark:border-amber-800 shadow-sm">
-            <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-            Completed
-          </span>
+          <div className="space-y-1">
+            <span className="px-3 py-1.5 text-xs bg-green-900/40 text-green-400 dark:bg-green-900/40 dark:text-green-400 rounded-full inline-flex items-center gap-1.5 font-medium border border-green-800 dark:border-green-800 shadow-sm">
+              <span className="w-2 h-2 rounded-full bg-green-500"></span>
+              Completed
+            </span>
+            <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div className="h-full bg-green-500 dark:bg-green-600 rounded-full" style={{ width: '100%' }}></div>
+            </div>
+          </div>
         );
       case 'failed':
         return (
-          <span className="px-3 py-1.5 text-xs bg-red-900/40 text-red-400 dark:bg-red-900/40 dark:text-red-400 rounded-full inline-flex items-center gap-1.5 font-medium border border-red-800 dark:border-red-800 shadow-sm">
-            <span className="w-2 h-2 rounded-full bg-red-500"></span>
-            Failed
-          </span>
+          <div className="space-y-1">
+            <span className="px-3 py-1.5 text-xs bg-red-900/40 text-red-400 dark:bg-red-900/40 dark:text-red-400 rounded-full inline-flex items-center gap-1.5 font-medium border border-red-800 dark:border-red-800 shadow-sm">
+              <span className="w-2 h-2 rounded-full bg-red-500"></span>
+              Failed
+            </span>
+            <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div className="h-full bg-red-500 dark:bg-red-600 rounded-full" style={{ width: '100%' }}></div>
+            </div>
+          </div>
         );
       default:
         return null;
     }
+  };
+  
+  // Format file size
+  const formatFileSize = (bytes) => {
+    if (bytes === null || bytes === undefined || isNaN(bytes)) {
+      return 'Unknown';
+    }
+    
+    // Make sure bytes is a number
+    const size = Number(bytes);
+    
+    if (size === 0) return '0 B';
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   };
 
   return (
@@ -436,10 +467,30 @@ function TikTokDownloaderContent() {
                       <div className="flex items-center gap-2">
                         <button
                           onClick={async () => {
-                            setFoldersLoaded(false);
-                            const result = await fetchDriveFolders();
-                            if (result && result.success) {
-                              setFoldersLoaded(true);
+                            // Set loading state
+                            setLoadingFolders(true);
+                            setFoldersError(false);
+                            toastHelper.info('Refreshing folders from Google Drive...');
+                            
+                            try {
+                              // Force refresh from API, not cache
+                              const result = await fetchDriveFolders({ forceRefresh: true });
+                              
+                              if (result && result.success) {
+                                setFoldersLoaded(true);
+                                toastHelper.success('Folder list refreshed successfully');
+                              } else {
+                                setFoldersError(true);
+                                setErrorMessage(result.error || 'Failed to refresh folders');
+                                toastHelper.error('Failed to refresh folders');
+                              }
+                            } catch (error) {
+                              console.error('Error refreshing folders:', error);
+                              setFoldersError(true);
+                              setErrorMessage(error.message || 'An error occurred while refreshing folders');
+                              toastHelper.error('Error refreshing folders');
+                            } finally {
+                              setLoadingFolders(false);
                             }
                           }}
                           disabled={loadingFolders}
@@ -451,24 +502,7 @@ function TikTokDownloaderContent() {
                           ) : (
                             <FaSync size={14} />
                           )}
-                          Refresh Folders
-                        </button>
-                        
-                        <button
-                          onClick={() => {
-                            toastHelper.info('Refreshing Google authentication...');
-                            // Clear any cached data
-                            localStorage.removeItem('driveFolders');
-                            localStorage.removeItem('driveFoldersTimestamp');
-                            localStorage.removeItem('drive_permission_error');
-                            // Redirect to auth refresh
-                            window.location.href = `/api/auth/signin?force_reauth=true&callbackUrl=${encodeURIComponent(window.location.href)}`;
-                          }}
-                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md flex items-center gap-2 text-xs"
-                          title="Refresh Google Authentication"
-                        >
-                          <FaSyncAlt size={14} />
-                          Refresh Auth
+                          {loadingFolders ? 'Refreshing...' : 'Refresh Folders'}
                         </button>
                       </div>
                     </div>
@@ -481,19 +515,11 @@ function TikTokDownloaderContent() {
                           <div>
                             <p>{errorMessage || 'Failed to load folders from Google Drive'}</p>
                             <button
-                              onClick={() => {
-                                toastHelper.info('Refreshing Google authentication...');
-                                // Clear any cached data
-                                localStorage.removeItem('driveFolders');
-                                localStorage.removeItem('driveFoldersTimestamp');
-                                localStorage.removeItem('drive_permission_error');
-                                // Redirect to auth refresh
-                                window.location.href = `/api/auth/signin?force_reauth=true&callbackUrl=${encodeURIComponent(window.location.href)}`;
-                              }}
-                              className="mt-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md flex items-center gap-2 text-xs w-auto"
+                              onClick={handleRetryFolders}
+                              className="mt-2 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-md flex items-center gap-2 text-xs w-auto"
                             >
-                              <FaSyncAlt size={14} />
-                              Refresh Google Authentication
+                              <FaSync size={14} />
+                              Retry Loading Folders
                             </button>
                           </div>
                         </div>
@@ -599,76 +625,6 @@ function TikTokDownloaderContent() {
                         </div>
                       </div>
                     )}
-
-                    {foldersError && (
-                      <div className="text-sm text-red-500 dark:text-red-400 mt-2">
-                        <p className="font-semibold">Error loading folders:</p>
-                        <p>{errorMessage || "Failed to load folders from Google Drive"}</p>
-                        <p className="mt-2">
-                          <a
-                            href="/debug"
-                            target="_blank"
-                            rel="noopener noreferrer" 
-                            className="text-blue-500 hover:underline"
-                          >
-                            View Drive Debug Info
-                          </a>
-                        </p>
-                      </div>
-                    )}
-                    
-                    {/* Add folder destination display */}
-                    {driveFolderId ? (
-                      <div className="mt-4 p-3 bg-white dark:bg-gray-800 border border-amber-500 dark:border-amber-500 rounded-md">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
-                              Videos will be saved to: <span className="font-bold text-amber-600 dark:text-amber-400">{folderName}</span>
-                            </p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                              Videos will only be uploaded to Google Drive and not downloaded locally
-                            </p>
-                          </div>
-                          <a
-                            href={getDriveFolderUrl()}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-md flex items-center gap-2 text-sm"
-                          >
-                            <FaEye size={14} /> View Folder
-                          </a>
-                        </div>
-                      </div>
-                    ) : saveToDrive && (
-                      <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded-md">
-                        <div className="flex items-center">
-                          <div>
-                            <p className="text-sm font-medium text-yellow-700 dark:text-yellow-400">
-                              Please select or create a folder in Google Drive
-                            </p>
-                            <p className="text-xs text-yellow-600 dark:text-yellow-500 mt-1">
-                              Until a folder is selected, videos will be downloaded to your device
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Add local download notice when Drive is disabled */}
-                    {!saveToDrive && (
-                      <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700 rounded-md">
-                        <div className="flex items-center">
-                          <div>
-                            <p className="text-sm font-medium text-blue-700 dark:text-blue-400">
-                              Google Drive saving is disabled
-                            </p>
-                            <p className="text-xs text-blue-600 dark:text-blue-500 mt-1">
-                              Videos will be downloaded directly to your device
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
@@ -691,15 +647,6 @@ function TikTokDownloaderContent() {
                 >
                   {loadingFolders ? <FaSpinner className="animate-spin" /> : <FaSync />}
                   {loadingFolders ? 'Loading...' : 'Reload Folders'}
-                </button>
-                
-                {/* Add Google Auth Refresh Button */}
-                <button 
-                  onClick={handleRefreshAuth}
-                  className="flex items-center gap-1 text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-800/40 transition-colors"
-                >
-                  <FaGoogle />
-                  Refresh Auth
                 </button>
               </div>
             </div>
@@ -775,12 +722,46 @@ function TikTokDownloaderContent() {
                   <div className="flex-1">
                     <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Processing video</h4>
                     <p className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-xs">{currentVideo.title || currentVideo.url}</p>
-                    <p className="text-xs text-amber-500 dark:text-amber-400 mt-1">
+                    <div className="mt-2">
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-xs font-medium text-gray-500 dark:text-gray-300">
+                          {currentVideo.progress || 0}% completed
+                        </span>
+                        {currentVideo.fileSize && (
+                          <span className="text-xs font-medium text-amber-500 dark:text-amber-500">
+                            {formatFileSize(currentVideo.fileSize)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-amber-500 dark:bg-amber-600 rounded-full relative overflow-hidden"
+                          style={{ width: `${currentVideo.progress || 0}%` }}
+                        >
+                          <div className="absolute inset-0 overflow-hidden">
+                            <span className="absolute top-0 bottom-0 w-8 bg-white/30 -skew-x-30 animate-shimmer"></span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-xs text-amber-500 dark:text-amber-400 mt-2">
                       {saveToDrive && driveFolderId 
                         ? `Saving to Google Drive: ${folderName}` 
-                        : 'Downloading to your device'}
+                        : <span className="font-bold">Downloading to your device</span>}
                     </p>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* Add a save location banner if no Drive folder is selected */}
+            {saveToDrive && !driveFolderId && videos.length > 0 && (
+              <div className="mb-6 p-3 bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-300 dark:border-yellow-700 rounded-md">
+                <div className="flex items-center text-yellow-700 dark:text-yellow-400">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <span className="font-medium">No Drive folder selected! All videos will download to your device storage.</span>
                 </div>
               </div>
             )}
@@ -793,12 +774,17 @@ function TikTokDownloaderContent() {
                       <tr className="bg-gray-50 dark:bg-black">
                         <th className="px-6 py-4 text-left text-xs font-bold text-amber-600 dark:text-amber-500 uppercase tracking-wider rounded-tl-lg">Video</th>
                         <th className="px-6 py-4 text-left text-xs font-bold text-amber-600 dark:text-amber-500 uppercase tracking-wider">Link</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-amber-600 dark:text-amber-500 uppercase tracking-wider whitespace-nowrap">File Size</th>
                         <th className="px-6 py-4 text-left text-xs font-bold text-amber-600 dark:text-amber-500 uppercase tracking-wider">Status</th>
                         <th className="px-6 py-4 text-left text-xs font-bold text-amber-600 dark:text-amber-500 uppercase tracking-wider rounded-tr-lg">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {videos.map((video, index) => (
+                      {videos.map((video, index) => {
+                        // Add debug log for file size
+                        console.log(`Rendering video ${video.id}: fileSize = ${video.fileSize}, formatted = ${formatFileSize(video.fileSize)}`);
+                        
+                        return (
                         <tr key={video.id} className={`transition-colors hover:bg-gray-100 dark:hover:bg-gray-900 border-b border-gray-200 dark:border-gray-800`}>
                           <td className="px-6 py-4 text-left">
                             <div className="text-sm font-semibold text-gray-800 dark:text-gray-300">
@@ -820,7 +806,20 @@ function TikTokDownloaderContent() {
                             <div className="text-sm text-gray-600 dark:text-gray-400 truncate max-w-xs">{video.url}</div>
                           </td>
                           <td className="px-6 py-4 text-left">
-                            {getStatusBadge(video.status)}
+                            <div className="text-sm font-semibold text-amber-600 dark:text-amber-500">
+                              {video.fileSize ? formatFileSize(video.fileSize) : (
+                                <span className="inline-flex items-center">
+                                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-amber-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                  </svg>
+                                  Checking
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-left">
+                            {getStatusBadge(video.status, video.progress, video.fileSize)}
                           </td>
                           <td className="px-6 py-4 text-left">
                             <div className="flex flex-col md:flex-row gap-2">
@@ -850,15 +849,108 @@ function TikTokDownloaderContent() {
                                   Open Original
                                 </button>
                               )}
+                              {video.status === 'completed' && saveToDrive && driveFolderId && (
+                                <button
+                                  onClick={() => {
+                                    const choice = confirm("Note: The video may need time to be processed by Google Drive before viewing. Do you want to continue?");
+                                    if (choice) {
+                                      window.open(`${getDriveFolderUrl()}?resourcekey=${video.videoId || ''}`, '_blank');
+                                    }
+                                  }}
+                                  className="px-3 py-1.5 rounded-md flex items-center gap-1 bg-purple-200 hover:bg-purple-300 text-purple-700 dark:bg-purple-700 dark:text-purple-200 dark:hover:bg-purple-600 hover:scale-105 transition-all"
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                                  </svg>
+                                  View in Drive
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Add folder destination display */}
+        {driveFolderId ? (
+          <div className="mt-4 p-3 bg-white dark:bg-gray-800 border border-amber-500 dark:border-amber-500 rounded-md">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                  Videos will be saved to: <span className="font-bold text-amber-600 dark:text-amber-400">{folderName}</span>
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Videos will only be uploaded to Google Drive and not downloaded locally
+                </p>
+                <p className="text-xs text-blue-600 dark:text-blue-400 mt-2 flex items-center">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Note: Videos may need processing time after upload before they can be played in Google Drive
+                </p>
+              </div>
+              <a
+                href={getDriveFolderUrl()}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-md flex items-center gap-2 text-sm"
+              >
+                <FaEye size={14} /> View Folder
+              </a>
+            </div>
+          </div>
+        ) : saveToDrive && (
+          <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded-md">
+            <div className="flex items-center">
+              <div>
+                <p className="text-sm font-medium text-yellow-700 dark:text-yellow-400">
+                  Please select or create a folder in Google Drive
+                </p>
+                <p className="text-xs text-yellow-600 dark:text-yellow-500 mt-1">
+                  Until a folder is selected, videos will be downloaded to your device
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Add local download notice when Drive is disabled */}
+        {!saveToDrive && (
+          <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700 rounded-md">
+            <div className="flex items-center">
+              <div>
+                <p className="text-sm font-medium text-blue-700 dark:text-blue-400">
+                  Google Drive saving is disabled
+                </p>
+                <p className="text-xs text-blue-600 dark:text-blue-500 mt-1">
+                  Videos will be downloaded directly to your device
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Current status message */}
+        {!showFolderInput && !loadingFolders && !foldersError && driveFolders.length > 0 && (
+          <div className="mt-4 p-2 rounded-md bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800">
+            <p className="text-sm flex items-center">
+              <span className="mr-2 w-2 h-2 rounded-full inline-block" style={{ 
+                backgroundColor: selectedFolderId ? '#22c55e' : '#f59e0b' 
+              }}></span>
+              <span>
+                {selectedFolderId 
+                  ? <span>Videos will be saved to Google Drive in <span className="font-medium text-amber-600 dark:text-amber-400">{folderName}</span></span>
+                  : <span className="text-amber-600 dark:text-amber-400 font-medium">No folder selected - videos will download locally</span>
+                }
+              </span>
+            </p>
           </div>
         )}
       </div>

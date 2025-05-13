@@ -240,14 +240,154 @@ export async function GET(request) {
         } catch (thirdMethodError) {
           console.error('Third method also failed:', thirdMethodError);
           
-          // En caso de error en todos los métodos, devolver error detallado
+          // Try a fourth method
+          try {
+            console.log('Third method failed. Trying fourth method with MusicalDown...');
+            
+            // Method using MusicalDown
+            const musicalDownURL = 'https://musicaldown.com/api/post';
+            const musicalParams = new URLSearchParams();
+            musicalParams.append('link', url);
+            
+            const musicalResponse = await axios.post(musicalDownURL, musicalParams.toString(), {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Accept': 'application/json',
+                'Origin': 'https://musicaldown.com',
+                'Referer': 'https://musicaldown.com/'
+              },
+              timeout: 15000
+            });
+            
+            if (musicalResponse.data && musicalResponse.data.links && musicalResponse.data.links.length > 0) {
+              console.log('Fourth method successful. Downloading video...');
+              const musicalVideoURL = musicalResponse.data.links[0].url; // Get first download link
+              
+              const musicalVideoResponse = await axios({
+                method: 'GET',
+                url: musicalVideoURL,
+                responseType: 'arraybuffer',
+                timeout: 30000,
+                headers: {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                  'Referer': 'https://musicaldown.com/'
+                }
+              });
+              
+              console.log('Video downloaded via fourth method, size:', musicalVideoResponse.data.byteLength);
+              
+              // Use video ID or timestamp for filename
+              const fileName = videoId ? `tiktok-${videoId}.mp4` : `tiktok-${Date.now()}.mp4`;
+              
+              // Return the video as response
+              return new NextResponse(musicalVideoResponse.data, {
+                headers: {
+                  'Content-Type': 'video/mp4',
+                  'Content-Disposition': `attachment; filename="${fileName}"`,
+                },
+              });
+            } else {
+              throw new Error('Fourth method failed: Invalid response');
+            }
+          } catch (fourthMethodError) {
+            console.error('Fourth method also failed:', fourthMethodError);
+            
+            // Try a fifth method - directly accessing TikTok with a different approach
+            try {
+              console.log('Fourth method failed. Trying fifth method using TikTok API...');
+              
+              // First get the HTML content of the TikTok page
+              const tiktokResponse = await axios.get(url, {
+                headers: {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                  'Accept': 'text/html,application/xhtml+xml,application/xml',
+                  'Accept-Language': 'en-US,en;q=0.9'
+                },
+                timeout: 15000
+              });
+              
+              // Extract video data from the HTML
+              const html = tiktokResponse.data;
+              
+              // Look for video URL in the HTML content
+              let directVideoUrl = null;
+              
+              // Method 1: Try to find it in the JSON data embedded in the page
+              const jsonMatch = html.match(/<script id="SIGI_STATE" type="application\/json">(.*?)<\/script>/s);
+              if (jsonMatch && jsonMatch[1]) {
+                try {
+                  const jsonData = JSON.parse(jsonMatch[1]);
+                  
+                  // Navigate through the JSON structure to find video URL
+                  if (jsonData.ItemModule && Object.keys(jsonData.ItemModule).length > 0) {
+                    const firstKey = Object.keys(jsonData.ItemModule)[0];
+                    const videoItem = jsonData.ItemModule[firstKey];
+                    
+                    if (videoItem && videoItem.video && videoItem.video.playAddr) {
+                      directVideoUrl = videoItem.video.playAddr;
+                      console.log('Found video URL in JSON data:', directVideoUrl);
+                    }
+                  }
+                } catch (jsonError) {
+                  console.error('Error parsing JSON data from TikTok page:', jsonError);
+                }
+              }
+              
+              // Method 2: Try regex approach
+              if (!directVideoUrl) {
+                const urlRegex = /"playAddr":"([^"]+)"/;
+                const urlMatch = html.match(urlRegex);
+                if (urlMatch && urlMatch[1]) {
+                  directVideoUrl = urlMatch[1].replace(/\\u002F/g, '/');
+                  console.log('Found video URL using regex:', directVideoUrl);
+                }
+              }
+              
+              if (directVideoUrl) {
+                console.log('Fifth method successful. Downloading video...');
+                
+                const directVideoResponse = await axios({
+                  method: 'GET',
+                  url: directVideoUrl,
+                  responseType: 'arraybuffer',
+                  timeout: 30000,
+                  headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                    'Referer': url
+                  }
+                });
+                
+                console.log('Video downloaded via fifth method, size:', directVideoResponse.data.byteLength);
+                
+                // Use video ID or timestamp for filename
+                const fileName = videoId ? `tiktok-${videoId}.mp4` : `tiktok-${Date.now()}.mp4`;
+                
+                // Return the video as response
+                return new NextResponse(directVideoResponse.data, {
+                  headers: {
+                    'Content-Type': 'video/mp4',
+                    'Content-Disposition': `attachment; filename="${fileName}"`,
+                  },
+                });
+              } else {
+                throw new Error('Fifth method failed: Could not find video URL');
+              }
+            } catch (fifthMethodError) {
+              console.error('Fifth method also failed:', fifthMethodError);
+              
+              // Return detailed error for all failed methods
           return NextResponse.json({ 
             error: 'Failed to download video with all methods', 
             details: error.message,
             alternateError: alternateError.message,
             thirdMethodError: thirdMethodError.message,
+                fourthMethodError: fourthMethodError.message,
+                fifthMethodError: fifthMethodError.message,
             url: url 
           }, { status: 500 });
+            }
+          }
         }
       }
     }

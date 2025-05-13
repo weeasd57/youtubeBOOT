@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth/next';
 import { NextResponse } from 'next/server';
 import { authOptions } from '../../auth/[...nextauth]/options';
 import { getValidAccessToken } from '@/utils/refreshToken';
-import { saveTikTokVideoData } from '@/utils/supabase';
+import { saveTikTokVideoData } from '@/utils/supabase-server';
 import axios from 'axios';
 
 export async function POST(req) {
