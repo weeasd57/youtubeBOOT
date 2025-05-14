@@ -248,6 +248,8 @@ function HomeDashboard({ session, status }) {
 
   // Select all files for scheduling
   const selectAllFiles = () => {
+    if (!driveFiles) return;
+    
     if (selectedFiles.length === driveFiles.length) {
       setSelectedFiles([]);
     } else {
@@ -350,7 +352,7 @@ function HomeDashboard({ session, status }) {
 
   // Refresh Drive folders
   const refreshFolders = useCallback(async () => {
-    if (foldersLoading) return; // Avoid multiple simultaneous refreshes
+    if (foldersLoading || typeof fetchDriveFolders !== 'function') return; // Avoid multiple simultaneous refreshes
     
     try {
       await fetchDriveFolders(true);
@@ -361,7 +363,9 @@ function HomeDashboard({ session, status }) {
         if (session?.accessToken) {
           await fetch('/api/drive-refreshtoken?force=true');
           // Retry folder fetch after token refresh
-          await fetchDriveFolders(true);
+          if (typeof fetchDriveFolders === 'function') {
+            await fetchDriveFolders(true);
+          }
         }
       } catch (retryError) {
         console.error('Failed to refresh folders after token refresh:', retryError);
@@ -371,11 +375,11 @@ function HomeDashboard({ session, status }) {
 
   // Effect for initial data load when session changes
   useEffect(() => {
-    if (status === 'authenticated' && !foldersLoading && driveFolders.length === 0) {
+    if (status === 'authenticated' && !foldersLoading && (!driveFolders || driveFolders.length === 0) && typeof fetchDriveFolders === 'function') {
       // Only fetch folders when component mounts and we don't have any folders yet
       fetchDriveFolders(true);
     }
-  }, [status, fetchDriveFolders, foldersLoading, driveFolders.length]);
+  }, [status, fetchDriveFolders, foldersLoading, driveFolders]);
 
   // Handle folder selection
   const handleFolderSelect = async (e) => {
@@ -406,7 +410,7 @@ function HomeDashboard({ session, status }) {
     }
     
     // إستبعاد المجلدات من القائمة أولاً
-    const videoFiles = driveFiles.filter(file => file.mimeType !== 'application/vnd.google-apps.folder');
+    const videoFiles = driveFiles.filter(file => file && file.mimeType !== 'application/vnd.google-apps.folder');
     
     // If selectedFolder is null or 'all', return all files (excluding folders)
     if (!selectedFolder) {
@@ -416,7 +420,7 @@ function HomeDashboard({ session, status }) {
     
     // Otherwise filter by selected folder
     console.log(`Filtering ${videoFiles.length} files by folder: ${selectedFolder.id}`);
-    const filtered = videoFiles.filter(file => file.parents && file.parents.includes(selectedFolder.id));
+    const filtered = videoFiles.filter(file => file && file.parents && file.parents.includes(selectedFolder.id));
     console.log(`Found ${filtered.length} files in folder ${selectedFolder.id}`);
     return filtered;
   }, [driveFiles, selectedFolder]);
@@ -424,11 +428,15 @@ function HomeDashboard({ session, status }) {
   // Add some debug logging for folder selection
   useEffect(() => {
     console.log('Selected folder changed:', selectedFolder);
-    console.log('Filtered files count:', filteredFiles.length);
-  }, [selectedFolder, filteredFiles.length]);
+    if (filteredFiles) {
+      console.log('Filtered files count:', filteredFiles.length);
+    } else {
+      console.log('Filtered files is undefined');
+    }
+  }, [selectedFolder, filteredFiles]);
 
   // Show loading spinner while checking authentication
-  if (status === 'loading' || (status === 'authenticated' && initialLoading && !driveFiles.length)) {
+  if (status === 'loading' || (status === 'authenticated' && initialLoading && (!driveFiles || !driveFiles.length))) {
     return (
       <div className="min-h-screen p-8 flex items-center justify-center dark:bg-black" suppressHydrationWarning>
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 dark:border-blue-400" suppressHydrationWarning></div>
@@ -460,8 +468,12 @@ function HomeDashboard({ session, status }) {
             <div className="mb-4">
               <button
                 onClick={() => {
-                  syncDriveChanges(true);
-                  fetchDriveFolders(true);
+                  if (typeof syncDriveChanges === 'function') {
+                    syncDriveChanges(true);
+                  }
+                  if (typeof fetchDriveFolders === 'function') {
+                    fetchDriveFolders(true);
+                  }
                 }}
                 disabled={loadingCombined}
                 className="w-full px-3 py-2 flex items-center justify-center gap-2 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-900/40 border border-blue-200 dark:border-amber-700/30 rounded-md transition-all duration-300"
@@ -494,12 +506,12 @@ function HomeDashboard({ session, status }) {
               <div className="w-full mb-6">
                 <div className="flex justify-between items-center mb-3">
                     <h3 className="text-lg font-medium text-black dark:text-amber-50">Your Drive Videos</h3>
-                  {driveFiles.length > 0 && (
+                  {driveFiles && driveFiles.length > 0 && (
                     <button 
                       onClick={selectAllFiles}
                         className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-black/60 dark:hover:bg-black/80 text-black dark:text-amber-200/70 rounded border border-amber-200 dark:border-amber-700/30"
                     >
-                      {selectedFiles.length === driveFiles.length ? 'Deselect All' : 'Select All'}
+                      {selectedFiles.length === (driveFiles ? driveFiles.length : 0) ? 'Deselect All' : 'Select All'}
                     </button>
                   )}
                 </div>
@@ -512,7 +524,7 @@ function HomeDashboard({ session, status }) {
                       className="w-full p-2 text-sm border border-amber-200 dark:border-amber-700/30 rounded-lg bg-white dark:bg-black text-black dark:text-amber-50"
                     >
                       <option value="all">All Folders</option>
-                      {driveFolders.map(folder => (
+                      {driveFolders && driveFolders.map(folder => (
                             <option key={folder.id} value={folder.id}>
                               {folder.name}
                             </option>
@@ -522,9 +534,9 @@ function HomeDashboard({ session, status }) {
 
                 {/* قائمة الفيديوهات بشكل شبكة */}
                 <div className="overflow-y-auto max-h-[500px] w-full rounded-lg bg-white/50 dark:bg-black shadow-inner border border-amber-200 dark:border-amber-700/20 transition-all duration-300">
-                  {driveFiles.length > 0 ? (
+                  {driveFiles && driveFiles.length > 0 ? (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 p-3">
-                      {filteredFiles.map((file) => (
+                      {filteredFiles && filteredFiles.map((file) => (
                           <div
                             key={file.id}
                           className={`w-full h-full transition-all duration-300 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900/20 p-3 rounded-lg border ${
@@ -569,7 +581,7 @@ function HomeDashboard({ session, status }) {
               
               {/* Upload Form - full width */}
               <div className="w-full">
-                {selectedFiles.length > 0 ? (
+                {selectedFiles && selectedFiles.length > 0 ? (
                   <ScheduleUploadForm
                     multipleFiles={selectedFiles}
                     onScheduled={() => {

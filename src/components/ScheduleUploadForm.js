@@ -8,6 +8,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { InfoCircledIcon } from "@radix-ui/react-icons";
 import DriveThumbnail from '@/components/DriveThumbnail';
+import { processVideoTitle, generateCleanTitleFromFileName } from '@/utils/titleHelpers';
 
 // Add a custom app logo component for consistency
 const AppLogoIcon = ({ className = "", size = 24 }) => (
@@ -54,46 +55,6 @@ const extractHashtags = (text) => {
   return [...new Set(allTags)];
 };
 
-// Helper function to generate a clean title from filename
-const generateCleanTitle = (fileName) => {
-  if (!fileName) return '';
-  
-  // Extract TikTok ID if present
-  let title = fileName;
-  const tiktokMatch = fileName.match(/tiktok-(\d+)-(.+?)\.mp4$/i);
-  
-  if (tiktokMatch) {
-    // Get the part after the TikTok ID
-    title = tiktokMatch[2];
-  } else {
-    // Remove file extension for non-TikTok files
-    title = fileName.replace(/\.(mp4|mov|avi|mkv|wmv)$/i, '');
-  }
-  
-  // Remove hashtags
-  title = title.replace(/#[a-zA-Z0-9_]+/g, '').trim();
-  
-  // Replace multiple underscores, dashes or spaces with a single space
-  title = title.replace(/[_\s-]+/g, ' ').trim();
-  
-  // If title is too short or just contains special characters, use a fallback
-  if (title.length < 3 || /^[\s_\-]+$/.test(title)) {
-    if (tiktokMatch) {
-      return `TikTok Video ${tiktokMatch[1].substring(0, 6)}`;
-    } else {
-      return 'Untitled Video';
-    }
-  }
-  
-  // Capitalize first letter of each word
-  title = title.replace(/\b\w/g, c => c.toUpperCase());
-  
-  // Remove any extra spaces
-  title = title.replace(/\s+/g, ' ').trim();
-  
-  return title;
-};
-
 // Helper function to get the next available time (tomorrow at noon)
 const getNextAvailableTime = () => {
   const tomorrow = new Date();
@@ -105,7 +66,7 @@ const getNextAvailableTime = () => {
 // Helper function to initialize file data
 const initializeFileData = (file) => {
   // استخدام بيانات TikTok إذا كانت موجودة
-  const title = file.tiktokData?.title || generateCleanTitle(file.name);
+  const title = file.tiktokData?.title || generateCleanTitleFromFileName(file.name);
   const description = file.tiktokData?.description || '';
   const hashtags = file.tiktokData?.hashtags || extractHashtags(title);
   
@@ -136,6 +97,7 @@ export default function ScheduleUploadForm({ file, multipleFiles = [], onSchedul
   const [showBatchOptions, setShowBatchOptions] = useState(true); // Set to true by default to always show batch tools
   const [simpleTimeFormat, setSimpleTimeFormat] = useState({}); // Track which rows use simple time format
   const [schedulingInfo, setSchedulingInfo] = useState(null);
+  const [processedTitlePreviews, setProcessedTitlePreviews] = useState({});
 
   const { scheduleUpload, loading } = useScheduledUploads();
 
@@ -164,6 +126,21 @@ export default function ScheduleUploadForm({ file, multipleFiles = [], onSchedul
     setFilesData(prevData => {
       const newData = [...prevData];
       newData[index] = { ...newData[index], [field]: value, rowError: null }; // Clear row error on input change
+      
+      if (field === 'title' && value.length > 100) {
+        const processedTitle = processVideoTitle(value);
+        setProcessedTitlePreviews(prev => ({
+          ...prev,
+          [index]: processedTitle
+        }));
+      } else if (field === 'title') {
+        setProcessedTitlePreviews(prev => {
+          const newPreviews = { ...prev };
+          delete newPreviews[index];
+          return newPreviews;
+        });
+      }
+      
       return newData;
     });
     // Clear global validation error when any input changes, as it will be re-evaluated
@@ -666,7 +643,7 @@ export default function ScheduleUploadForm({ file, multipleFiles = [], onSchedul
                     </div>
                     <div className="ml-3">
                       <div className="text-xs font-medium text-gray-800 dark:text-white truncate max-w-[120px]" title={video.fileName}>
-                        {generateCleanTitle(video.fileName)}
+                        {generateCleanTitleFromFileName(video.fileName)}
                       </div>
                       <div className="flex items-center gap-1 mt-1">
                         <button
@@ -696,6 +673,14 @@ export default function ScheduleUploadForm({ file, multipleFiles = [], onSchedul
                         className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm dark:bg-black dark:text-white transition-all ${video.rowError && video.rowError.includes('Title') ? 'border-red-500 dark:border-red-400' : 'border-gray-200 dark:border-gray-600'}`}
                         placeholder="Video Title"
                       />
+                      {processedTitlePreviews[index] && (
+                        <div className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                          <span className="font-semibold">تنبيه:</span> العنوان طويل جدًا (أكثر من 100 حرف). سيتم اختصاره إلى:
+                          <div className="p-2 mt-1 bg-amber-50 dark:bg-amber-900/30 rounded border border-amber-200 dark:border-amber-800">
+                            {processedTitlePreviews[index]}
+                          </div>
+                        </div>
+                      )}
                     </div>
                     
                     <div>

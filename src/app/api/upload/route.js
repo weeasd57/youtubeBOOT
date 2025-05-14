@@ -6,6 +6,7 @@ import { Readable } from 'stream';
 import { EventEmitter } from 'events';
 import { getValidAccessToken } from '@/utils/refreshToken';
 import { supabaseAdmin } from '@/utils/supabase';
+import { processVideoTitle } from '@/utils/titleHelpers';
 
 // Global events emitter to track uploads in progress
 const uploadEvents = new EventEmitter();
@@ -130,8 +131,8 @@ export async function POST(request) {
     // Initialize YouTube API with the same fresh token
     const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
     
-    // Format title to include #Shorts if not already present
-    const formattedTitle = title.includes('#Shorts') ? title : `${title} #Shorts`;
+    // استخدام دالة معالجة العنوان لتأكد من أن العنوان لا يتجاوز 100 حرف وأخذ أول 4 كلمات إذا كان طويلاً
+    const formattedTitle = processVideoTitle(title);
     
     // Create the video resource
     const videoResource = {

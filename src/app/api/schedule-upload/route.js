@@ -2,6 +2,7 @@ import { getServerSession } from 'next-auth/next';
 import { NextResponse } from 'next/server';
 import { authOptions } from '../auth/[...nextauth]/options';
 import { supabaseAdmin } from '@/utils/supabase';
+import { processVideoTitle } from '@/utils/titleHelpers';
 
 // Get scheduled uploads for the current user
 export async function GET() {
@@ -110,20 +111,8 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Title is required' }, { status: 400 });
     }
     
-    // تنظيف العنوان من الأحرف غير الصالحة
-    videoTitle = videoTitle.trim().replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
-    
-    // التأكد مرة أخرى أن العنوان ليس فارغا بعد التنظيف
-    if (videoTitle === '') {
-      return NextResponse.json({ 
-        error: 'Title contains only invalid characters. Please provide a valid title.' 
-      }, { status: 400 });
-    }
-    
-    // تقييد طول العنوان إلى 100 حرف (حد YouTube)
-    if (videoTitle.length > 100) {
-      videoTitle = videoTitle.substring(0, 100);
-    }
+    // استخدام دالة معالجة العنوان الجديدة
+    videoTitle = processVideoTitle(videoTitle);
     
     // تنظيف الوصف
     let videoDescription = uploadData.description || '';

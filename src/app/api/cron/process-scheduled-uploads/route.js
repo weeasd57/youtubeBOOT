@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/utils/supabase';
 import { Readable } from 'stream';
 import { getValidAccessToken } from '@/utils/refreshToken';
+import { processVideoTitle } from '@/utils/titleHelpers';
 
 // Helper function to convert ArrayBuffer to Stream
 function bufferToStream(buffer) {
@@ -196,7 +197,6 @@ export async function GET(request) {
           // Initialize YouTube API
           const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
           
-          // Format title to include #Shorts if not already present
           // تحقق من وجود عنوان صالح وتوفير قيمة افتراضية إذا كان فارغا
           let videoTitle = upload.title || fileDetails.data.name || `Video Upload ${new Date().toISOString().split('T')[0]}`;
           
@@ -206,90 +206,10 @@ export async function GET(request) {
           // للتشخيص: سجل العنوان الأصلي
           console.log(`Original title before processing: "${originalTitle}"`);
           
-          // تنظيف العنوان من أي أحرف غير صالحة
-          videoTitle = videoTitle.trim()
-            // استبدل أحرف التحكم (\u0000-\u001F) والأحرف غير المرئية (\u007F-\u009F)
-            .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
-            // استبدل الرموز الخاصة التي قد تسبب مشاكل في YouTube API
-            .replace(/[<>:"\/\\|?*%&{}$~^]/g, ' ')
-            // تحويل علامات الهاشتاج إلى شكل متوافق
-            .replace(/(^|\s)#/g, '$1hashtag_')
-            // تصحيح المسافات المتعددة
-            .replace(/\s+/g, ' ');
+          // استخدام دالة معالجة العنوان لتأخذ أول 4 كلمات إذا كان العنوان أطول من 100 حرف
+          const formattedTitle = processVideoTitle(videoTitle);
           
-          console.log(`Title after special character cleanup: "${videoTitle}"`);
-          
-          // معالجة خاصة للنص العربي
-          // 1. التأكد من عدم وجود مشاكل مع ترتيب النص واتجاهه
-          // 2. إضافة مسافة بين الكلمات العربية وعلامات الترقيم إذا لزم الأمر
-          // 3. التأكد من أن الهاشتاج يعمل بشكل صحيح مع النص العربي
-          
-          // تحديد ما إذا كان العنوان يحتوي على نص عربي
-          const containsArabic = /[\u0600-\u06FF]/.test(videoTitle);
-          
-          if (containsArabic) {
-            console.log(`Title contains Arabic text: "${videoTitle}"`);
-            
-            // إضافة مسافة بعد علامات الترقيم لتحسين التوافق
-            videoTitle = videoTitle
-              .replace(/([،؛؟!])([^\s])/g, '$1 $2')
-              // تأكد من وجود مسافة قبل الهاشتاج في النص العربي
-              .replace(/([^\s])hashtag_/g, '$1 hashtag_')
-              // استعادة علامات الهاشتاج الحقيقية
-              .replace(/hashtag_/g, '#');
-            
-            console.log(`Arabic-optimized title: "${videoTitle}"`);
-          } else {
-            // استعادة علامات الهاشتاج الحقيقية للنص غير العربي
-            videoTitle = videoTitle.replace(/hashtag_/g, '#');
-          }
-          
-          // اختبار خاص للتأكد من صحة العنوان
-          // اختبار خاص للتأكد من صحة العنوان مع النصوص العربية
-          // YouTube API قد ترفض بعض أنماط النصوص العربية
-          // إنشاء نسخة من العنوان يحتوي فقط على الأحرف المسموحة من وجهة نظر YouTube
-          // a-z, A-Z, 0-9 والأحرف العربية وبعض الرموز المسموحة مثل !،. -_()[]
-          const validCharsRegex = /^[a-zA-Z0-9\u0600-\u06FF\s!,.'\-_\(\)\[\]]+$/;
-          
-          if (!validCharsRegex.test(videoTitle)) {
-            // إذا كان العنوان يحتوي على أحرف غير مسموحة
-            // يمكننا إما تنظيفه أكثر أو استخدام عنوان بديل
-            console.log(`Title contains potentially problematic characters: "${videoTitle}"`);
-            
-            // حفظ العنوان الأصلي للأرشفة
-            const originalTitle = videoTitle;
-            
-            // إزالة أي شيء غير الأحرف العربية والإنجليزية والأرقام والمسافات
-            videoTitle = videoTitle.replace(/[^\p{L}\p{N}\s]/gu, ' ').trim();
-            
-            if (!videoTitle || videoTitle.trim() === '') {
-              // إذا أصبح العنوان فارغًا بعد التنظيف، استخدم عنوانًا افتراضيًا
-              videoTitle = `YouTube Video ${upload.id}`;
-            }
-            
-            console.log(`Cleaned title: "${videoTitle}"`);
-          }
-          
-          // التأكد من أن العنوان ليس فارغا بعد التنظيف
-          if (!videoTitle || videoTitle.trim() === '') {
-            videoTitle = `YouTube Short ${new Date().toISOString().split('T')[0]}`;
-          }
-          
-          // إضافة علامة #Shorts إذا لم تكن موجودة - تأكد من أنها بالإنجليزية
-          let formattedTitle;
-          if (videoTitle.includes('#Shorts') || videoTitle.includes('#shorts')) {
-            formattedTitle = videoTitle;
-          } else {
-            // حاول إضافة #Shorts في نهاية العنوان
-            formattedTitle = `${videoTitle} #Shorts`;
-          }
-          
-          // تأكد من أن العنوان ليس أطول من 100 حرف (حد YouTube API)
-          if (formattedTitle.length > 100) {
-            // إذا كان العنوان أطول من 100، قصه واحتفظ بـ #Shorts
-            const maxLength = 93; // 100 - 7 (#Shorts)
-            formattedTitle = `${videoTitle.substring(0, maxLength).trim()} #Shorts`;
-          }
+          console.log(`Title after processing: "${formattedTitle}"`);
           
           // التأكد من أن الوصف ليس فارغا
           const videoDescription = (upload.description || `Video uploaded automatically on ${new Date().toISOString().split('T')[0]}`).trim();
