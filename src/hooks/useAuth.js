@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSession } from '@/auth';
 import { createClient } from '@supabase/supabase-js';
 
@@ -17,9 +17,27 @@ export function useAuth() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  
+  // استخدام useRef لتتبع حالة الجلسة السابقة ومنع التحديثات الزائدة
+  const prevSessionRef = useRef(null);
+  const prevStatusRef = useRef(null);
 
   // استرجاع بيانات المستخدم من Supabase
   useEffect(() => {
+    // تحقق من وجود تغيير فعلي في session أو status
+    const sessionChanged = !prevSessionRef.current || 
+      JSON.stringify(prevSessionRef.current) !== JSON.stringify(session);
+    const statusChanged = prevStatusRef.current !== status;
+    
+    // تحديث المراجع
+    prevSessionRef.current = session;
+    prevStatusRef.current = status;
+    
+    // إذا لم يتغير شيء، لا تفعل شيئا
+    if (!sessionChanged && !statusChanged) {
+      return;
+    }
+    
     let isMounted = true;
     
     const fetchUserData = async () => {
@@ -34,6 +52,11 @@ export function useAuth() {
       }
 
       try {
+        // في حالة التحميل، لا تفعل شيئا
+        if (status === 'loading') {
+          return;
+        }
+        
         // استخدام بيانات وهمية للتطوير والاختبار
         // في بيئة الإنتاج، يمكن استبدال هذا بالاستعلام الفعلي من Supabase
         const mockUserData = {
@@ -60,7 +83,7 @@ export function useAuth() {
       }
     };
 
-    // استرجاع البيانات فقط عندما تكون حالة الجلسة محملة
+    // استرجاع البيانات فقط عندما تكون حالة الجلسة ليست "قيد التحميل"
     if (status !== 'loading') {
       fetchUserData();
     }
