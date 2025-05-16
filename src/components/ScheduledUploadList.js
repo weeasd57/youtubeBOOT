@@ -74,16 +74,16 @@ export default function ScheduledUploadList() {
   }
   
   return (
-    <div className="p-6 bg-white dark:bg-black rounded-lg shadow-md border dark:border-amber-700/30 transition-all duration-300">
-      <div className="flex justify-between items-center mb-4">
+    <div className="bg-white dark:bg-black rounded-lg shadow-md border dark:border-amber-700/30 transition-all duration-300">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-4">
         <div className="flex items-center gap-2">
           <FaClock className="text-amber-500" />
-          <h2 className="text-xl font-semibold dark:text-amber-50">Scheduled Uploads</h2>
+          <h2 className="text-lg md:text-xl font-semibold dark:text-amber-50">Scheduled Uploads</h2>
         </div>
         <button
           onClick={refreshScheduledUploads}
           disabled={loading}
-          className="p-2 text-blue-500 dark:text-amber-400 hover:bg-blue-50 dark:hover:bg-amber-900/20 rounded-full transition-all duration-300 transform hover:rotate-12"
+          className="p-2 text-blue-500 dark:text-amber-400 hover:bg-blue-50 dark:hover:bg-amber-900/20 rounded-full transition-all duration-300 transform hover:rotate-12 self-end sm:self-auto"
           title="Refresh"
         >
           <FaSpinner className={`${loading ? 'animate-spin' : ''}`} />
@@ -94,19 +94,19 @@ export default function ScheduledUploadList() {
         {scheduledUploads.map((upload) => (
           <div
             key={upload.id}
-            className="border border-gray-200 dark:border-amber-800/30 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-black/50 transition-all duration-300 transform hover:-translate-y-1 hover:shadow-md"
+            className="border border-gray-200 dark:border-amber-800/30 rounded-lg p-3 sm:p-4 hover:bg-gray-50 dark:hover:bg-black/50 transition-all duration-300 transform hover:-translate-y-1 hover:shadow-md"
           >
             <div className="flex justify-between items-start">
-              <div>
-                <h3 className="font-medium text-gray-900 dark:text-amber-50">{upload.title}</h3>
-                <p className="text-sm text-gray-500 dark:text-amber-200/60 mt-1">{upload.file_name}</p>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-medium text-gray-900 dark:text-amber-50 truncate">{upload.title}</h3>
+                <p className="text-xs sm:text-sm text-gray-500 dark:text-amber-200/60 mt-1 truncate">{upload.file_name}</p>
               </div>
               
               {upload.status === 'pending' && (
                 <button
                   onClick={() => handleCancel(upload.id)}
                   disabled={cancelingId === upload.id}
-                  className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-all duration-300"
+                  className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-all duration-300 ml-2 flex-shrink-0"
                   title="Cancel upload"
                 >
                   {cancelingId === upload.id ? (
@@ -118,7 +118,7 @@ export default function ScheduledUploadList() {
               )}
             </div>
             
-            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm">
+            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs sm:text-sm">
               <div className="flex items-center gap-1">
                 <FaClock className="text-gray-400 dark:text-amber-500/70" />
                 <span className="text-gray-600 dark:text-amber-200/80">
@@ -164,15 +164,18 @@ export default function ScheduledUploadList() {
                   href={upload.youtube_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-blue-600 hover:underline dark:text-amber-400 text-sm"
+                  className="text-blue-600 hover:underline dark:text-amber-400 text-xs sm:text-sm inline-flex items-center gap-1"
                 >
-                  View on YouTube
+                  <span>View on YouTube</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
                 </a>
               </div>
             )}
             
             {upload.status === 'failed' && upload.error_message && (
-              <div className="mt-2 text-sm text-red-500 dark:text-red-400">
+              <div className="mt-2 text-xs sm:text-sm text-red-500 dark:text-red-400 break-words">
                 Error: {upload.error_message}
               </div>
             )}

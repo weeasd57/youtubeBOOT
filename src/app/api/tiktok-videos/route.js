@@ -25,7 +25,6 @@ export async function GET() {
         .select('*')
         .eq('user_email', email)
         .order('created_at', { ascending: false });
-      
       if (error) {
         console.error('Error fetching TikTok videos:', error);
         

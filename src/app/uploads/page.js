@@ -139,15 +139,15 @@ function UploadsContent() {
 
         <div className="flex flex-col gap-8">
           {/* Scheduled Uploads Section */}
-          <div className="bg-white dark:bg-black rounded-lg shadow-md p-6 border dark:border-amber-700/30 transition-all duration-300">
-            <div className="flex justify-between items-center mb-6">
+          <div className="bg-white dark:bg-black rounded-lg shadow-md p-4 sm:p-6 border dark:border-amber-700/30 transition-all duration-300">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-4 sm:mb-6">
               <div className="flex items-center gap-2">
                 <FaCalendarAlt className="text-amber-500" />
                 <h2 className="text-xl font-semibold dark:text-amber-50">Scheduled Uploads</h2>
               </div>
               <button
                 onClick={handleRefresh}
-                className="p-2 bg-blue-100 text-blue-600 dark:bg-amber-900/30 dark:text-amber-300 rounded-full hover:bg-blue-200 dark:hover:bg-amber-800/40 transition-all duration-300 transform hover:rotate-12"
+                className="p-2 bg-blue-100 text-blue-600 dark:bg-amber-900/30 dark:text-amber-300 rounded-full hover:bg-blue-200 dark:hover:bg-amber-800/40 transition-all duration-300 transform hover:rotate-12 self-end sm:self-auto"
                 title="Refresh Data"
                 disabled={loadingCombined}
               >
@@ -160,36 +160,36 @@ function UploadsContent() {
           
           {/* Upload History Section */}
           {logs && logs.length > 0 && (
-            <div className="bg-white dark:bg-black rounded-lg shadow-md p-6 border dark:border-amber-700/30 transition-all duration-300">
+            <div className="bg-white dark:bg-black rounded-lg shadow-md p-4 sm:p-6 border dark:border-amber-700/30 transition-all duration-300">
               <div className="flex items-center gap-2 mb-4">
                 <FaHistory className="text-amber-500" />
                 <h2 className="text-xl font-semibold dark:text-amber-50">Upload History</h2>
               </div>
               
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-amber-800/30">
                   <thead className="bg-gray-50 dark:bg-black/50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-amber-300 uppercase tracking-wider">Date</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-amber-300 uppercase tracking-wider">File</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-amber-300 uppercase tracking-wider">Title</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-amber-300 uppercase tracking-wider">Status</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-amber-300 uppercase tracking-wider">Action</th>
+                      <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-amber-300 uppercase tracking-wider">Date</th>
+                      <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-amber-300 uppercase tracking-wider">File</th>
+                      <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-amber-300 uppercase tracking-wider">Title</th>
+                      <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-amber-300 uppercase tracking-wider">Status</th>
+                      <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-amber-300 uppercase tracking-wider">Action</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white dark:bg-black divide-y divide-gray-200 dark:divide-amber-800/20">
                     {logs.map((log) => (
                       <tr key={log.id} className="transition-colors duration-200 hover:bg-gray-50 dark:hover:bg-black/40">
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-amber-200/70">
+                        <td className="px-3 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm text-gray-500 dark:text-amber-200/70 break-words sm:whitespace-nowrap">
                           {new Date(log.created_at).toLocaleString()}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-amber-50">
+                        <td className="px-3 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm text-gray-900 dark:text-amber-50 truncate max-w-[100px] sm:max-w-none sm:whitespace-nowrap">
                           {log.file_name}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-amber-50">
+                        <td className="px-3 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm text-gray-900 dark:text-amber-50 truncate max-w-[100px] sm:max-w-none sm:whitespace-nowrap">
                           {log.title}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-3 sm:px-6 py-3 sm:py-4 text-center sm:text-left">
                           <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                             log.status === 'success' 
                               ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200' 
@@ -198,7 +198,7 @@ function UploadsContent() {
                             {log.status === 'success' ? 'Success' : 'Failed'}
                           </span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <td className="px-3 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-medium text-center sm:text-left">
                           {log.youtube_id && log.status === 'success' && (
                             <a 
                               href={`https://www.youtube.com/watch?v=${log.youtube_id}`}
@@ -206,7 +206,7 @@ function UploadsContent() {
                               rel="noopener noreferrer"
                               className="text-blue-600 hover:text-blue-900 dark:text-amber-400 dark:hover:text-amber-300 transition-all duration-200"
                             >
-                              View on YouTube
+                              View
                             </a>
                           )}
                         </td>
@@ -219,15 +219,15 @@ function UploadsContent() {
           )}
           
           {/* Create New Schedule Button */}
-          <div className="flex justify-end">
+          <div className="flex justify-center sm:justify-end">
             <Link
               href="/home?tab=schedule"
-              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-md flex items-center gap-2 shadow-md hover:shadow-lg transition-all duration-300 transform hover:translate-y-[-2px] border border-transparent dark:border-amber-500/20"
+              className="w-full sm:w-auto px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-center rounded-md flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all duration-300 transform hover:translate-y-[-2px] border border-transparent dark:border-amber-500/20"
             >
               <FaCalendarAlt />
               Schedule New Uploads
             </Link>
-            </div>
+          </div>
         </div>
     </div>
     </PageContainer>

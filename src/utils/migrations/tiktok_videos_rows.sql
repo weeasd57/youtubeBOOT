@@ -1,0 +1,1 @@
+INSERT INTO "public"."tiktok_videos" ("id", "user_email", "video_id", "title", "description", "hashtags", "original_url", "download_url", "drive_folder_id", "drive_file_id", "created_at");

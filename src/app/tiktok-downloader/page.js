@@ -1,12 +1,13 @@
 'use client';
 
 import { useRef, useState, useEffect } from 'react';
-import { FaFileUpload, FaDownload, FaSpinner, FaEye, FaSync, FaPlus, FaFolder, FaExclamationTriangle } from 'react-icons/fa';
+import { FaFileUpload, FaDownload, FaSpinner, FaEye, FaSync, FaPlus, FaFolder, FaExclamationTriangle, FaClock, FaVideo, FaTrash } from 'react-icons/fa';
 import { useSession } from 'next-auth/react';
 import Image from "next/image";
 import Link from "next/link";
 import { useUser } from '@/contexts/UserContext';
 import { useTikTok } from '@/contexts/TikTokContext';
+import { resetFileInput, openFileDialog } from '@/utils/fileHelpers';
 import ClientOnly from '@/components/ClientOnly';
 import Navbar from '@/components/Navbar';
 import PageContainer from '@/components/PageContainer';
@@ -396,6 +397,39 @@ function TikTokDownloaderContent() {
     return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   };
 
+  // Add a new formatDuration function to format video duration
+  const formatDuration = (seconds) => {
+    if (!seconds || isNaN(seconds)) return '--:--';
+    
+    // تحويل النص إلى رقم إذا كان نصًا
+    let duration = Number(seconds);
+    
+    // معالجة البيانات بالميلي-ثانية (بعض الـ API تعيد الوقت بالميلي-ثانية)
+    if (duration > 10000) {
+      duration = duration / 1000;
+    }
+    
+    if (duration < 0) {
+      return '--:--';
+    }
+    
+    if (duration < 60) {
+      return `0:${duration < 10 ? '0' : ''}${Math.floor(duration)}`;
+    }
+    
+    const minutes = Math.floor(duration / 60);
+    const remainingSeconds = Math.floor(duration % 60);
+    
+    if (minutes < 60) {
+      return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
+    }
+    
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    
+    return `${hours}:${remainingMinutes < 10 ? '0' : ''}${remainingMinutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
+  };
+
   return (
     <PageContainer user={user}>
       {/* Add custom styles */}
@@ -426,7 +460,7 @@ function TikTokDownloaderContent() {
 
           <div className="flex flex-col md:flex-row gap-4 mb-4 justify-center items-center">
             <button
-              onClick={() => fileInputRef.current.click()}
+              onClick={() => openFileDialog(fileInputRef)}
               className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-md flex items-center gap-2"
             >
               <FaFileUpload /> Upload JSON File
@@ -747,15 +781,19 @@ function TikTokDownloaderContent() {
                   </button>
                 )}
                 <button
-                  onClick={resetDownloader}
+                  onClick={() => {
+                    const resetResult = resetDownloader();
+                    if (resetResult) {
+                      // إعادة تعيين حقل إدخال الملف بعد حذف البيانات
+                      resetFileInput(fileInputRef);
+                    }
+                  }}
                   disabled={loading || downloadingAll}
                   className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   title="Close and clear video list"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                  </svg>
-                  Clear List
+                  <FaTrash className="h-5 w-5" />
+                    Delete Data
                 </button>
               </div>
             </div>
@@ -798,11 +836,6 @@ function TikTokDownloaderContent() {
                         <span className="text-xs font-medium text-gray-500 dark:text-gray-300">
                           {currentVideo.progress || 0}% completed
                         </span>
-                        {currentVideo.fileSize && (
-                          <span className="text-xs font-medium text-amber-500 dark:text-amber-500">
-                            {formatFileSize(currentVideo.fileSize)}
-                          </span>
-                        )}
                       </div>
                       <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                         <div
@@ -844,16 +877,36 @@ function TikTokDownloaderContent() {
                     <thead>
                       <tr className="bg-gray-50 dark:bg-black">
                         <th className="px-6 py-4 text-left text-xs font-bold text-amber-600 dark:text-amber-500 uppercase tracking-wider rounded-tl-lg">Video</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-amber-600 dark:text-amber-500 uppercase tracking-wider">Link</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-amber-600 dark:text-amber-500 uppercase tracking-wider whitespace-nowrap">File Size</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-amber-600 dark:text-amber-500 uppercase tracking-wider">Status</th>
+                        <th className="hidden md:table-cell px-6 py-4 text-left text-xs font-bold text-amber-600 dark:text-amber-500 uppercase tracking-wider">Link</th>
+                        <th className="px-4 py-4 text-left text-xs font-bold text-amber-600 dark:text-amber-500 uppercase tracking-wider whitespace-nowrap">Duration</th>
+                        <th className="px-4 py-4 text-left text-xs font-bold text-amber-600 dark:text-amber-500 uppercase tracking-wider">Status</th>
                         <th className="px-6 py-4 text-left text-xs font-bold text-amber-600 dark:text-amber-500 uppercase tracking-wider rounded-tr-lg">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {videos.map((video, index) => {
-                        // Add debug log for file size
-                        console.log(`Rendering video ${video.id}: fileSize = ${video.fileSize}, formatted = ${formatFileSize(video.fileSize)}`);
+                        // Extract video metadata
+                        const videoDefinition = video.definition || 
+                                              (video.videoData && video.videoData.definition) || 
+                                              "Standard";
+                        
+                        // استخراج مدة الفيديو من مختلف الحقول الممكنة في بيانات JSON
+                        let videoDuration = null;
+                        if (video.duration) {
+                          videoDuration = video.duration;
+                        } else if (video.videoData && video.videoData.duration) {
+                          videoDuration = video.videoData.duration;
+                        } else if (video.stats && video.stats.duration) {
+                          videoDuration = video.stats.duration;
+                        } else if (video.meta && video.meta.duration) {
+                          videoDuration = video.meta.duration;
+                        } else if (video.videoDuration) {
+                          videoDuration = video.videoDuration;
+                        } else if (video.video_duration) {
+                          videoDuration = video.video_duration;
+                        } else if (video.length) {
+                          videoDuration = video.length;
+                        }
                         
                         return (
                         <tr key={video.id} className={`transition-colors hover:bg-gray-100 dark:hover:bg-gray-900 border-b border-gray-200 dark:border-gray-800`}>
@@ -873,23 +926,28 @@ function TikTokDownloaderContent() {
                               </span>
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-left">
+                          <td className="hidden md:table-cell px-6 py-4 text-left">
                             <div className="text-sm text-gray-600 dark:text-gray-400 truncate max-w-xs">{video.url}</div>
                           </td>
-                          <td className="px-6 py-4 text-left">
-                            <div className="text-sm font-semibold text-amber-600 dark:text-amber-500">
-                              {video.fileSize ? formatFileSize(video.fileSize) : (
-                                <span className="inline-flex items-center">
-                                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-amber-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                  </svg>
-                                  Checking
-                                </span>
+                          <td className="px-4 py-4 text-left">
+                            <div className="flex flex-col space-y-1">
+                              <div className="text-sm font-semibold text-amber-600 dark:text-amber-500 flex items-center">
+                                <FaClock className="mr-1" size={12} />
+                                {videoDuration ? (
+                                  <span className="text-gray-700 dark:text-gray-300">{formatDuration(videoDuration)}</span>
+                                ) : (
+                                  <span className="text-gray-500 dark:text-gray-400">--:--</span>
+                                )}
+                              </div>
+                              {videoDefinition && (
+                                <div className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
+                                  <FaVideo className="mr-1" size={8} />
+                                  {videoDefinition}
+                                </div>
                               )}
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-left">
+                          <td className="px-4 py-4 text-left">
                             {getStatusBadge(video.status, video.progress, video.fileSize)}
                           </td>
                           <td className="px-6 py-4 text-left">

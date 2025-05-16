@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react';
 import { getWithRetry } from '@/utils/apiHelpers';
 import { toastHelper } from '@/components/ToastHelper';
 import { fetchDriveFoldersWithCache } from '@/utils/driveHelpers';
+import { v4 as uuidv4 } from 'uuid';
 
 // Create context
 const TikTokContext = createContext();
@@ -76,14 +77,12 @@ export function TikTokProvider({ children }) {
       const response = await fetch(`/api/drive/check-folder?folderId=${folderId}`);
       
       if (!response.ok) {
-        console.error(`Failed to check folder: ${response.status}`);
         return false;
       }
       
       const data = await response.json();
       return data.exists;
     } catch (error) {
-      console.error('Error checking if folder exists:', error);
       return false;
     }
   };
@@ -114,11 +113,27 @@ export function TikTokProvider({ children }) {
     
     // Regular validation for actual folder data
     if (!folderId || !folderName) {
-      console.error('Invalid folder data provided:', { folderId, folderName });
       return false;
     }
     
-    console.log(`Using existing Drive folder: ${folderName} (${folderId})`);
+    setDriveFolderId(folderId);
+    setFolderName(folderName);
+    return true;
+  };
+
+  // Handle existing folder
+  const handleExistingFolder = (folderId, folderName) => {
+    // Special case: empty values are used to clear the current folder
+    if (folderId === '' && folderName === '') {
+      setDriveFolderId(null);
+      return true;
+    }
+    
+    // Regular validation for actual folder data
+    if (!folderId || !folderName) {
+      return false;
+    }
+    
     setDriveFolderId(folderId);
     setFolderName(folderName);
     return true;
@@ -139,7 +154,6 @@ export function TikTokProvider({ children }) {
       });
 
       if (!response.ok) {
-        console.error(`Failed to create folder: ${response.status}`);
         return null; // Return null instead of throwing
       }
 
@@ -152,7 +166,6 @@ export function TikTokProvider({ children }) {
       
       return data.folderId;
     } catch (error) {
-      console.error('Error creating Drive folder:', error);
       return null; // Return null instead of throwing
     }
   };
@@ -165,14 +178,12 @@ export function TikTokProvider({ children }) {
       const response = await fetch(`/api/drive/check-file-exists?folderId=${driveFolderId}&videoId=${videoId}`);
       
       if (!response.ok) {
-        console.error(`Failed to check file existence: ${response.status}`);
         return { exists: false };
       }
       
       const data = await response.json();
       return data;
     } catch (error) {
-      console.error('Error checking if file exists in Drive:', error);
       return { exists: false };
     }
   };
@@ -185,7 +196,6 @@ export function TikTokProvider({ children }) {
       if (videoId) {
         const fileExists = await checkFileExistsInDrive(videoId);
         if (fileExists.exists) {
-          console.log(`File already exists in Drive, skipping upload: ${fileExists.fileId}`);
           return { 
             success: true, 
             fileId: fileExists.fileId,
@@ -201,7 +211,6 @@ export function TikTokProvider({ children }) {
       
       // If folder creation failed, skip Drive upload
       if (!folderId) {
-        console.warn('Skipping Drive upload due to folder creation failure');
         return { success: false, error: 'Could not create or access Drive folder' };
       }
       
@@ -227,10 +236,6 @@ export function TikTokProvider({ children }) {
         // Replace the file in formData
         formData.delete('file');
         formData.append('file', renamedFile);
-        
-        console.log('Starting Drive upload for file:', filename, 'Size:', videoFile.size, 'Type:', videoFile.type, 'VideoID:', videoDetails.videoId);
-      } else {
-        console.log('Starting Drive upload for file:', videoFile.name, 'Size:', videoFile.size, 'Type:', videoFile.type);
       }
       
       const response = await fetch('/api/drive/upload-file', {
@@ -239,11 +244,8 @@ export function TikTokProvider({ children }) {
       });
 
       if (!response.ok) {
-        console.error(`Failed to upload file: ${response.status}`);
-        
         try {
           const errorData = await response.json();
-          console.error('Error details:', errorData);
           
           // Handle specific error codes
           if (response.status === 403 || errorData.status === 403 || errorData.errorCode === 'PERMISSION_DENIED') {
@@ -278,10 +280,8 @@ export function TikTokProvider({ children }) {
       }
 
       const data = await response.json();
-      console.log('Upload successful:', data);
       return { ...data, success: true };
     } catch (error) {
-      console.error('Error uploading to Drive:', error);
       return { 
         success: false, 
         error: error.message || 'Upload failed due to an unexpected error' 
@@ -292,8 +292,6 @@ export function TikTokProvider({ children }) {
   // Get download link from the API
   const getDownloadLink = async (tiktokUrl) => {
     try {
-      console.log('Requesting download link for:', tiktokUrl);
-      
       const response = await fetch('/api/tiktok-download', {
         method: 'POST',
         headers: {
@@ -303,8 +301,6 @@ export function TikTokProvider({ children }) {
       });
 
       if (!response.ok) {
-        console.error('API response not ok:', response.status);
-        
         // If the service doesn't work, try direct download
         if (response.status === 404) {
           // Use alternative method - direct download
@@ -315,16 +311,8 @@ export function TikTokProvider({ children }) {
       }
 
       const data = await response.json();
-      console.log('Got download URL:', data.downloadUrl);
-      
-      // If the API returned a fileSize, save it
-      if (data.fileSize) {
-        console.log('API returned file size:', data.fileSize);
-      }
-      
       return data.downloadUrl;
     } catch (error) {
-      console.error('Error getting download link:', error);
       throw error;
     }
   };
@@ -347,8 +335,6 @@ export function TikTokProvider({ children }) {
       if (saveToDrive && session && driveFolderId && videoId) {
         const fileExists = await checkFileExistsInDrive(videoId);
         if (fileExists.exists) {
-          console.log(`File already exists in Drive with ID: ${fileExists.fileId}`);
-          
           // Update video status to completed without downloading
           setVideos(prev => 
             prev.map(v => v.id === videoDetails.id ? { 
@@ -372,7 +358,6 @@ export function TikTokProvider({ children }) {
           const contentLength = headResponse.headers.get('content-length');
           if (contentLength) {
             const size = parseInt(contentLength, 10);
-            console.log(`HEAD request for ${videoDetails.id}: content-length = ${size} bytes`);
             
             // Update file size immediately
             setVideos(prev => 
@@ -384,7 +369,7 @@ export function TikTokProvider({ children }) {
           }
         }
       } catch (headError) {
-        console.warn('HEAD request failed, will get size during download:', headError);
+        // Continue with the download
       }
       
       // Create fetch with progress tracking
@@ -397,7 +382,6 @@ export function TikTokProvider({ children }) {
       
       // Update video with file size
       if (totalSize) {
-        console.log(`GET request content-length for ${videoDetails.id}: ${totalSize} bytes`);
         setVideos(prev => 
           prev.map(v => v.id === videoDetails.id ? { 
             ...v, 
@@ -480,8 +464,6 @@ export function TikTokProvider({ children }) {
             // Return without downloading locally
             return;
           } else {
-            console.warn('Drive upload was not successful:', uploadResult?.error || 'Unknown error');
-            
             // Check for permission errors
             if (uploadResult.errorCode === 'PERMISSION_DENIED' || 
                 (uploadResult.error && uploadResult.error.toLowerCase().includes('permission'))) {
@@ -493,7 +475,6 @@ export function TikTokProvider({ children }) {
             toastHelper.warning('Failed to save to Drive, downloading to your device instead');
           }
         } catch (uploadError) {
-          console.error('Drive upload failed but continuing with local download:', uploadError);
           toastHelper.warning('Drive upload failed, downloading to your device instead');
         }
       }
@@ -512,95 +493,207 @@ export function TikTokProvider({ children }) {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(downloadUrl);
-      
-      // No need to show success messages for local download
-      /*
-      // Show a success message for local download
-      if (driveUploadSuccessful) {
-        toastHelper.success(`Local copy downloaded: ${filename}`);
-      } else {
-        toastHelper.success(`Video downloaded to your device: ${filename}`);
-      }
-      */
     } catch (error) {
-      console.error('Error downloading video:', error);
       throw error;
     }
   };
 
   // Handle file upload
   const handleFileUpload = (file) => {
-    if (!file) return;
-
-    // Reset the toast shown flag whenever a new file is uploaded
+    // Update to null/empty in case of previous uploads
+    setJsonData(null);
+    setVideos([]);
+    setLoading(false);
+    setProgress(0);
+    setCurrentVideo(null);
     setJsonToastShown(false);
-
+    setDownloadingAll(false);
+    setDownloadingVideoIds([]);
+    
+    // Read the file as text
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const data = JSON.parse(e.target.result);
+        const content = e.target.result;
+        const data = JSON.parse(content);
+        
+        // Store the raw JSON data for reference
         setJsonData(data);
         
-        // Extract video URLs from the JSON data
-        const extractedVideos = [];
-
-        // Check for various JSON formats and extract data accordingly
-        // Apify format
-        if (Array.isArray(data)) {
-          const items = data;
-          for (let i = 0; i < items.length; i++) {
-            const item = items[i];
-            
-            // Try to extract file size from various locations in the JSON structure
-            let fileSize = null;
-            
-            // Check all possible locations where file size might be stored
-            if (item.videoData && typeof item.videoData.fileSize === 'number') {
-              fileSize = item.videoData.fileSize;
-            } else if (item.videoMeta && typeof item.videoMeta.size === 'number') {
-              fileSize = item.videoMeta.size;
-            } else if (item.video && typeof item.video.size === 'number') {
-              fileSize = item.video.size;
-            } else if (item.videoDetails && typeof item.videoDetails.fileSize === 'number') {
-              fileSize = item.videoDetails.fileSize;
-            } else if (item.file && typeof item.file.size === 'number') {
-              fileSize = item.file.size;
-            }
-            
-            // Special case for newer TikTok format
-            if (item.video && item.video.playAddr && item.video.playAddr.byteCount) {
-              fileSize = parseInt(item.video.playAddr.byteCount, 10);
-            }
-            
-            // Log the file size extraction
-            if (fileSize) {
-              console.log(`Extracted file size for video ${i+1}: ${fileSize} bytes`);
-            }
-            
-            extractedVideos.push({
-              id: `video_${i}_${Date.now()}`,
-              url: item.webVideoUrl || item.url || (item.videoData ? item.videoData.playAddr : null),
-              title: item.text || item.desc || `TikTok Video ${i + 1}`,
-              author: item.authorMeta?.name || item.author?.uniqueId || 'Unknown',
-              videoId: item.id || '',
-              text: item.text || '',
-              desc: item.desc || '',
-              status: 'pending',
-              downloadUrl: null,
-              progress: 0,
-              fileSize: fileSize
-            });
-          }
-        }
-        setVideos(extractedVideos);
+        // Extract videos from the various formats we've seen
+        let extractedVideos = [];
         
-        // Don't show toast here, will be shown via useEffect after component is mounted
+        // If it's an array directly
+        if (Array.isArray(data)) {
+          extractedVideos = data;
+        } 
+        // If it's from Apify TikTok Scraper format
+        else if (data.items && Array.isArray(data.items)) {
+          extractedVideos = data.items;
+        }
+        // Check for nested exports format (e.g. from Favorites)
+        else if (data.exports && Array.isArray(data.exports)) {
+          extractedVideos = data.exports;
+        }
+        // Check for nested data or result array common in some export formats
+        else if (data.data && Array.isArray(data.data)) {
+          extractedVideos = data.data;
+        }
+        else if (data.result && Array.isArray(data.result)) {
+          extractedVideos = data.result;
+        }
+        
+        // If no items found, check for nested structure
+        if (extractedVideos.length === 0 && data.data && data.data.videos) {
+          extractedVideos = data.data.videos;
+        }
+        
+        // Map to a common format
+        const processedVideos = extractedVideos.map((item, index) => {
+          // Extract video URL - handle different formats
+          let videoUrl = '';
+          let videoId = '';
+          let title = '';
+          let duration = null;
+          let definition = null;
+          let videoData = null;
+          
+          // Try to extract file size if available in the JSON
+          let fileSize = null;
+          
+          // Extract video metadata if available
+          if (item.video) {
+            videoData = item.video;
+            // Check for duration in various locations
+            if (item.video.duration) {
+              duration = Number(item.video.duration);
+            }
+            // Check for definition/quality in various locations
+            if (item.video.definition) {
+              definition = item.video.definition;
+            }
+            // Check for file size
+            if (item.video.size) {
+              fileSize = Number(item.video.size);
+            }
+          }
+          
+          // Check for duration directly in the item
+          if (!duration && item.duration) {
+            duration = Number(item.duration);
+          }
+
+          // Check for other possible duration fields
+          if (!duration) {
+            if (item.videoDuration) {
+              duration = Number(item.videoDuration);
+            } else if (item.video_duration) {
+              duration = Number(item.video_duration);
+            } else if (item.length) {
+              duration = Number(item.length);
+            } else if (item.stats && item.stats.duration) {
+              duration = Number(item.stats.duration);
+            } else if (item.stats && item.stats.video_duration) {
+              duration = Number(item.stats.video_duration);
+            } else if (item.meta && item.meta.duration) {
+              duration = Number(item.meta.duration);
+            } else if (item.meta && item.meta.video_duration) {
+              duration = Number(item.meta.video_duration);
+            } else if (item.videoMeta && item.videoMeta.duration) {
+              duration = Number(item.videoMeta.duration);
+            }
+          }
+          
+          // Try to extract definition/quality
+          if (!definition) {
+            if (item.definition) {
+              definition = item.definition;
+            } else if (item.videoQuality) {
+              definition = item.videoQuality;
+            } else if (item.video && item.video.height) {
+              // If we have height, we can make an educated guess about quality
+              const height = item.video.height;
+              if (height >= 1080) definition = "1080p";
+              else if (height >= 720) definition = "720p";
+              else if (height >= 480) definition = "480p";
+              else definition = "Standard";
+            }
+          }
+          
+          // Extract URL based on different JSON formats
+          if (item.video && item.video.downloadAddr) {
+            videoUrl = item.video.downloadAddr;
+          } else if (item.video && item.video.playAddr) {
+            videoUrl = item.video.playAddr;
+          } else if (item.video && item.video.url) {
+            videoUrl = item.video.url;
+          } else if (item.play) {
+            videoUrl = item.play;
+          } else if (item.playUrl) {
+            videoUrl = item.playUrl;
+          } else if (item.downloadUrl) {
+            videoUrl = item.downloadUrl;
+          } else if (item.url) {
+            videoUrl = item.url;
+          } else if (item.webVideoUrl) {
+            videoUrl = item.webVideoUrl;
+          } else if (item.shareUrl) {
+            videoUrl = item.shareUrl;
+          }
+          
+          // If we still don't have a URL, check for video.urls array
+          if (!videoUrl && item.video && item.video.urls && item.video.urls.length > 0) {
+            videoUrl = item.video.urls[0];
+          }
+          
+          // Extract title
+          if (item.desc) {
+            title = item.desc;
+          } else if (item.description) {
+            title = item.description;
+          } else if (item.title) {
+            title = item.title;
+          } else if (item.text) {
+            title = item.text;
+          } else {
+            title = `TikTok Video ${index + 1}`;
+          }
+          
+          // Generate a unique ID
+          const id = uuidv4();
+          
+          return {
+            id,
+            title: cleanTitle(title),
+            url: videoUrl,
+            status: 'pending',
+            progress: 0,
+            fileSize,
+            duration,
+            definition,
+            videoData,
+            originalUrl: videoUrl // Keep a copy of the original URL
+          };
+        }).filter(item => item.url);
+        
+        // Set the videos state
+        setVideos(processedVideos);
+        
+        // Show a toast notification
+        if (processedVideos.length > 0) {
+          toastHelper.success(`Found ${processedVideos.length} TikTok videos`);
+        } else {
+          toastHelper.error('No valid TikTok videos found in the JSON file');
+        }
       } catch (error) {
-        console.error('Error parsing JSON file:', error);
-        // Store the error for useEffect to handle
-        setJsonData({ error: error.message });
+        toastHelper.error('Failed to parse JSON file: ' + error.message);
       }
     };
+    
+    reader.onerror = (error) => {
+      toastHelper.error('Failed to read file');
+    };
+    
     reader.readAsText(file);
   };
 
@@ -774,7 +867,6 @@ export function TikTokProvider({ children }) {
           }
         } catch (error) {
           failedCount++;
-          console.error(`Error downloading video ${i+1}:`, error);
           
           // Update video status to failed
           setVideos(prev => 
@@ -809,7 +901,6 @@ export function TikTokProvider({ children }) {
         }
       }
     } catch (error) {
-      console.error('Error in batch download:', error);
       toastHelper.error(`Batch download error: ${error.message}`);
     } finally {
       // Reset states
@@ -847,8 +938,6 @@ export function TikTokProvider({ children }) {
       if (saveToDrive && session && driveFolderId && videoId) {
         const fileExists = await checkFileExistsInDrive(videoId);
         if (fileExists.exists) {
-          console.log(`File already exists in Drive with ID: ${fileExists.fileId}`);
-          
           // Update video status to completed without downloading
           setVideos(prev => 
             prev.map(v => v.id === video.id ? { 
@@ -901,7 +990,6 @@ export function TikTokProvider({ children }) {
             } : v)
           );
         } catch (e) {
-          console.error('Error initiating download:', e);
           // Update video status to failed
           setVideos(prev => 
             prev.map(v => v.id === video.id ? { 
@@ -951,9 +1039,7 @@ export function TikTokProvider({ children }) {
             } : v)
           );
         } catch (e) {
-          console.error('Error downloading video:', e);
-          
-          // Still mark as completed since the link works
+          // Update video status to failed
           setVideos(prev => 
             prev.map(v => v.id === video.id ? { 
               ...v, 
@@ -977,7 +1063,6 @@ export function TikTokProvider({ children }) {
       );
       
       // Store the error to be shown in a safe way instead of calling toastHelper directly
-      console.error('Error processing the video:', error);
       setVideos(prev => 
         prev.map(v => v.id === video.id ? { 
           ...v,
@@ -1010,6 +1095,7 @@ export function TikTokProvider({ children }) {
 
   // Reset the downloader state
   const resetDownloader = () => {
+    // تفريغ البيانات
     setVideos([]);
     setJsonData(null);
     setLoading(false);
@@ -1018,6 +1104,11 @@ export function TikTokProvider({ children }) {
     setJsonToastShown(false);
     setDownloadingAll(false);
     setDownloadingVideoIds([]);
+    
+    // إضافة إشعار للمستخدم
+    toastHelper.success('تم حذف البيانات بنجاح. يمكنك الآن استيراد ملف JSON جديد.');
+    
+    return true; // إرجاع قيمة للتأكيد على نجاح العملية
   };
 
   // Get Drive folder URL
