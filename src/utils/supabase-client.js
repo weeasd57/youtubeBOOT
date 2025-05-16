@@ -6,8 +6,8 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-// التحقق من وجود المفاتيح المطلوبة
-if (!supabaseUrl || !supabaseAnonKey) {
+// التحقق من وجود المفاتيح المطلوبة - فقط في وضع التطوير
+if (process.env.NODE_ENV === 'development' && typeof window !== 'undefined' && (!supabaseUrl || !supabaseAnonKey)) {
   console.error('Supabase URL or Anonymous Key is missing. Please check your environment variables.');
 }
 

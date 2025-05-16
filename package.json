@@ -17,6 +17,8 @@
     "@tanstack/react-query": "^5.17.19",
     "axios": "^1.9.0",
     "cheerio": "^1.0.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "dotenv": "^16.5.0",
     "googleapis": "^129.0.0",
     "js-cookie": "^3.0.5",
@@ -30,6 +32,7 @@
     "react-hot-toast": "^2.5.2",
     "react-icons": "^5.0.1",
     "react-toastify": "^11.0.5",
+    "tailwind-merge": "^2.6.0",
     "uuid": "^11.1.0"
   },
   "devDependencies": {

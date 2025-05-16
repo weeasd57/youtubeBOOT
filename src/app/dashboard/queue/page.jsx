@@ -1,5 +1,6 @@
 import { Suspense } from 'react';
-import { auth } from '@/auth';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '@/app/api/auth/[...nextauth]/options';
 import { redirect } from 'next/navigation';
 import DashboardHeader from '@/components/DashboardHeader';
 import ProcessingStats from '@/components/ProcessingStats';
@@ -12,7 +13,7 @@ export const metadata = {
 };
 
 export default async function QueuePage() {
-  const session = await auth();
+  const session = await getServerSession(authOptions);
   
   // إعادة توجيه المستخدم إلى صفحة تسجيل الدخول إذا لم يكن مصادقًا
   if (!session) {

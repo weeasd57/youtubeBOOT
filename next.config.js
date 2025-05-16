@@ -27,6 +27,16 @@ const nextConfig = {
   experimental: {
     // Next.js experimental features can go here
   },
+  // إضافة متغيرات البيئة حتى تكون متاحة للتطبيق
+  env: {
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    YOUTUBE_API_KEY: process.env.YOUTUBE_API_KEY,
+    API_URL: process.env.API_URL,
+    NEXTAUTH_URL: process.env.NEXTAUTH_URL,
+    NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET
+  },
 };
 
 module.exports = nextConfig; 

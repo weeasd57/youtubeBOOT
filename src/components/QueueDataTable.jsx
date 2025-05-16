@@ -14,13 +14,14 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { ReloadIcon, SearchIcon, ExternalLinkIcon, CheckCircleIcon, AlertCircleIcon, PlayIcon } from 'lucide-react';
+import { Loader, SearchIcon, ExternalLinkIcon, CheckCircleIcon, AlertCircleIcon, PlayIcon } from 'lucide-react';
+
+// إنشاء عميل Supabase - تجنب الخطأ في حالة عدم توفر المتغيرات البيئية
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 // إنشاء عميل Supabase
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export default function QueueDataTable({ filterStatus }) {
   const { session } = useAuth();
@@ -233,7 +234,7 @@ export default function QueueDataTable({ filterStatus }) {
   if (loading) {
     return (
       <div className="flex justify-center items-center p-8">
-        <ReloadIcon className="animate-spin mr-2" />
+        <Loader className="animate-spin mr-2" />
         <p>جاري تحميل البيانات...</p>
       </div>
     );
@@ -331,9 +332,9 @@ export default function QueueDataTable({ filterStatus }) {
                             title="إعادة المعالجة"
                           >
                             {actionLoading === video.id ? (
-                              <ReloadIcon className="w-4 h-4 animate-spin" />
+                              <Loader className="w-4 h-4 animate-spin" />
                             ) : (
-                              <ReloadIcon className="w-4 h-4" />
+                              <Loader className="w-4 h-4" />
                             )}
                           </Button>
                         )}
@@ -347,7 +348,7 @@ export default function QueueDataTable({ filterStatus }) {
                             title="معالجة الآن"
                           >
                             {actionLoading === video.id ? (
-                              <ReloadIcon className="w-4 h-4 animate-spin" />
+                              <Loader className="w-4 h-4 animate-spin" />
                             ) : (
                               <PlayIcon className="w-4 h-4" />
                             )}

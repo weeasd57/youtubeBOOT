@@ -105,67 +105,13 @@ export default function PageContainer({ user, children, onRefresh = null, error 
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-black text-black dark:text-amber-50 transition-colors duration-300">
-      {/* Header */}
-      <header className="sticky top-0 z-10 bg-white dark:bg-black shadow-sm dark:shadow-amber-700/5 border-b border-gray-200 dark:border-amber-700/30 transition-all duration-300">
-        <div className="flex justify-between items-center p-3 px-5">
-          {/* Logo */}
-          <div className="flex items-center space-x-2">
-            <div className="rounded-full overflow-hidden flex items-center justify-center w-10 h-10">
-              <Image 
-                src="/android-chrome-192x192.png" 
-                alt="App Logo"
-                width={40}
-                height={40}
-                className="object-cover"
-              />
-            </div>
-            <h1 className="text-lg md:text-xl font-bold dark:text-amber-50">
-              YouTube Drive Uploader
-            </h1>
-          </div>
-
-          {/* User Menu / Sign In */}
-          <div className="flex items-center space-x-4">
-            <ThemeToggle />
-            
-            {user && (
-              <div className="items-center space-x-2 hidden md:flex">
-                <span className="text-sm font-medium dark:text-amber-100">{user.name}</span>
-                {user.image && (
-                  <Image
-                    src={user.image}
-                    alt={user.name}
-                    width={32}
-                    height={32}
-                    className="w-8 h-8 rounded-full"
-                  />
-                )}
-              </div>
-            )}
-            
-            {user && (
-              <button
-                onClick={handleRefreshAuth}
-                disabled={refreshing}
-                title="Refresh Authentication"
-                className="p-2 rounded-full text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 transition-all duration-300 disabled:opacity-50"
-              >
-                <FaSync className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`} />
-              </button>
-            )}
-            
-            <button
-              onClick={() => signOut({ callbackUrl: '/' })}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md border border-transparent dark:border-amber-500/20 transition-all duration-300 transform hover:scale-105"
-            >
-              Sign Out
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Navbar - sticky */}
-      <Navbar />
+      {/* Navbar - sticky with auth buttons */}
+      <Navbar 
+        user={user} 
+        onRefreshAuth={handleRefreshAuth} 
+        refreshing={refreshing} 
+        themeToggle={<ThemeToggle />}
+      />
 
       {/* Content with padding to account for sticky navbar */}
       <div className="mt-4 pb-16">
