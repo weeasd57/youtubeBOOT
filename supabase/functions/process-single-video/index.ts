@@ -4,8 +4,71 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { clients } from "https://esm.sh/@googleapis/drive@5.0.4";
-import { authorize } from "https://esm.sh/@googleapis/oauth2@5.0.4";
+import { drive_v3 } from "https://esm.sh/@googleapis/drive";
+import { OAuth2Client } from "https://esm.sh/google-auth-library";
+
+/**
+ * تنظيف وتجهيز عنوان الفيديو
+ * @param {string} title - العنوان الأصلي
+ * @returns {string} - العنوان بعد التنظيف
+ */
+function cleanVideoTitle(title: string): string {
+  if (!title) return '';
+  
+  // تنظيف العنوان من أحرف غير صالحة
+  let cleanTitle = title.trim()
+    // استبدل أحرف التحكم (\u0000-\u001F) والأحرف غير المرئية (\u007F-\u009F)
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+    // استبدل الرموز الخاصة التي قد تسبب مشاكل في YouTube API
+    .replace(/[<>:"\/\\|?*%&{}$~^]/g, ' ')
+    // تصحيح المسافات المتعددة
+    .replace(/\s+/g, ' ')
+    .trim();
+    
+  return cleanTitle || 'Untitled Video';
+}
+
+/**
+ * مراجعة العنوان وتقصيره إذا تجاوز الحد المسموح به
+ * @param {string} title - العنوان الأصلي
+ * @param {boolean} addShortsTag - إضافة #Shorts للعنوان (افتراضيًا: true)
+ * @returns {string} - العنوان المعالج
+ */
+function processVideoTitle(title: string, addShortsTag = true): string {
+  if (!title) return 'Untitled Video';
+  
+  // تنظيف العنوان أولاً
+  let processedTitle = cleanVideoTitle(title);
+  
+  // إذا كان العنوان أطول من 100 حرف، أخذ أول 4 كلمات فقط
+  if (processedTitle.length > 100) {
+    const words = processedTitle.split(' ');
+    const firstFourWords = words.slice(0, 4).join(' ');
+    processedTitle = firstFourWords;
+    
+    // التأكد مرة أخرى من أن العنوان المختصر أقل من 100 حرف
+    if (processedTitle.length > 100) {
+      processedTitle = processedTitle.substring(0, 90).trim();
+    }
+  }
+  
+  // إضافة #Shorts إذا مطلوب وغير موجود بالفعل
+  if (addShortsTag) {
+    if (!processedTitle.includes('#Shorts') && !processedTitle.includes('#shorts')) {
+      const shortsTag = ' #Shorts';
+      
+      // التأكد من عدم تجاوز العنوان للحد بعد إضافة #Shorts
+      const maxLength = 100 - shortsTag.length;
+      if (processedTitle.length > maxLength) {
+        processedTitle = processedTitle.substring(0, maxLength).trim();
+      }
+      
+      processedTitle += shortsTag;
+    }
+  }
+  
+  return processedTitle;
+}
 
 // إنشاء استجابة خطأ
 function errorResponse(message: string, status: number = 400) {
@@ -56,6 +119,24 @@ serve(async (req) => {
       const status = error ? 500 : 404;
       const errorMsg = error ? error.message : 'الفيديو غير موجود';
       return errorResponse(errorMsg, status);
+    }
+    
+    // معالجة عنوان الفيديو للتأكد من أنه لا يتجاوز 50 حرفًا
+    if (video.title) {
+      const processedTitle = processVideoTitle(video.title);
+      console.log(`Original title: ${video.title}`);
+      console.log(`Processed title: ${processedTitle}`);
+      
+      // تحديث عنوان الفيديو إذا تم تغييره
+      if (processedTitle !== video.title) {
+        await supabase
+          .from('video_queue')
+          .update({ title: processedTitle })
+          .eq('id', videoId);
+          
+        // تحديث المتغير المحلي أيضًا
+        video.title = processedTitle;
+      }
     }
     
     // الحصول على بيانات المستخدم ومعلومات الوصول
