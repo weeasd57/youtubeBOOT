@@ -9,6 +9,7 @@ import ThemeToggle from '@/components/ThemeToggle';
 import AuthErrorBanner from '@/components/AuthErrorBanner';
 import JsonSampleDialog from '@/components/JsonSampleDialog';
 import Image from "next/image";
+import { useYouTubeChannel } from '@/contexts/YouTubeChannelContext';
 
 export default function LandingPage() {
   // Handle client-side mounting to prevent hydration issues
@@ -33,9 +34,10 @@ export default function LandingPage() {
 
 // Client-only component with full functionality
 function LandingPageContent() {
-  const { data: session, status, error } = useSession();
+  const { data: session, status, error: authError } = useSession();
   const router = useRouter();
   const [showJsonSample, setShowJsonSample] = useState(false);
+  const { refreshConnection, connectionStatus, error: channelError } = useYouTubeChannel();
 
   // Redirect to home page if authenticated
   useEffect(() => {
@@ -43,6 +45,15 @@ function LandingPageContent() {
       router.push('/home');
     }
   }, [status, router]);
+
+  // Initialize YouTube channel connection if authenticated
+  useEffect(() => {
+    if (status === 'authenticated' && connectionStatus === 'unknown') {
+      refreshConnection(true).catch(err => {
+        console.error('Failed to refresh YouTube connection:', err);
+      });
+    }
+  }, [status, connectionStatus, refreshConnection]);
 
   // Show loading spinner while checking authentication
   if (status === 'loading') {
@@ -224,15 +235,22 @@ function LandingPageContent() {
       {/* JSON Sample Dialog */}
       <JsonSampleDialog isOpen={showJsonSample} onClose={() => setShowJsonSample(false)} />
 
-      {error && (
+      {authError && (
         <AuthErrorBanner 
-          message={typeof error === 'object' ? error.message : error} 
-          isNetworkError={typeof error === 'object' && error.isNetworkError}
-          failureCount={typeof error === 'object' && error.failureCount}
-          maxFailures={typeof error === 'object' && error.maxFailures}
-          forceSignOut={typeof error === 'object' && error.forceSignOut}
-          isAccessRevoked={typeof error === 'object' && error.isAccessRevoked}
+          message={typeof authError === 'object' ? authError.message : authError} 
+          isNetworkError={typeof authError === 'object' && authError.isNetworkError}
+          failureCount={typeof authError === 'object' && authError.failureCount}
+          maxFailures={typeof authError === 'object' && authError.maxFailures}
+          forceSignOut={typeof authError === 'object' && authError.forceSignOut}
+          isAccessRevoked={typeof authError === 'object' && authError.isAccessRevoked}
         />
+      )}
+      
+      {/* Display channel error if present */}
+      {channelError && (
+        <div className="fixed bottom-4 left-4 right-4 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 p-3 rounded-lg shadow-lg border border-red-200 dark:border-red-800/50 text-sm">
+          <p className="font-medium">YouTube Channel Error: {channelError}</p>
+        </div>
       )}
     </div>
   );

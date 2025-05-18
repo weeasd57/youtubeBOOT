@@ -105,6 +105,17 @@ export async function GET() {
   } catch (error) {
     console.error('Error checking YouTube connection:', error);
     
+    // Check for YouTube account suspension error
+    if (error.message?.includes('is suspended') || 
+        error.message?.includes('account of the authenticated user is suspended')) {
+      return NextResponse.json({
+        success: false,
+        message: 'YouTube account suspended',
+        error: 'The YouTube account of the authenticated user is suspended.',
+        status: 'suspended'
+      }, { status: 403 });
+    }
+    
     // Check if the issue is authentication-related
     if (error.code === 401 || error.message?.includes('invalid_grant') || error.message?.includes('Invalid Credentials')) {
       return NextResponse.json({

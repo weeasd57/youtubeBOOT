@@ -22,10 +22,22 @@ export async function fetchDriveFoldersWithCache(options = {}) {
     setLoadingState(true);
   }
   
-  if (forceRefresh) {
+  // Add rate limiting to prevent excessive API calls
+  // Store last API call time in memory to avoid localStorage access on every check
+  const currentTime = Date.now();
+  const lastApiCallTime = window._lastDriveFoldersApiCall || 0;
+  const apiCallMinInterval = 5000; // 5 seconds minimum between API calls
+  
+  // If this is not a force refresh and we've called the API recently, wait
+  if (!forceRefresh && (currentTime - lastApiCallTime) < apiCallMinInterval) {
+    console.log(`API call too frequent, last call was ${currentTime - lastApiCallTime}ms ago. Using cache if available.`);
+    // Continue with cache check but don't remove items
+    // This prevents the loop of continuous API calls when cache is empty
+  } else if (forceRefresh) {
     console.log('Forcing refresh of Drive folders from API (bypassing cache)');
     localStorage.removeItem('driveFolders');
     localStorage.removeItem('driveFoldersTimestamp');
+    window._lastDriveFoldersApiCall = currentTime;
   }
   
   try {
@@ -40,7 +52,7 @@ export async function fetchDriveFoldersWithCache(options = {}) {
         if (cacheAge < 10) {
           try {
             const cachedFolders = JSON.parse(cachedFoldersJson);
-            if (Array.isArray(cachedFolders) && cachedFolders.length > 0) {
+            if (Array.isArray(cachedFolders)) {
               console.log(`Using cached folders (${cacheAge} minutes old)`);
               
               // Update state if provided
@@ -70,6 +82,29 @@ export async function fetchDriveFoldersWithCache(options = {}) {
         }
       }
     }
+    
+    // Throttle API calls based on time since last call
+    if (!forceRefresh && (currentTime - lastApiCallTime) < apiCallMinInterval) {
+      // Return empty folders but with success=true to avoid triggering error UI
+      if (setFoldersState) {
+        setFoldersState([]);
+      }
+      
+      if (setLoadingState) {
+        setLoadingState(false);
+      }
+      
+      console.log('Throttling API call, returning empty folders array');
+      return {
+        success: true,
+        folders: [],
+        fromCache: false,
+        throttled: true
+      };
+    }
+    
+    // Update last API call time
+    window._lastDriveFoldersApiCall = currentTime;
     
     // Fetch from API if cache is invalid or forcing refresh
     const response = await getWithRetry('/api/drive/list-folders', {
@@ -149,14 +184,12 @@ export async function fetchDriveFoldersWithCache(options = {}) {
       onFolderCheck(folders);
     }
     
-    // Cache the folder data for future use
-    if (folders.length > 0) {
-      try {
-        localStorage.setItem('driveFolders', JSON.stringify(folders));
-        localStorage.setItem('driveFoldersTimestamp', Date.now().toString());
-      } catch (cacheError) {
-        console.warn('Failed to cache folders in localStorage:', cacheError);
-      }
+    // Cache the folder data for future use - even if empty to prevent repeated calls
+    try {
+      localStorage.setItem('driveFolders', JSON.stringify(folders));
+      localStorage.setItem('driveFoldersTimestamp', Date.now().toString());
+    } catch (cacheError) {
+      console.warn('Failed to cache folders in localStorage:', cacheError);
     }
     
     if (setLoadingState) {

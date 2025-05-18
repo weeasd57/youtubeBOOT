@@ -155,10 +155,24 @@ function TikTokDownloaderContent() {
     setFoldersError(false);
     setErrorMessage('');
 
+    // Add rate limiting to avoid excessive API calls
+    const lastFolderLoad = localStorage.getItem('lastTikTokPageFolderLoad');
+    const currentTime = Date.now();
+    const shouldRefresh = !lastFolderLoad || (currentTime - parseInt(lastFolderLoad)) > 60000; // 1 minute
+    
+    if (!shouldRefresh && !saveToDrive) {
+      console.log('Skipping folder refresh due to rate limiting');
+      return;
+    }
+    
     try {
       console.log('Loading Drive folders...');
+      localStorage.setItem('lastTikTokPageFolderLoad', currentTime.toString());
+      
       // fetchDriveFolders already handles setting loadingFolders internally
-      const result = await fetchDriveFolders();
+      const result = await fetchDriveFolders({ 
+        forceRefresh: false // Use cache when possible
+      });
 
       if (!result.success) {
         setFoldersError(true);
@@ -222,6 +236,10 @@ function TikTokDownloaderContent() {
         // Refresh the folder list with force refresh to ensure we see the new folder
         setLoadingFolders(true);
         try {
+          // Explicitly set timestamp to force refresh to avoid throttling
+          localStorage.setItem('lastTikTokPageFolderLoad', '0');
+          window._lastDriveFoldersApiCall = 0; // Reset the API call limiter
+          
           const refreshResult = await fetchDriveFolders({ forceRefresh: true });
           
           if (refreshResult && refreshResult.success) {

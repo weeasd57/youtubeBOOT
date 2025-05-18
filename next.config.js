@@ -1,12 +1,29 @@
 /** @type {import('next').NextConfig} */
+const path = require('path');
+
 const nextConfig = {
   reactStrictMode: true,
+  webpack: (config) => {
+    config.resolve.alias['@'] = path.resolve(__dirname, 'src');
+    return config;
+  },
   images: {
     domains: [
       'lh3.googleusercontent.com',
       'drive.google.com',
       'yt3.ggpht.com',
-      'i.ytimg.com'  // Also adding YouTube thumbnail domain for future use
+      'yt3.googleusercontent.com',
+      'i.ytimg.com',  // Also adding YouTube thumbnail domain for future use
+      'googleusercontent.com',
+      'lh1.googleusercontent.com',
+      'lh2.googleusercontent.com',
+      'lh4.googleusercontent.com',
+      'lh5.googleusercontent.com',
+      'lh6.googleusercontent.com',
+      'www.googleapis.com',
+      'accounts.google.com',
+      'ssl.gstatic.com',
+      'www.gstatic.com',
     ],
     minimumCacheTTL: 3600, // Cache images for 1 hour
     deviceSizes: [640, 750, 828, 1080, 1200, 1920],
@@ -18,10 +35,31 @@ const nextConfig = {
         hostname: 'lh3.googleusercontent.com',
         pathname: '/drive-storage/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'yt3.googleusercontent.com',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.googleusercontent.com',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'drive.google.com',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.google.com',
+        pathname: '/**',
+      },
     ],
     dangerouslyAllowSVG: true,
     contentDispositionType: 'attachment',
     contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
+    unoptimized: true, // Use this when having issues with Google Drive images
   },
   // Add custom configuration here
   experimental: {

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+  <rect width="640" height="360" fill="#010101" />
+  <g transform="translate(320, 180)">
+    <!-- TikTok-style background with gradient -->
+    <rect x="-80" y="-80" width="160" height="160" rx="10" fill="#010101" />
+    
+    <!-- TikTok-style logo -->
+    <g transform="scale(1.5)">
+      <!-- Note shape -->
+      <path d="M 20,-30 C 25,-15 25,0 20,15 C 15,15 10,10 10,5 C 10,0 15,-5 20,-5 C 20,-15 20,-25 18,-30 Z" fill="#25F4EE" />
+      
+      <!-- D shape -->
+      <path d="M -20,-25 C -25,-25 -30,-20 -30,-15 L -30,15 C -30,20 -25,25 -20,25 L 15,25 C 20,25 25,20 25,15 L 25,-15 C 25,-20 20,-25 15,-25 Z M -20,-15 L 15,-15 L 15,15 L -20,15 Z" fill="#FE2C55" />
+      
+      <!-- Corner accent -->
+      <circle cx="15" cy="-15" r="5" fill="#FFFFFF" />
+    </g>
+    
+    <text x="0" y="80" font-family="Arial" font-size="18" text-anchor="middle" fill="#FFFFFF">TikTok Video</text>
+  </g>
+</svg>

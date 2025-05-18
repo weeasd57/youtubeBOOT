@@ -54,17 +54,26 @@ export function TikTokProvider({ children }) {
   useEffect(() => {
     if (!session || !driveFolderId) return;
     
-    // Refresh folder list when the component first loads with a folder selected
-    if (driveFolderId) {
+    // Add a timestamp check to avoid excessive API calls
+    const lastFolderCheck = localStorage.getItem('lastFolderCheck');
+    const currentTime = Date.now();
+    
+    // Only fetch folders if we haven't checked in the last 30 minutes
+    const shouldFetch = !lastFolderCheck || (currentTime - parseInt(lastFolderCheck)) > 30 * 60 * 1000;
+    
+    if (shouldFetch) {
+      // Set timestamp before fetching to avoid race conditions
+      localStorage.setItem('lastFolderCheck', currentTime.toString());
       fetchDriveFolders();
     }
     
-    // Check every 5 minutes if the folder still exists
+    // Check every 30 minutes if the folder still exists (was 5 minutes before)
     const intervalId = setInterval(() => {
       if (driveFolderId) {
+        localStorage.setItem('lastFolderCheck', Date.now().toString());
         fetchDriveFolders();
       }
-    }, 5 * 60 * 1000); // 5 minutes
+    }, 30 * 60 * 1000); // 30 minutes
     
     return () => clearInterval(intervalId);
   }, [session, driveFolderId, fetchDriveFolders]);

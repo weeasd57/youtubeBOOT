@@ -352,7 +352,22 @@ function HomeDashboard({ session, status }) {
   const refreshFolders = useCallback(async () => {
     if (foldersLoading) return; // Avoid multiple simultaneous refreshes
     
+    // Add rate limiting for folder refreshes
+    const lastFolderRefresh = localStorage.getItem('lastHomeFolderRefresh');
+    const currentTime = Date.now();
+    const minRefreshInterval = 30000; // 30 seconds
+    
+    if (lastFolderRefresh && (currentTime - parseInt(lastFolderRefresh)) < minRefreshInterval) {
+      console.log('Skipping folder refresh - requested too frequently');
+      return;
+    }
+    
+    // Set the last refresh time
+    localStorage.setItem('lastHomeFolderRefresh', currentTime.toString());
+    
     try {
+      // Reset the API call limiter to allow a fresh API call
+      window._lastDriveFoldersApiCall = 0;
       await fetchDriveFolders(true);
     } catch (error) {
       console.error('Error refreshing folders:', error);
@@ -373,7 +388,15 @@ function HomeDashboard({ session, status }) {
   useEffect(() => {
     if (status === 'authenticated' && !foldersLoading && driveFolders.length === 0) {
       // Only fetch folders when component mounts and we don't have any folders yet
-      fetchDriveFolders(true);
+      // Add a small delay to prevent multiple calls
+      const lastFolderFetch = localStorage.getItem('lastHomeFolderFetch');
+      const currentTime = Date.now();
+      const shouldFetch = !lastFolderFetch || (currentTime - parseInt(lastFolderFetch)) > 60000; // 1 minute
+        
+      if (shouldFetch) {
+        localStorage.setItem('lastHomeFolderFetch', currentTime.toString());
+        fetchDriveFolders(false); // Use cache when available
+      }
     }
   }, [status, fetchDriveFolders, foldersLoading, driveFolders.length]);
 
@@ -460,6 +483,11 @@ function HomeDashboard({ session, status }) {
             <div className="mb-4">
               <button
                 onClick={() => {
+                  // Reset API call limiters to allow refresh
+                  window._lastDriveFoldersApiCall = 0;
+                  localStorage.setItem('lastHomeFolderFetch', '0');
+                  localStorage.setItem('lastHomeFolderRefresh', '0');
+                  
                   syncDriveChanges(true);
                   fetchDriveFolders(true);
                 }}
