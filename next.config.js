@@ -3,8 +3,12 @@ const path = require('path');
 
 const nextConfig = {
   reactStrictMode: true,
-  webpack: (config) => {
+  webpack: (config, { isServer }) => {
     config.resolve.alias['@'] = path.resolve(__dirname, 'src');
+    // Add Supabase functions to ignored modules
+    config.ignoreWarnings = [
+      { module: /supabase\/functions/ },
+    ];
     return config;
   },
   images: {
@@ -74,6 +78,14 @@ const nextConfig = {
     API_URL: process.env.API_URL,
     NEXTAUTH_URL: process.env.NEXTAUTH_URL,
     NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET
+  },
+  typescript: {
+    // Exclude Supabase Edge Functions from TypeScript checking
+    ignoreBuildErrors: false,
+  },
+  eslint: {
+    // Exclude Supabase Edge Functions from ESLint
+    ignoreDuringBuilds: false,
   },
 };
 

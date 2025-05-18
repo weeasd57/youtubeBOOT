@@ -20,39 +20,31 @@ import { Loader, SearchIcon, ExternalLinkIcon, CheckCircleIcon, AlertCircleIcon,
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-// Log environment variables (without showing full key)
-console.log('Environment check:', {
-  supabaseUrlExists: !!supabaseUrl,
-  supabaseAnonKeyExists: !!supabaseAnonKey,
-  supabaseUrlPrefix: supabaseUrl ? supabaseUrl.substring(0, 10) + '...' : 'missing',
-});
-
 // Create Supabase client
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export default function QueueDataTable({ filterStatus }) {
-  console.log('QueueDataTable rendered with filterStatus:', filterStatus);
   const { session } = useAuth();
-  console.log('Session:', session ? 'Active' : 'Not active', session?.user?.email);
-  
   const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
-
   const [actionLoading, setActionLoading] = useState(null);
 
   // Fetch video data from Supabase
   useEffect(() => {
-    console.log('useEffect triggered - fetching videos');
-    console.log('Dependencies changed:', { filterStatus, sessionActive: !!session });
-    
     const fetchVideos = async () => {
-      console.log('Starting fetchVideos function');
       try {
         setLoading(true);
-        console.log('Set loading to true');
+        
+        // Simple admin check using email list
+        if (session?.user) {
+          // Define admin emails - UPDATE THIS LIST with your admin emails
+          const adminEmails = ['weeeenew@gmail.com']; 
+          setIsAdmin(adminEmails.includes(session.user.email));
+          console.log("Admin check:", session.user.email, adminEmails.includes(session.user.email));
+        }
         
         // Build Supabase query
         let query = supabase
@@ -61,37 +53,27 @@ export default function QueueDataTable({ filterStatus }) {
         
         // Apply status filter if specified
         if (filterStatus) {
-          console.log('Applying status filter:', filterStatus);
           query = query.eq('status', filterStatus);
         }
         
-        // Always filter by current user (no admin exception)
-        if (session?.user) {
-          console.log('Filtering by user email:', session.user.email);
+        // Filter by user if not an admin
+        if (!isAdmin && session?.user) {
           query = query.eq('user_email', session.user.email);
-        } else {
-          console.log('No user session, query may return no results');
         }
         
         // Order results
         query = query.order('created_at', { ascending: false });
         
-        console.log('Executing Supabase query...');
         const { data, error } = await query;
         
-        if (error) {
-          console.error('Supabase query error:', error);
-          throw error;
-        }
+        if (error) throw error;
         
-        console.log(`Query successful, received ${data?.length || 0} videos`);
         setVideos(data || []);
         setError(null);
       } catch (err) {
         console.error('Error fetching video data:', err);
         setError('Failed to load video data');
       } finally {
-        console.log('Setting loading to false');
         setLoading(false);
       }
     };
@@ -99,27 +81,26 @@ export default function QueueDataTable({ filterStatus }) {
     fetchVideos();
     
     // Set up subscription for real-time changes
-    console.log('Setting up Supabase subscription');
     const subscription = supabase
       .channel('video_queue_changes')
       .on('postgres_changes', { 
         event: '*', 
         schema: 'public', 
         table: 'video_queue',
-        filter: session?.user ? `user_email=eq.${session.user.email}` : undefined
-      }, (payload) => {
-        console.log('Received real-time update:', payload);
+        filter: isAdmin 
+          ? undefined 
+          : session?.user 
+            ? `user_email=eq.${session.user.email}` 
+            : undefined
+      }, () => {
         fetchVideos();
       })
-      .subscribe((status) => {
-        console.log('Subscription status:', status);
-      });
+      .subscribe();
     
     return () => {
-      console.log('Cleaning up subscription');
       supabase.removeChannel(subscription);
     };
-  }, [filterStatus, session]);
+  }, [filterStatus, session, isAdmin]);
 
   // Filter videos by search term
   const filteredVideos = videos.filter(video => 
@@ -127,8 +108,6 @@ export default function QueueDataTable({ filterStatus }) {
     video.video_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     video.url?.toLowerCase().includes(searchTerm.toLowerCase())
   );
-  
-  console.log('Filtered videos count:', filteredVideos.length, 'Total videos:', videos.length);
 
   // Get badge color based on status
   const getStatusBadgeStyle = (status) => {
@@ -250,7 +229,6 @@ export default function QueueDataTable({ filterStatus }) {
   };
 
   if (loading) {
-    console.log('RENDERING LOADING STATE');
     return (
       <div className="flex justify-center items-center p-8">
         <Loader className="animate-spin mr-2" />
@@ -260,7 +238,6 @@ export default function QueueDataTable({ filterStatus }) {
   }
 
   if (error) {
-    console.log('RENDERING ERROR STATE:', error);
     return (
       <div className="bg-red-50 text-red-800 p-4 rounded-md">
         <p>{error}</p>
@@ -275,8 +252,6 @@ export default function QueueDataTable({ filterStatus }) {
     );
   }
 
-  console.log('RENDERING TABLE WITH DATA:', filteredVideos.length);
-  
   return (
     <div className="bg-white rounded-md shadow">
       <div className="p-4">

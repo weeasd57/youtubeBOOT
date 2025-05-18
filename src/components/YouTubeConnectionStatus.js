@@ -32,6 +32,21 @@ export default function YouTubeConnectionStatus({ onRefreshSuccess, showAuthRefr
     debugInfo,
     getDebugReport
   } = useYouTubeChannel();
+  
+  // إضافة تنقيح لعرض بيانات القناة في الكونسول
+  useEffect(() => {
+    if (channelInfo) {
+      console.log('Channel info in UI component:', {
+        id: channelInfo.id,
+        title: channelInfo.channelTitle,
+        videoCount: channelInfo.videoCount,
+        subscriberCount: channelInfo.subscriberCount,
+        viewCount: channelInfo.viewCount,
+        statistics: channelInfo.statistics,
+      });
+    }
+  }, [channelInfo]);
+
   const { data: session, status } = useSession();
   const [refreshing, setRefreshing] = useState(false);
   const [showDebugInfo, setShowDebugInfo] = useState(false);
@@ -70,8 +85,7 @@ export default function YouTubeConnectionStatus({ onRefreshSuccess, showAuthRefr
   // Check if stats might be hidden
   const areStatsHidden = (info) => {
     if (!info) return false;
-    return info.statsHidden === true || 
-           (info.subscriberCount === 0 && info.viewCount === 0 && info.videoCount === 0);
+    return info.statsHidden === true;
   };
 
   // Get status information and colors
@@ -381,11 +395,11 @@ export default function YouTubeConnectionStatus({ onRefreshSuccess, showAuthRefr
                 <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg flex flex-col items-center justify-center border dark:border-blue-800/20 transition-all duration-300 hover:-translate-y-1">
                   <FaVideo className="text-blue-500 dark:text-blue-400 text-xl mb-1" />
                   <span className="text-lg font-semibold dark:text-amber-50">
-                    {formatNumber(channelInfo.videoCount)}
+                    {formatNumber(channelInfo.videoCount || channelInfo.statistics?.videoCount)}
                   </span>
                   <span className="text-xs text-gray-500 dark:text-amber-200/60">Videos</span>
                   
-                  {channelInfo.videoCount === 0 && channelInfo.uploadsPlaylistId && (
+                  {(channelInfo.videoCount === 0 || channelInfo.statistics?.videoCount === 0) && channelInfo.uploadsPlaylistId && (
                     <a 
                       href={`https://www.youtube.com/playlist?list=${channelInfo.uploadsPlaylistId}`}
                       target="_blank"
@@ -400,7 +414,7 @@ export default function YouTubeConnectionStatus({ onRefreshSuccess, showAuthRefr
                 <div className="bg-purple-50 dark:bg-purple-900/20 p-3 rounded-lg flex flex-col items-center justify-center border dark:border-purple-800/20 transition-all duration-300 hover:-translate-y-1">
                   <FaUsers className="text-purple-500 dark:text-purple-400 text-xl mb-1" />
                   <span className="text-lg font-semibold dark:text-amber-50">
-                    {channelInfo.statsHidden ? 'Hidden' : formatNumber(channelInfo.subscriberCount)}
+                    {channelInfo.statsHidden ? 'Hidden' : formatNumber(channelInfo.subscriberCount || channelInfo.statistics?.subscriberCount)}
                   </span>
                   <span className="text-xs text-gray-500 dark:text-amber-200/60">Subscribers</span>
                 </div>
@@ -408,7 +422,7 @@ export default function YouTubeConnectionStatus({ onRefreshSuccess, showAuthRefr
                 <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded-lg flex flex-col items-center justify-center border dark:border-green-800/20 transition-all duration-300 hover:-translate-y-1">
                   <FaEye className="text-green-500 dark:text-green-400 text-xl mb-1" />
                   <span className="text-lg font-semibold dark:text-amber-50">
-                    {formatNumber(channelInfo.viewCount)}
+                    {formatNumber(channelInfo.viewCount || channelInfo.statistics?.viewCount)}
                   </span>
                   <span className="text-xs text-gray-500 dark:text-amber-200/60">Views</span>
                 </div>

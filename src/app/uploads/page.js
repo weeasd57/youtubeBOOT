@@ -198,10 +198,10 @@ function UploadsContent() {
               
               <Tabs defaultValue="all" className="w-full">
                 <TabsList className="grid w-full grid-cols-4">
-                  <TabsTrigger value="all">جميع الفيديوهات</TabsTrigger>
-                  <TabsTrigger value="pending">في الانتظار</TabsTrigger>
-                  <TabsTrigger value="processing">قيد المعالجة</TabsTrigger>
-                  <TabsTrigger value="completed">مكتملة</TabsTrigger>
+                  <TabsTrigger value="all">All Videos</TabsTrigger>
+                  <TabsTrigger value="pending">Pending</TabsTrigger>
+                  <TabsTrigger value="processing">Processing</TabsTrigger>
+                  <TabsTrigger value="completed">Completed</TabsTrigger>
                 </TabsList>
                 
                 <TabsContent value="all">

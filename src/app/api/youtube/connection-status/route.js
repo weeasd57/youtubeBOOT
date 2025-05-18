@@ -67,35 +67,101 @@ export async function GET() {
     // Get uploads playlist ID
     const uploadsPlaylistId = channel.contentDetails?.relatedPlaylists?.uploads || null;
     
-    // Try to get video count from uploads playlist if it's zero from channel statistics
+    // Initialize with API values - no static numbers
     let enhancedVideoCount = videoCount;
-    if (videoCount === 0 && uploadsPlaylistId) {
+    let enhancedSubscriberCount = subscriberCount;
+    let enhancedViewCount = viewCount;
+    
+    // Try to get actual data from different API endpoints if primary stats are hidden
+    if (uploadsPlaylistId) {
       try {
+        console.log('Fetching accurate data from uploads playlist...');
+        
+        // Get full playlist details to get accurate video count
         const playlistResponse = await youtube.playlistItems.list({
-          part: 'id',
+          part: 'id,snippet,contentDetails',
           playlistId: uploadsPlaylistId,
-          maxResults: 1
+          maxResults: 50  // Get up to 50 videos to get a better count
         });
         
-        // Get total results if available
+        // Get actual video count from playlist
         if (playlistResponse.data.pageInfo?.totalResults) {
+          console.log(`Found ${playlistResponse.data.pageInfo.totalResults} videos in uploads playlist`);
           enhancedVideoCount = playlistResponse.data.pageInfo.totalResults;
         }
+        
+        // Get video IDs to fetch more detailed statistics
+        if (playlistResponse.data.items?.length > 0) {
+          try {
+            const videoIds = playlistResponse.data.items
+              .filter(item => item.contentDetails?.videoId)
+              .map(item => item.contentDetails.videoId);
+            
+            if (videoIds.length > 0) {
+              // Fetch detailed video statistics
+              const videoResponse = await youtube.videos.list({
+                part: 'statistics',
+                id: videoIds.join(',').substring(0, 50) // API limit for IDs
+              });
+              
+              // Calculate total views from all videos if API returns 0
+              if (videoResponse.data.items?.length > 0 && enhancedViewCount === 0) {
+                const totalViews = videoResponse.data.items.reduce((sum, video) => {
+                  return sum + parseInt(video.statistics.viewCount || '0', 10);
+                }, 0);
+                
+                console.log(`Calculated ${totalViews} total views from videos`);
+                if (totalViews > 0) {
+                  enhancedViewCount = totalViews;
+                }
+              }
+            }
+          } catch (videoError) {
+            console.error('Error fetching video statistics:', videoError.message);
+          }
+        }
       } catch (playlistError) {
-        // Continue with original video count if this fails
+        console.error('Error fetching uploads playlist:', playlistError.message);
+      }
+    }
+
+    // Try to fetch subscriber data with a different endpoint if needed
+    if (enhancedSubscriberCount === 0 || statsHidden) {
+      try {
+        // Alternative API endpoint that might return subscriber data
+        const channelDetailResponse = await youtube.channels.list({
+          part: 'brandingSettings,statistics',
+          id: channelId
+        });
+
+        if (channelDetailResponse.data.items?.length > 0) {
+          const channelDetails = channelDetailResponse.data.items[0];
+          
+          // Try to get subscriber count from alternative source
+          if (channelDetails.statistics?.subscriberCount) {
+            const altSubscriberCount = parseInt(channelDetails.statistics.subscriberCount, 10);
+            if (altSubscriberCount > 0) {
+              enhancedSubscriberCount = altSubscriberCount;
+            }
+          }
+        }
+      } catch (detailError) {
+        console.error('Error fetching additional channel details:', detailError.message);
       }
     }
     
-    // Return connection status and channel info
+    // Return connection status and channel info with the best available data
     return NextResponse.json({
       success: true,
       status: 'connected',
       channelId,
       channelTitle,
       videoCount: enhancedVideoCount,
+      subscriberCount: enhancedSubscriberCount,
+      viewCount: enhancedViewCount,
       originalVideoCount: videoCount,
-      subscriberCount,
-      viewCount,
+      originalSubscriberCount: subscriberCount,
+      originalViewCount: viewCount,
       statsHidden,
       uploadsPlaylistId,
       thumbnailUrl: channel.snippet.thumbnails?.default?.url || 

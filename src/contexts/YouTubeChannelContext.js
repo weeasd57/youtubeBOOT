@@ -140,11 +140,16 @@ export function YouTubeChannelProvider({ children }) {
           channelTitle: data.channelTitle,
           customUrl: data.customUrl || `@${data.channelTitle.toLowerCase().replace(/\s+/g, '')}`,
           thumbnailUrl: data.thumbnailUrl,
+          // تخزين الإحصائيات بشكل منفصل
           statistics: {
             viewCount: data.viewCount.toString(),
             subscriberCount: data.subscriberCount.toString(),
             videoCount: data.videoCount.toString()
           },
+          // تخزين الاحصائيات بشكل مباشر أيضاً للتوافق مع الكود القديم
+          viewCount: data.viewCount.toString(),
+          subscriberCount: data.subscriberCount.toString(),
+          videoCount: data.videoCount.toString(),
           statsHidden: data.statsHidden,
           uploadsPlaylistId: data.uploadsPlaylistId,
           lastUpdated: new Date().toISOString()
