@@ -1,6 +1,4 @@
 import { NextResponse } from 'next/server';
-import axios from 'axios';
-import * as cheerio from 'cheerio';
 
 export async function POST(request) {
   try {
@@ -15,11 +13,10 @@ export async function POST(request) {
     
     console.log(`Processing TikTok URL: ${url}`);
 
-    // Enfoque simplificado: intentar directamente con la URL de TikTok
-    // Este es un enfoque alternativo que puede funcionar si el método principal falla
+    // Return the original URL directly
     return NextResponse.json({ 
-      downloadUrl: `/api/tiktok-direct-download?url=${encodeURIComponent(url)}`,
-      message: 'Using direct download method'
+      downloadUrl: url,
+      message: 'Using direct URL only'
     });
     
   } catch (error) {

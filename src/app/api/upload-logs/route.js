@@ -1,7 +1,7 @@
 import { getServerSession } from 'next-auth/next';
 import { NextResponse } from 'next/server';
 import { authOptions } from '../auth/[...nextauth]/options';
-import { supabaseAdmin } from '@/utils/supabase';
+import { supabaseAdmin } from '@/utils/supabase-server';
 
 // Get upload logs for the current user
 export async function GET() {

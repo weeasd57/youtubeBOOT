@@ -1,3 +1,11 @@
+/**
+ * IMPORTANT: Consider using supabase-unified.js instead of this file directly
+ * to avoid import confusion between client and server implementations.
+ * 
+ * This file is primarily for client-side Supabase operations.
+ * For server operations, use supabase-server.js or preferably supabase-unified.js.
+ */
+
 import { createClient } from '@supabase/supabase-js';
 
 // تهيئة عميل Supabase مع المتغيرات البيئية العامة

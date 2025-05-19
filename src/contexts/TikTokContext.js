@@ -25,7 +25,13 @@ export function TikTokProvider({ children }) {
   const [jsonToastShown, setJsonToastShown] = useState(false);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [downloadingVideoIds, setDownloadingVideoIds] = useState([]);
+  const [lastDownloadedIndex, setLastDownloadedIndex] = useState(-1);
   const { data: session } = useSession();
+
+  // Add state for concurrency control
+  const [concurrentDownloads, setConcurrentDownloads] = useState(3); // Default to 3 concurrent downloads
+  const [activeDownloads, setActiveDownloads] = useState(0);
+  const abortControllerRef = useRef(null);
 
   // Function to fetch Google Drive folders - using useCallback to avoid dependency cycle
   const fetchDriveFolders = useCallback(async (options = {}) => {
@@ -301,26 +307,8 @@ export function TikTokProvider({ children }) {
   // Get download link from the API
   const getDownloadLink = async (tiktokUrl) => {
     try {
-      const response = await fetch('/api/tiktok-download', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ url: tiktokUrl }),
-      });
-
-      if (!response.ok) {
-        // If the service doesn't work, try direct download
-        if (response.status === 404) {
-          // Use alternative method - direct download
-          return `/api/tiktok-direct-download?url=${encodeURIComponent(tiktokUrl)}`;
-        }
-        
-        throw new Error(`Request failed: ${response.status}`);
-      }
-
-      const data = await response.json();
-      return data.downloadUrl;
+      // Return the original URL directly - do not use any download services
+      return tiktokUrl;
     } catch (error) {
       throw error;
     }
@@ -329,6 +317,14 @@ export function TikTokProvider({ children }) {
   // Download video and save to Drive if enabled
   const downloadVideo = async (url, filename, videoDetails) => {
     try {
+      // Get the abort signal if available
+      const signal = abortControllerRef.current?.signal;
+      
+      // Check if already aborted
+      if (signal && signal.aborted) {
+        throw new Error('Download was cancelled');
+      }
+      
       // Set up progress tracking
       const videoId = videoDetails.videoId || extractVideoIdFromUrl(videoDetails.originalUrl);
       
@@ -360,9 +356,17 @@ export function TikTokProvider({ children }) {
         }
       }
       
+      // Check if already aborted before making HEAD request
+      if (signal && signal.aborted) {
+        throw new Error('Download was cancelled');
+      }
+      
       // Make a HEAD request first to get content length without downloading
       try {
-        const headResponse = await fetch(url, { method: 'HEAD' });
+        const headResponse = await fetch(url, { 
+          method: 'HEAD',
+          signal // Pass the abort signal to the fetch request
+        });
         if (headResponse.ok) {
           const contentLength = headResponse.headers.get('content-length');
           if (contentLength) {
@@ -378,12 +382,28 @@ export function TikTokProvider({ children }) {
           }
         }
       } catch (headError) {
-        // Continue with the download
+        // If aborted, propagate the error
+        if (headError.name === 'AbortError') {
+          throw new Error('Download was cancelled');
+        }
+        // Otherwise continue with the download
+      }
+      
+      // Check if already aborted before making main request
+      if (signal && signal.aborted) {
+        throw new Error('Download was cancelled');
       }
       
       // Create fetch with progress tracking
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`Failed to download: ${response.status}`);
+      const response = await fetch(url, { signal }); // Pass the abort signal to the fetch request
+      if (!response.ok) {
+        // تحسين رسالة الخطأ للمستخدم
+        if (response.status === 404) {
+          throw new Error(`Download link unavailable (404): The direct link in the JSON file is invalid or has expired`);
+        } else {
+          throw new Error(`Download failed: ${response.status} - Please check the validity of the links in the JSON file`);
+        }
+      }
       
       // Get the total size for progress calculation
       const contentLength = response.headers.get('content-length');
@@ -404,28 +424,86 @@ export function TikTokProvider({ children }) {
       let receivedLength = 0;
       const chunks = [];
       
-      while(true) {
-        const { done, value } = await reader.read();
-        
-        if (done) {
-          break;
-        }
-        
-        chunks.push(value);
-        receivedLength += value.length;
-        
-        // Calculate progress percentage
-        if (totalSize) {
-          const progressPercentage = Math.round((receivedLength / totalSize) * 100);
+      // Setup more frequent UI updates
+      let lastProgressUpdate = 0;
+      
+      try {
+        while(true) {
+          // Check if aborted before reading the next chunk
+          if (signal && signal.aborted) {
+            try {
+              await reader.cancel(); // Cancel the reader properly
+            } catch (cancelError) {
+              console.error('Error cancelling reader:', cancelError);
+            }
+            throw new Error('Download was cancelled');
+          }
           
-          // Update the video progress
-          setVideos(prev => 
-            prev.map(v => v.id === videoDetails.id ? { 
-              ...v, 
-              progress: progressPercentage 
-            } : v)
-          );
+          let readResult;
+          try {
+            readResult = await reader.read();
+          } catch (readError) {
+            // Check if this is an abort error
+            if (readError.name === 'AbortError' || signal?.aborted) {
+              throw new Error('Download was cancelled');
+            }
+            console.error('Error reading chunk:', readError);
+            throw readError;
+          }
+          
+          const { done, value } = readResult;
+          
+          if (done) {
+            break;
+          }
+          
+          chunks.push(value);
+          receivedLength += value.length;
+          
+          // Calculate progress percentage
+          if (totalSize) {
+            const progressPercentage = Math.round((receivedLength / totalSize) * 100);
+            
+            // Update progress more frequently (but not on every chunk to avoid too many renders)
+            const now = Date.now();
+            if (progressPercentage !== lastProgressUpdate && (now - lastProgressUpdate > 200 || progressPercentage % 5 === 0)) {
+              lastProgressUpdate = now;
+              
+              // Update the video progress
+              setVideos(prev => 
+                prev.map(v => v.id === videoDetails.id ? { 
+                  ...v, 
+                  progress: progressPercentage,
+                  status: 'downloading' // Ensure status is downloading
+                } : v)
+              );
+              
+              // Update current video progress if this is the current video
+              setCurrentVideo(prev => {
+                if (prev && prev.id === videoDetails.id) {
+                  return { ...prev, progress: progressPercentage, status: 'downloading' };
+                }
+                return prev;
+              });
+              
+              // Force a small delay to allow React to render updates
+              await new Promise(resolve => setTimeout(resolve, 10));
+            }
+          }
         }
+      } catch (streamError) {
+        // If this is an abort error, propagate it
+        if (streamError.message === 'Download was cancelled' || streamError.name === 'AbortError' || signal?.aborted) {
+          throw new Error('Download was cancelled');
+        }
+        // For other errors, throw with details
+        console.error('Error in download stream:', streamError);
+        throw streamError;
+      }
+      
+      // Check if aborted before continuing
+      if (signal && signal.aborted) {
+        throw new Error('Download was cancelled');
       }
       
       // Concatenate all chunks into a single Uint8Array
@@ -465,44 +543,157 @@ export function TikTokProvider({ children }) {
               return;
             }
             
-            // Show success message if not already exists
-            if (!uploadResult.alreadyExists) {
-              toastHelper.success(`Video saved to Google Drive folder: ${folderName}`);
+            // Update video with Drive file ID and web link
+            setVideos(prev => 
+              prev.map(v => v.id === videoDetails.id ? { 
+                ...v, 
+                status: 'completed',
+                progress: 100,
+                driveFileId: uploadResult.fileId,
+                webViewLink: uploadResult.webViewLink
+              } : v)
+            );
+            
+            // Also update current video if it matches
+            setCurrentVideo(prev => {
+              if (prev && prev.id === videoDetails.id) {
+                return { 
+                  ...prev, 
+                  status: 'completed', 
+                  progress: 100,
+                  driveFileId: uploadResult.fileId,
+                  webViewLink: uploadResult.webViewLink
+                };
+              }
+              return prev;
+            });
+            
+            // Save to Supabase if we have a video ID
+            if (videoId && session) {
+              try {
+                await fetch('/api/tiktok/videos', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    videoId,
+                    title: videoDetails.title,
+                    description: videoDetails.description,
+                    originalUrl: videoDetails.originalUrl,
+                    downloadUrl: videoDetails.downloadUrl,
+                    driveFolderId,
+                    driveFileId: uploadResult.fileId
+                  }),
+                });
+              } catch (supabaseError) {
+                console.error('Error saving to Supabase:', supabaseError);
+                // Non-critical error, continue
+              }
             }
             
-            // Return without downloading locally
             return;
           } else {
-            // Check for permission errors
-            if (uploadResult.errorCode === 'PERMISSION_DENIED' || 
-                (uploadResult.error && uploadResult.error.toLowerCase().includes('permission'))) {
-              // Show permission error message
-              toastHelper.error('Permission error: Your Google account may not have sufficient permissions to upload to Drive.');
-            }
+            // Drive upload failed but a Drive folder is selected
+            // Update video status to failed
+            setVideos(prev => 
+              prev.map(v => v.id === videoDetails.id ? { 
+                ...v, 
+                status: 'failed',
+                error: uploadResult?.error || 'Failed to upload to Google Drive'
+              } : v)
+            );
             
-            // Since Drive upload failed, show a message and fall back to local download
-            toastHelper.warning('Failed to save to Drive, downloading to your device instead');
+            // Also update current video if it matches
+            setCurrentVideo(prev => {
+              if (prev && prev.id === videoDetails.id) {
+                return { 
+                  ...prev, 
+                  status: 'failed',
+                  error: uploadResult?.error || 'Failed to upload to Google Drive'
+                };
+              }
+              return prev;
+            });
+            
+            // Show error notification
+            toastHelper.error(`Failed to upload to Google Drive: ${uploadResult?.error || 'Unknown error'}`);
+            
+            // Return without downloading locally since Drive folder is selected
+            return;
           }
-        } catch (uploadError) {
-          toastHelper.warning('Drive upload failed, downloading to your device instead');
+        } catch (driveError) {
+          console.error('Drive upload error:', driveError);
+          
+          // Drive upload failed with an exception but a Drive folder is selected
+          // Update video status to failed
+          setVideos(prev => 
+            prev.map(v => v.id === videoDetails.id ? { 
+              ...v, 
+              status: 'failed',
+              error: driveError.message || 'Error uploading to Google Drive'
+            } : v)
+          );
+          
+          // Show error notification
+          toastHelper.error(`Error uploading to Google Drive: ${driveError.message || 'Unknown error'}`);
+          
+          // Return without downloading locally since Drive folder is selected
+          return;
         }
       }
       
-      // Always download locally if:
-      // 1. saveToDrive is false, OR
-      // 2. We don't have a session, OR
-      // 3. We don't have a selected folder ID, OR
-      // 4. User wants a local copy even after successful Drive upload
-      // Create a download link for the user's browser
-      const downloadUrl = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(downloadUrl);
+      // Only proceed with local download if Drive is not enabled or no folder is selected
+      if (!saveToDrive || !driveFolderId) {
+        // Create a download link
+        const downloadUrl = URL.createObjectURL(blob);
+        
+        // Create a link element and trigger download
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        
+        // Clean up
+        setTimeout(() => {
+          URL.revokeObjectURL(downloadUrl);
+          document.body.removeChild(a);
+        }, 100);
+        
+        // Update video status to completed
+        setVideos(prev => 
+          prev.map(v => v.id === videoDetails.id ? { 
+            ...v, 
+            status: 'completed',
+            progress: 100
+          } : v)
+        );
+        
+        // Also update current video if it matches
+        setCurrentVideo(prev => {
+          if (prev && prev.id === videoDetails.id) {
+            return { ...prev, status: 'completed', progress: 100 };
+          }
+          return prev;
+        });
+      }
     } catch (error) {
+      // Handle abort errors specially
+      if (error.message === 'Download was cancelled' || error.name === 'AbortError') {
+        console.log(`Download of ${filename} was cancelled`);
+        throw error; // Re-throw to be handled by the caller
+      }
+      
+      // For other errors, update the video status and throw
+      setVideos(prev => 
+        prev.map(v => v.id === videoDetails.id ? { 
+          ...v, 
+          status: 'failed',
+          error: error.message
+        } : v)
+      );
+      
       throw error;
     }
   };
@@ -632,22 +823,12 @@ export function TikTokProvider({ children }) {
           // Extract URL based on different JSON formats
           if (item.video && item.video.downloadAddr) {
             videoUrl = item.video.downloadAddr;
-          } else if (item.video && item.video.playAddr) {
-            videoUrl = item.video.playAddr;
-          } else if (item.video && item.video.url) {
-            videoUrl = item.video.url;
-          } else if (item.play) {
-            videoUrl = item.play;
-          } else if (item.playUrl) {
-            videoUrl = item.playUrl;
-          } else if (item.downloadUrl) {
-            videoUrl = item.downloadUrl;
-          } else if (item.url) {
-            videoUrl = item.url;
-          } else if (item.webVideoUrl) {
-            videoUrl = item.webVideoUrl;
-          } else if (item.shareUrl) {
-            videoUrl = item.shareUrl;
+          } else if (item.downloadAddr) {
+            videoUrl = item.downloadAddr;
+          } else if (item.mediaUrls && item.mediaUrls.length > 0) {
+            videoUrl = item.mediaUrls[0];
+          } else if (item.video && item.video.mediaUrls && item.video.mediaUrls.length > 0) {
+            videoUrl = item.video.mediaUrls[0];
           }
           
           // If we still don't have a URL, check for video.urls array
@@ -734,16 +915,209 @@ export function TikTokProvider({ children }) {
     return title.replace(/#\w+/g, '').replace(/[<>:"/\\|?*]/g, '_').trim();
   };
 
-  // Download all videos
+  // وظيفة للتحقق من صحة الرابط قبل التحميل
+  const validateUrl = async (url) => {
+    try {
+      // التحقق من تنسيق URL
+      if (!url || typeof url !== 'string') {
+        return { valid: false, error: 'Download link is invalid or missing' };
+      }
+
+      // التحقق من أن الرابط ليس فارغًا
+      if (url.trim() === '') {
+        return { valid: false, error: 'Download link is empty' };
+      }
+
+      // التحقق من أن الرابط يبدأ بـ http:// أو https://
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        return { valid: false, error: 'Download link must start with http:// or https://' };
+      }
+
+      // محاولة التحقق من صحة الرابط باستخدام HEAD request
+      try {
+        const response = await fetch(url, { method: 'HEAD', timeout: 5000 });
+        
+        if (!response.ok) {
+          if (response.status === 404) {
+            return { valid: false, error: `Download link unavailable (404): The direct link in the JSON file is invalid or has expired` };
+          } else {
+            return { valid: false, error: `Download link unavailable (${response.status})` };
+          }
+        }
+        
+        // التحقق من نوع المحتوى إذا كان متاحًا
+        const contentType = response.headers.get('content-type');
+        if (contentType && !contentType.includes('video') && !contentType.includes('octet-stream') && !contentType.includes('binary')) {
+          return { valid: false, error: `Download link does not contain a video file (${contentType})` };
+        }
+        
+        return { valid: true };
+      } catch (error) {
+        // قد يرفض بعض الخوادم طلبات HEAD أو تعطي timeout
+        // في هذه الحالة سنعيد صحة الرابط = true ونحاول التحميل المباشر
+        return { valid: true, warning: 'Could not verify the link, will try direct download' };
+      }
+    } catch (error) {
+      return { valid: false, error: `Error verifying link: ${error.message}` };
+    }
+  };
+
+  // Helper function to process video download in parallel
+  const processVideoDownload = async (video) => {
+    try {
+      // Check abort signal
+      if (abortControllerRef.current?.signal?.aborted) {
+        console.log("Aborting video download due to cancel signal");
+        return { success: false, video, error: 'Download cancelled' };
+      }
+      
+      // Update video status to processing
+      setVideos(prev => 
+        prev.map(v => v.id === video.id ? { ...v, status: 'processing', progress: 0 } : v)
+      );
+      
+      // Get download link if we don't have one already
+      let downloadUrl = video.downloadUrl;
+      if (!downloadUrl) {
+        // Check if cancelled before getting download link
+        if (abortControllerRef.current?.signal?.aborted) {
+          return { success: false, video, error: 'Download cancelled' };
+        }
+        
+        downloadUrl = await getDownloadLink(video.url);
+        
+        // Update video with download URL
+        setVideos(prev => 
+          prev.map(v => v.id === video.id ? { ...v, downloadUrl } : v)
+        );
+      }
+      
+      if (downloadUrl) {
+        // Verify the link before downloading
+        const urlValidation = await validateUrl(downloadUrl);
+        if (!urlValidation.valid) {
+          // Update video status to failed with error message
+          setVideos(prev => 
+            prev.map(v => v.id === video.id ? { 
+              ...v, 
+              status: 'failed', 
+              error: urlValidation.error || 'Invalid download link' 
+            } : v)
+          );
+          return { success: false, video, error: urlValidation.error || 'Invalid download link' };
+        }
+        
+        // Update video status to downloading
+        setVideos(prev => 
+          prev.map(v => v.id === video.id ? { ...v, status: 'downloading', progress: 0 } : v)
+        );
+        
+        // Also update the current video if it matches
+        setCurrentVideo(prev => {
+          if (prev && prev.id === video.id) {
+            return { ...prev, status: 'downloading', progress: 0 };
+          }
+          return prev;
+        });
+        
+        // Create cleaned filename
+        const cleanedTitle = cleanTitle(video.title);
+        const filename = `${cleanedTitle}.mp4`;
+        
+        // Download the video
+        await downloadVideo(downloadUrl, filename, {
+          ...video,
+          title: cleanedTitle,
+          description: video.text || video.desc || video.title,
+          originalUrl: video.url,
+          downloadUrl: downloadUrl,
+          videoId: video.videoId || extractVideoIdFromUrl(video.url)
+        });
+        
+        // Check if cancelled after download
+        if (abortControllerRef.current?.signal?.aborted) {
+          return { success: false, video, error: 'Download cancelled' };
+        }
+        
+        // Update video status to completed
+        setVideos(prev => 
+          prev.map(v => v.id === video.id ? { 
+            ...v, 
+            status: 'completed',
+            progress: 100 
+          } : v)
+        );
+        
+        // Also update the current video if it matches
+        setCurrentVideo(prev => {
+          if (prev && prev.id === video.id) {
+            return { ...prev, status: 'completed', progress: 100 };
+          }
+          return prev;
+        });
+        
+        return { success: true, video };
+      } else {
+        // No download URL available
+        setVideos(prev => 
+          prev.map(v => v.id === video.id ? { 
+            ...v, 
+            status: 'failed',
+            error: 'Could not find download link. Make sure your JSON file contains valid direct links.' 
+          } : v)
+        );
+        return { success: false, video, error: 'Could not find download link' };
+      }
+    } catch (error) {
+      console.error('Error in processVideoDownload:', error);
+      
+      // Check if this was a cancellation error
+      const wasCancelled = error.message === 'Download was cancelled' || 
+                          error.name === 'AbortError' ||
+                          abortControllerRef.current?.signal?.aborted;
+      
+      if (wasCancelled) {
+        console.log(`Download of video ${video.title || video.id} was cancelled`);
+        
+        // Reset the video status to pending
+        setVideos(prev => 
+          prev.map(v => v.id === video.id ? { 
+            ...v, 
+            status: 'pending',
+            progress: 0,
+            error: 'Download was cancelled'
+          } : v)
+        );
+        
+        return { success: false, video, cancelled: true, error: 'Download was cancelled' };
+      }
+      
+      // For other errors, mark as failed
+      setVideos(prev => 
+        prev.map(v => v.id === video.id ? { 
+          ...v, 
+          status: 'failed',
+          error: error.message,
+          progress: 0
+        } : v)
+      );
+      return { success: false, video, error: error.message };
+    }
+  };
+
+  // Modified downloadAllVideos function to implement parallel processing
   const downloadAllVideos = async () => {
     if (loading || downloadingAll) return;
     
     try {
+      // Create new abort controller for this batch
+      abortControllerRef.current = new AbortController();
+      
       setDownloadingAll(true);
       setLoading(true);
       setProgress(0);
       
-      // Verify folder existence if saving to Drive
+      // Verify folder existence and check save preferences
       if (saveToDrive && driveFolderId) {
         const folderExists = await verifyFolderBeforeDownload();
         if (!folderExists) {
@@ -753,6 +1127,18 @@ export function TikTokProvider({ children }) {
           await fetchDriveFolders();
           return;
         }
+        
+        // Notify user that videos will only be saved to Google Drive
+        toastHelper.info('Videos will be saved to Google Drive only and not downloaded locally.');
+      } else if (!saveToDrive) {
+        // Notify user that videos will be downloaded locally
+        toastHelper.info('Videos will be downloaded to your device.');
+      } else {
+        // No Drive folder selected but Drive save is enabled
+        toastHelper.warning('Please select a Google Drive folder or disable "Save to Drive" option.');
+        setDownloadingAll(false);
+        setLoading(false);
+        return;
       }
       
       // Check if videos are already in Drive
@@ -781,11 +1167,16 @@ export function TikTokProvider({ children }) {
               existingCount++;
             }
           }
+          
+          // Update progress for preflight checks
+          const preflightProgress = Math.round((i / updatedVideos.length) * 20); // Use first 20% for preflight
+          setProgress(preflightProgress);
         }
         
         // Update videos with existing files marked as completed
         if (existingCount > 0) {
           setVideos(updatedVideos);
+          toastHelper.info(`${existingCount} videos already exist in Drive and will be skipped.`);
         }
       }
       
@@ -796,97 +1187,120 @@ export function TikTokProvider({ children }) {
         setDownloadingAll(false);
         setLoading(false);
         setProgress(100);
+        toastHelper.info('All videos are already downloaded.');
         return;
       }
       
+      // Process concurrency for downloads
+      const maxConcurrent = concurrentDownloads;
+      
+      // Start from the last downloaded index + 1 if it's valid, otherwise start from 0
+      let currentIndex = 0;
+      
+      // Check if we should resume from a previous position
+      if (lastDownloadedIndex >= 0 && lastDownloadedIndex < pendingVideos.length - 1) {
+        currentIndex = lastDownloadedIndex + 1;
+        toastHelper.info(`Resuming downloads from video ${currentIndex + 1} of ${pendingVideos.length}`);
+      }
+      
+      let completedCount = 0;
       let successCount = 0;
       let failedCount = 0;
       
-      for (let i = 0; i < pendingVideos.length; i++) {
-        const video = pendingVideos[i];
-        
-        // Skip videos that are already completed
-        if (video.status === 'completed') {
-          continue;
+      // Get the abort signal
+      const signal = abortControllerRef.current.signal;
+      
+      // Function to start a new download
+      const startNextDownload = async () => {
+        if (currentIndex >= pendingVideos.length || signal.aborted) {
+          return;
         }
         
+        // Check if the download has been aborted before starting a new one
+        if (signal.aborted) {
+          console.log("Download aborted during processing");
+          return;
+        }
+        
+        const video = pendingVideos[currentIndex];
+        const videoIndex = currentIndex; // Store the current index for later
+        currentIndex++;
+        setActiveDownloads(prev => prev + 1);
+        
+        // Set current video for display
         setCurrentVideo(video);
         
         try {
-          // Update progress based on current video index
-          const currentProgress = Math.round((i / pendingVideos.length) * 100);
-          setProgress(currentProgress);
-          
-          // Update video status to processing
-          setVideos(prev => 
-            prev.map(v => v.id === video.id ? { ...v, status: 'processing', progress: 0 } : v)
-          );
-          
-          // Get download link if we don't have one already
-          let downloadUrl = video.downloadUrl;
-          if (!downloadUrl) {
-            downloadUrl = await getDownloadLink(video.url);
-            
-            // Update video with download URL
-            setVideos(prev => 
-              prev.map(v => v.id === video.id ? { ...v, downloadUrl } : v)
-            );
+          // Check for abort before processing
+          if (signal.aborted) {
+            console.log("Download aborted during processing");
+            return;
           }
           
-          if (downloadUrl) {
-            // Update video status to downloading
-            setVideos(prev => 
-              prev.map(v => v.id === video.id ? { ...v, status: 'downloading', progress: 0 } : v)
-            );
-            
-            // Create cleaned filename
-            const cleanedTitle = cleanTitle(video.title);
-            const filename = `${cleanedTitle}.mp4`;
-            
-            // Download the video
-            await downloadVideo(downloadUrl, filename, {
-              ...video,
-              title: cleanedTitle,
-              description: video.text || video.desc || video.title,
-              originalUrl: video.url,
-              downloadUrl: downloadUrl,
-              videoId: video.videoId || extractVideoIdFromUrl(video.url)
-            });
-            
-            // Update video status to completed
-            setVideos(prev => 
-              prev.map(v => v.id === video.id ? { 
-                ...v, 
-                status: 'completed',
-                progress: 100 
-              } : v)
-            );
-            
+          const result = await processVideoDownload(video);
+          
+          // Update completed count
+          completedCount++;
+          
+          // Update progress (80% of progress bar is for downloads, 20% was for preflight)
+          const downloadProgress = 20 + Math.round((completedCount / pendingVideos.length) * 80);
+          setProgress(downloadProgress);
+          
+          if (result.success) {
             successCount++;
-          } else {
-            // No download URL available
+            // Update last downloaded index if this download was successful
+            setLastDownloadedIndex(videoIndex);
+          } else if (!result.cancelled) {
             failedCount++;
-            setVideos(prev => 
-              prev.map(v => v.id === video.id ? { 
-                ...v, 
-                status: 'failed',
-                error: 'Could not get download URL' 
-              } : v)
-            );
           }
         } catch (error) {
+          console.error(`Error processing video ${video.id}:`, error);
           failedCount++;
+        } finally {
+          setActiveDownloads(prev => Math.max(0, prev - 1));
           
-          // Update video status to failed
-          setVideos(prev => 
-            prev.map(v => v.id === video.id ? { 
-              ...v, 
-              status: 'failed',
-              error: error.message,
-              progress: 0
-            } : v)
-          );
+          // Start another download if not aborted
+          if (!signal.aborted) {
+            startNextDownload();
+          }
         }
+      };
+      
+      // Start initial batch of downloads based on concurrency
+      const initialBatchSize = Math.min(maxConcurrent, pendingVideos.length);
+      for (let i = 0; i < initialBatchSize; i++) {
+        startNextDownload();
+      }
+      
+      // Wait for all downloads to complete
+      let checkCount = 0;
+      while (completedCount < pendingVideos.length && activeDownloads > 0 && !signal.aborted) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        checkCount++;
+        
+        // Log status periodically to help with debugging
+        if (checkCount % 10 === 0) {
+          console.log(`Download status: ${completedCount}/${pendingVideos.length} completed, abort status: ${signal.aborted}`);
+        }
+        
+        // Break out early if abort was detected
+        if (signal.aborted) {
+          console.log("Abort detected in main wait loop");
+          break;
+        }
+      }
+      
+      // Check if aborted before finishing up
+      if (signal.aborted) {
+        console.log("Download process was aborted before completion");
+        // No need to show toast or update states here as the cancelDownloads function handles this
+        return;
+      }
+      
+      // If all videos completed successfully, reset the last downloaded index
+      if (completedCount === pendingVideos.length && failedCount === 0) {
+        setLastDownloadedIndex(-1);
       }
       
       // Clear current video
@@ -895,7 +1309,7 @@ export function TikTokProvider({ children }) {
       // Set final progress to 100%
       setProgress(100);
       
-      // Show summary toast only if there were new operations
+      // Show summary toast
       if (successCount > 0 || failedCount > 0) {
         if (successCount > 0 && failedCount === 0) {
           if (saveToDrive && driveFolderId) {
@@ -916,8 +1330,109 @@ export function TikTokProvider({ children }) {
       setLoading(false);
       setDownloadingAll(false);
       setCurrentVideo(null);
+      setActiveDownloads(0);
+      abortControllerRef.current = null;
     }
   };
+
+  // Add function to cancel ongoing downloads
+  const cancelDownloads = () => {
+    try {
+      if (abortControllerRef.current) {
+        // Store a reference to the current controller
+        const controller = abortControllerRef.current;
+        
+        // Create a new controller immediately to prevent further operations from using the aborted one
+        abortControllerRef.current = new AbortController();
+        
+        // Reset states immediately
+        setLoading(false);
+        setDownloadingAll(false);
+        setActiveDownloads(0);
+        
+        // Reset individual video states that are still processing
+        setVideos(prev => 
+          prev.map(v => {
+            if (v.status === 'processing' || v.status === 'downloading') {
+              return { ...v, status: 'pending', progress: 0 };
+            }
+            return v;
+          })
+        );
+        
+        // Clear current video
+        setCurrentVideo(null);
+        
+        // Clear downloading video IDs
+        setDownloadingVideoIds([]);
+        
+        // Set progress back to 0
+        setProgress(0);
+        
+        // Show toast notification
+        toastHelper.info('Downloads canceled successfully. You can resume from the last successful download.');
+        
+        // Abort after state updates to prevent React errors
+        setTimeout(() => {
+          try {
+            controller.abort();
+          } catch (error) {
+            console.error('Error during abort:', error);
+          }
+        }, 50);
+      } else {
+        // If no abort controller exists but states are still set, reset them
+        if (loading || downloadingAll) {
+          setLoading(false);
+          setDownloadingAll(false);
+          setProgress(0);
+          setCurrentVideo(null);
+          setActiveDownloads(0);
+          toastHelper.info('Downloads canceled. You can resume from the last successful download.');
+        }
+      }
+    } catch (error) {
+      console.error('Error in cancelDownloads:', error);
+      
+      // Force reset all states in case of error
+      setLoading(false);
+      setDownloadingAll(false);
+      setActiveDownloads(0);
+      setCurrentVideo(null);
+      setDownloadingVideoIds([]);
+      setProgress(0);
+      
+      // Create a new abort controller
+      abortControllerRef.current = new AbortController();
+      
+      toastHelper.warning('Error while canceling downloads. Application state has been reset.');
+    }
+  };
+
+  // Add function to set concurrency level
+  const setConcurrencyLevel = (level) => {
+    // Ensure level is between 1 and 10
+    const validLevel = Math.max(1, Math.min(10, parseInt(level) || 3));
+    setConcurrentDownloads(validLevel);
+    // Save to local storage for persistence
+    try {
+      localStorage.setItem('tiktok-concurrent-downloads', validLevel.toString());
+    } catch (e) {
+      // Ignore storage errors
+    }
+  };
+  
+  // Load concurrency preference from local storage
+  useEffect(() => {
+    try {
+      const savedConcurrency = localStorage.getItem('tiktok-concurrent-downloads');
+      if (savedConcurrency) {
+        setConcurrentDownloads(parseInt(savedConcurrency));
+      }
+    } catch (e) {
+      // Ignore storage errors
+    }
+  }, []);
 
   // Download single video
   const downloadSingleVideo = async (video) => {
@@ -930,14 +1445,28 @@ export function TikTokProvider({ children }) {
       // Add video ID to the downloading array
       setDownloadingVideoIds(prev => [...prev, video.id]);
       
-      // Verify folder existence if saving to Drive
+      // Verify folder existence and check save preferences
       if (saveToDrive && driveFolderId) {
         const folderExists = await verifyFolderBeforeDownload();
         if (!folderExists) {
           // Folder doesn't exist anymore, refresh the folder list
           await fetchDriveFolders();
+          // Remove the video ID from the downloading array
+          setDownloadingVideoIds(prev => prev.filter(id => id !== video.id));
           return;
         }
+        
+        // Notify user that video will only be saved to Google Drive
+        toastHelper.info('Video will be saved to Google Drive only and not downloaded locally.');
+      } else if (!saveToDrive) {
+        // Notify user that video will be downloaded locally
+        toastHelper.info('Video will be downloaded to your device.');
+      } else {
+        // No Drive folder selected but Drive save is enabled
+        toastHelper.warning('Please select a Google Drive folder or disable "Save to Drive" option.');
+        // Remove the video ID from the downloading array
+        setDownloadingVideoIds(prev => prev.filter(id => id !== video.id));
+        return;
       }
       
       // Extract video ID
@@ -965,6 +1494,7 @@ export function TikTokProvider({ children }) {
         }
       }
       
+      // If video already has a status and downloadUrl, use that
       if (video.status === 'completed' && video.downloadUrl) {
         // If the video is already completed, just download it
         try {
@@ -1011,53 +1541,71 @@ export function TikTokProvider({ children }) {
         return;
       }
       
-      // Update video status to processing
+      // Check if the URL is available directly from the video object
+      if (!video.url) {
+        setVideos(prev => 
+          prev.map(v => v.id === video.id ? { 
+            ...v, 
+            status: 'failed',
+            error: 'No direct download URL found in JSON data (downloadAddr or mediaUrls required)'
+          } : v)
+        );
+        // Remove the video ID from the downloading array
+        setDownloadingVideoIds(prev => prev.filter(id => id !== video.id));
+        return;
+      }
+      
+      // Update video status to downloading
       setVideos(prev => 
-        prev.map(v => v.id === video.id ? { ...v, status: 'processing', progress: 0 } : v)
+        prev.map(v => v.id === video.id ? { ...v, status: 'downloading', downloadUrl: video.url, progress: 0 } : v)
       );
       
-      // Get download link
-      const downloadUrl = await getDownloadLink(video.url);
-      
-      // Update video with download URL
-      setVideos(prev => 
-        prev.map(v => v.id === video.id ? { ...v, status: 'downloading', downloadUrl, progress: 0 } : v)
-      );
-      
-      // Download video
-      if (downloadUrl) {
-        try {
-          // Use title without hashtags for the filename
-          const cleanedTitle = cleanTitle(video.title);
-          const filename = `${cleanedTitle}.mp4`;
-          await downloadVideo(downloadUrl, filename, {
-            ...video,
-            title: cleanedTitle,
-            description: video.text || video.desc || video.title,
-            originalUrl: video.url,
-            downloadUrl: downloadUrl,
-            videoId: video.videoId || extractVideoIdFromUrl(video.url)
-          });
-          
-          // Update video status to completed with 100% progress
+      // Download video directly from the URL in JSON
+      try {
+        // Verify the link before downloading
+        const urlValidation = await validateUrl(video.url);
+        if (!urlValidation.valid) {
+          // Update video status to failed with error message
           setVideos(prev => 
             prev.map(v => v.id === video.id ? { 
               ...v, 
-              status: 'completed',
-              progress: 100 
+              status: 'failed', 
+              error: urlValidation.error || 'Invalid download link' 
             } : v)
           );
-        } catch (e) {
-          // Update video status to failed
-          setVideos(prev => 
-            prev.map(v => v.id === video.id ? { 
-              ...v, 
-              status: 'failed',
-              error: e.message,
-              progress: 0 
-            } : v)
-          );
+          return;
         }
+        
+        // Use title without hashtags for the filename
+        const cleanedTitle = cleanTitle(video.title);
+        const filename = `${cleanedTitle}.mp4`;
+        await downloadVideo(video.url, filename, {
+          ...video,
+          title: cleanedTitle,
+          description: video.text || video.desc || video.title,
+          originalUrl: video.url,
+          downloadUrl: video.url,
+          videoId: video.videoId || extractVideoIdFromUrl(video.url)
+        });
+        
+        // Update video status to completed with 100% progress
+        setVideos(prev => 
+          prev.map(v => v.id === video.id ? { 
+            ...v, 
+            status: 'completed',
+            progress: 100 
+          } : v)
+        );
+      } catch (e) {
+        // Update video status to failed
+        setVideos(prev => 
+          prev.map(v => v.id === video.id ? { 
+            ...v, 
+            status: 'failed',
+            error: e.message,
+            progress: 0 
+          } : v)
+        );
       }
     } catch (error) {
       // Update video status to failed
@@ -1104,20 +1652,14 @@ export function TikTokProvider({ children }) {
 
   // Reset the downloader state
   const resetDownloader = () => {
-    // تفريغ البيانات
     setVideos([]);
     setJsonData(null);
-    setLoading(false);
-    setCurrentVideo(null);
     setProgress(0);
-    setJsonToastShown(false);
+    setCurrentVideo(null);
     setDownloadingAll(false);
+    setLoading(false);
     setDownloadingVideoIds([]);
-    
-    // إضافة إشعار للمستخدم
-    toastHelper.success('تم حذف البيانات بنجاح. يمكنك الآن استيراد ملف JSON جديد.');
-    
-    return true; // إرجاع قيمة للتأكيد على نجاح العملية
+    setLastDownloadedIndex(-1); // Reset the last downloaded index
   };
 
   // Get Drive folder URL
@@ -1169,7 +1711,10 @@ export function TikTokProvider({ children }) {
     downloadSingleVideo,
     resetDownloader,
     downloadingAll,
-    downloadingVideoIds
+    downloadingVideoIds,
+    cancelDownloads,
+    setConcurrencyLevel,
+    concurrentDownloads
   };
 
   return (

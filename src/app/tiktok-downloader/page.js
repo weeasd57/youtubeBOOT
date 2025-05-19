@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState, useEffect } from 'react';
-import { FaFileUpload, FaDownload, FaSpinner, FaEye, FaSync, FaPlus, FaFolder, FaExclamationTriangle, FaClock, FaVideo, FaTrash } from 'react-icons/fa';
+import { FaFileUpload, FaDownload, FaSpinner, FaEye, FaSync, FaPlus, FaFolder, FaExclamationTriangle, FaClock, FaTrash, FaCheckCircle, FaFolderPlus, FaMinus, FaTimes, FaCogs, FaStop, FaVideo } from 'react-icons/fa';
 import { useSession } from 'next-auth/react';
 import Image from "next/image";
 import Link from "next/link";
@@ -129,6 +129,9 @@ function TikTokDownloaderContent() {
     downloadingAll,
     downloadingVideoIds,
     resetDownloader,
+    cancelDownloads,
+    setConcurrencyLevel,
+    concurrentDownloads
   } = useTikTok();
 
   const fileInputRef = useRef(null);
@@ -328,6 +331,9 @@ function TikTokDownloaderContent() {
 
   // Status badge component
   const getStatusBadge = (status, videoProgress = 0, size = null) => {
+    // Make sure videoProgress is always a number
+    videoProgress = parseInt(videoProgress || 0);
+    
     switch (status) {
       case 'pending':
         return (
@@ -358,14 +364,12 @@ function TikTokDownloaderContent() {
           <div className="space-y-1">
             <span className="px-3 py-1.5 text-xs bg-amber-900/40 text-amber-400 dark:bg-amber-900/40 dark:text-amber-400 rounded-full inline-flex items-center gap-1.5 font-medium border border-amber-800 dark:border-amber-800 shadow-sm">
               <FaSpinner className="animate-spin" size={12} />
-              Downloading {videoProgress > 0 ? `(${videoProgress}%)` : ''}
+              Downloading {videoProgress}%
             </span>
             <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-              <div className="h-full bg-amber-500 dark:bg-amber-600 rounded-full relative overflow-hidden" 
-                  style={{ width: `${videoProgress || 50}%` }}>
-                <div className="absolute inset-0 overflow-hidden">
-                  <span className="absolute top-0 bottom-0 w-8 bg-white/30 -skew-x-30 animate-shimmer"></span>
-                </div>
+              <div 
+                className="h-full bg-amber-500 dark:bg-amber-600 rounded-full" 
+                style={{ width: `${videoProgress}%` }}>
               </div>
             </div>
           </div>
@@ -490,6 +494,31 @@ function TikTokDownloaderContent() {
                 className="hidden"
               />
             </button>
+
+            {/* Add Concurrency Settings */}
+            <div className="flex items-center gap-2">
+              <div className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                <FaCogs className="inline mr-1" />
+                Concurrent Downloads:
+              </div>
+              <button 
+                onClick={() => setConcurrencyLevel(Math.max(1, concurrentDownloads - 1))}
+                className="h-8 w-8 flex items-center justify-center bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-l-md"
+                disabled={concurrentDownloads <= 1 || downloadingAll}
+              >
+                <FaMinus size={12} />
+              </button>
+              <div className="h-8 w-10 flex items-center justify-center bg-gray-100 dark:bg-gray-800 text-sm font-medium">
+                {concurrentDownloads}
+              </div>
+              <button 
+                onClick={() => setConcurrencyLevel(Math.min(10, concurrentDownloads + 1))}
+                className="h-8 w-8 flex items-center justify-center bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-r-md"
+                disabled={concurrentDownloads >= 10 || downloadingAll}
+              >
+                <FaPlus size={12} />
+              </button>
+            </div>
           </div>
 
           {session && (
@@ -776,117 +805,92 @@ function TikTokDownloaderContent() {
             </div>
           </div>
         )}
-        {jsonData && (
-          <div className="mb-4">
-            <div className="flex justify-between items-center mb-2">
-              <h2 className="text-lg font-medium dark:text-white">Found {videos.length} videos</h2>
-              <div className="flex gap-2">
-                {videos.length > 0 && (
+
+        {/* Videos Found in JSON summary section - moved from bottom of page to here */}
+        {jsonData ? (
+          <div className="space-y-4 mb-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4">
+              <div>
+                <h3 className="text-lg font-medium text-gray-800 dark:text-white">
+                  {videos.length} Videos Found in JSON
+                </h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  {videos.filter(v => v.status === 'completed').length} downloaded, 
+                  {videos.filter(v => v.status === 'failed').length} failed
+                </p>
+              </div>
+              
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={downloadAllVideos}
+                  disabled={loading || videos.length === 0}
+                  className="px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-md flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loading ? <FaSpinner className="animate-spin" /> : <FaDownload />}
+                  {loading ? "Downloading..." : "Download All Videos"}
+                </button>
+                
+                {/* Make Cancel button very prominent */}
+                {loading && (
                   <button
-                    onClick={downloadAllVideos}
-                    disabled={loading || downloadingAll}
-                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-md flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed "
+                    onClick={cancelDownloads}
+                    className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md flex items-center gap-2 font-bold shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-200 animate-pulse"
                   >
-                    {loading || downloadingAll ? (
-                      <>
-                        <FaSpinner className="animate-spin" /> Downloading ({progress}%)
-                      </>
-                    ) : (
-                      <>
-                        <FaDownload /> {saveToDrive && driveFolderId ? 'Save All to Drive' : 'Download All Videos'}
-                      </>
-                    )}
+                    <FaStop /> Cancel Downloads
                   </button>
                 )}
+                
                 <button
-                  onClick={() => {
-                    const resetResult = resetDownloader();
-                    if (resetResult) {
-                      // إعادة تعيين حقل إدخال الملف بعد حذف البيانات
-                      resetFileInput(fileInputRef);
-                    }
-                  }}
-                  disabled={loading || downloadingAll}
-                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Close and clear video list"
+                  onClick={resetDownloader}
+                  disabled={loading}
+                  className="px-3 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-md flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <FaTrash className="h-5 w-5" />
-                    Delete Data
+                  <FaTrash />
+                  Reset
                 </button>
               </div>
             </div>
 
             {loading && (
-              <div className="w-full mb-6">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-medium text-gray-300 dark:text-gray-300">{progress}% completed</span>
-                  <span className="text-xs font-medium text-amber-500 dark:text-amber-500">{Math.round((progress / 100) * videos.length)}/{videos.length} videos</span>
+              <div className="mb-6">
+                <div className="mb-2 flex justify-between items-center">
+                  <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {progress}% Complete
+                  </div>
                 </div>
-                <div className="w-full h-3 bg-gray-800 rounded-full overflow-hidden dark:bg-gray-800 shadow-inner">
+                <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                   <div
-                    className="h-full rounded-full bg-gradient-to-r from-amber-500 to-amber-600 relative overflow-hidden transition-all duration-500 ease-out shadow-sm flex items-center justify-center"
+                    className="h-full bg-amber-500 dark:bg-amber-600 transition-all duration-300 ease-out relative overflow-hidden"
                     style={{ width: `${progress}%` }}
                   >
-                    {progress > 10 && (
-                      <div className="absolute inset-0 overflow-hidden">
-                        <span className="absolute inset-0 bg-white/20 animate-pulse"></span>
-                        <span className="absolute top-0 bottom-0 w-8 bg-white/30 -skew-x-30 animate-shimmer"></span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {currentVideo && (
-              <div className="mb-6 p-4 bg-white dark:bg-black rounded-lg border border-amber-500 dark:border-amber-500 shadow-sm">
-                <div className="flex items-center">
-                  <div className="mr-3 flex-shrink-0">
-                    <div className="w-8 h-8 rounded-full bg-amber-600 flex items-center justify-center animate-pulse">
-                      <FaSpinner className="animate-spin text-white" size={14} />
+                    <div className="absolute inset-0 overflow-hidden">
+                      <span className="absolute top-0 bottom-0 w-8 bg-white/30 -skew-x-30 animate-shimmer"></span>
                     </div>
                   </div>
-                  <div className="flex-1">
-                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Processing video</h4>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-xs">{currentVideo.title || currentVideo.url}</p>
-                    <div className="mt-2">
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-xs font-medium text-gray-500 dark:text-gray-300">
-                          {currentVideo.progress || 0}% completed
-                        </span>
-                      </div>
-                      <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-amber-500 dark:bg-amber-600 rounded-full relative overflow-hidden"
-                          style={{ width: `${currentVideo.progress || 0}%` }}
-                        >
-                          <div className="absolute inset-0 overflow-hidden">
-                            <span className="absolute top-0 bottom-0 w-8 bg-white/30 -skew-x-30 animate-shimmer"></span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <p className="text-xs text-amber-500 dark:text-amber-400 mt-2">
-                      {saveToDrive && driveFolderId 
-                        ? `Saving to Google Drive: ${folderName}` 
-                        : <span className="font-bold">Downloading to your device</span>}
-                    </p>
+                </div>
+                
+                {currentVideo && (
+                  <div className="mt-2 text-sm text-gray-600 dark:text-gray-400 flex items-center">
+                    <FaSpinner className="animate-spin mr-2" />
+                    Currently processing: {currentVideo.title || currentVideo.desc || 'Video'} 
                   </div>
-                </div>
+                )}
               </div>
             )}
+          </div>
+        ) : (
+          <div className="text-center p-8 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg mb-6">
+            <p className="text-gray-600 dark:text-gray-400">
+              Please upload a TikTok JSON file to start downloading videos
+            </p>
+          </div>
+        )}
 
-            {/* Add a save location banner if no Drive folder is selected */}
-            {saveToDrive && !driveFolderId && videos.length > 0 && (
-              <div className="mb-6 p-3 bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-300 dark:border-yellow-700 rounded-md">
-                <div className="flex items-center text-yellow-700 dark:text-yellow-400">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                  <span className="font-medium">No Drive folder selected! All videos will download to your device storage.</span>
-                </div>
-              </div>
-            )}
+        {jsonData && (
+          <div className="mb-4">
+            <div className="flex justify-between items-center mb-2">
+              <h2 className="text-lg font-medium dark:text-white">Found {videos.length} videos</h2>
+            </div>
 
             {videos.length > 0 && (
               <div className="bg-white dark:bg-black rounded-lg shadow-xl p-6 overflow-hidden border border-amber-500 dark:border-amber-500 transition-all hover:shadow-lg">
@@ -1022,7 +1026,17 @@ function TikTokDownloaderContent() {
           </div>
         )}
 
-       
+        {videos.length > 0 && videos.some(video => video.status === 'failed') && (
+          <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <h3 className="text-lg font-medium text-red-800 mb-2">Failed to download some videos</h3>
+            <p className="text-red-700 mb-2">This application now only uses direct links from JSON files for downloading:</p>
+            <ul className="list-disc list-inside text-red-700 mb-3">
+              <li>Make sure your JSON file contains valid direct links in the keys <code className="bg-red-100 px-1">downloadAddr</code> or <code className="bg-red-100 px-1">mediaUrls</code></li>
+              <li>Direct links must point directly to video files (mp4) and not web pages</li>
+              <li>Ensure that the direct links have not expired (TikTok links expire quickly)</li>
+            </ul>
+          </div>
+        )}
       </div>
     </PageContainer>
   );

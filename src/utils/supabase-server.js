@@ -9,7 +9,7 @@ if (typeof window === 'undefined' && (!supabaseUrl || !supabaseServiceKey)) {
   console.error('Supabase URL or Service Role Key is missing. Please check your environment variables.');
 }
 
-// إنشاء عميل Supabase للخادم
+// إنشاء عميل Supabase للخادم مع إضافة إعدادات timeout وretry
 export const supabaseAdmin = createClient(
   supabaseUrl || '',
   supabaseServiceKey || '',
@@ -17,6 +17,40 @@ export const supabaseAdmin = createClient(
     auth: {
       autoRefreshToken: false,
       persistSession: false
+    },
+    global: {
+      fetch: async (url, options = {}) => {
+        // Add timeout to prevent hanging connections
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+        
+        // Implement basic retry logic
+        let retries = 3;
+        let lastError = null;
+        
+        while (retries > 0) {
+          try {
+            const response = await fetch(url, {
+              ...options,
+              signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            return response;
+          } catch (error) {
+            lastError = error;
+            retries--;
+            if (retries > 0) {
+              // Wait before retrying (exponential backoff)
+              await new Promise(resolve => setTimeout(resolve, (4 - retries) * 1000));
+              console.log(`Retrying Supabase request, ${retries} attempts left`);
+            }
+          }
+        }
+        
+        clearTimeout(timeoutId);
+        console.error('All Supabase request attempts failed:', lastError);
+        throw lastError;
+      }
     }
   }
 );

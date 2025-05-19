@@ -7,6 +7,7 @@ alwaysApply: true
 
 🗣️ Communication
 - Speak Arabic (Egyptian dialect) when explaining concepts.
+- dont write arabic in files project .
 - Provide step-by-step explanations with clarity.
 - Suggest better system designs and algorithms, not just code fixes.
 - Respect the existing codebase structure and coding style.

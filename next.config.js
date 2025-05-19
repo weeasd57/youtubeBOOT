@@ -3,6 +3,8 @@ const path = require('path');
 
 const nextConfig = {
   reactStrictMode: true,
+  // Enable font optimization for Google Fonts
+  optimizeFonts: true,
   webpack: (config, { isServer }) => {
     config.resolve.alias['@'] = path.resolve(__dirname, 'src');
     // Add Supabase functions to ignored modules
@@ -10,6 +12,21 @@ const nextConfig = {
       { module: /supabase\/functions/ },
     ];
     return config;
+  },
+  // Increase timeouts for API routes to handle slow external services
+  experimental: {
+    // Set longer timeout for API routes to prevent timeouts with external services
+    serverActions: {
+      bodySizeLimit: '10mb', // Increase body size limit for file uploads
+    }
+  },
+  // External packages configuration (moved from experimental)
+  serverExternalPackages: [],
+  // Extended maximum response time for external API calls
+  httpAgentOptions: {
+    keepAlive: true,
+    responseTimeout: 60000, // 60 seconds
+    connectTimeout: 30000, // 30 seconds
   },
   images: {
     domains: [
@@ -64,10 +81,6 @@ const nextConfig = {
     contentDispositionType: 'attachment',
     contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
     unoptimized: true, // Use this when having issues with Google Drive images
-  },
-  // Add custom configuration here
-  experimental: {
-    // Next.js experimental features can go here
   },
   // إضافة متغيرات البيئة حتى تكون متاحة للتطبيق
   env: {

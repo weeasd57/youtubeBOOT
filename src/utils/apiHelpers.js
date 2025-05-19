@@ -1,23 +1,30 @@
 /**
  * Utility functions for API calls
  */
+import { 
+  API_TIMEOUTS, 
+  RETRY_CONFIG, 
+  RETRY_STATUS_CODES, 
+  isRetryableError, 
+  calculateRetryDelay 
+} from './api-config';
 
 /**
  * Executes a function with exponential backoff retry logic
  * @param {Function} fn - The async function to execute
  * @param {Object} options - Configuration options
- * @param {Number} options.maxRetries - Maximum number of retry attempts (default: 3, use -1 for infinite retries)
+ * @param {Number} options.maxRetries - Maximum number of retry attempts (default: 5, use -1 for infinite retries)
  * @param {Number} options.initialDelay - Initial delay in ms (default: 1000)
- * @param {Number} options.maxDelay - Maximum delay in ms (default: 10000)
+ * @param {Number} options.maxDelay - Maximum delay in ms (default: 30000)
  * @param {Function} options.shouldRetry - Function that determines if retry should happen (default: retry on all errors)
  * @param {Function} options.onRetry - Callback function when a retry occurs
  * @returns {Promise} - Result of the function execution
  */
 export async function withRetry(fn, options = {}) {
   const {
-    maxRetries = 3,
-    initialDelay = 1000,
-    maxDelay = 10000,
+    maxRetries = RETRY_CONFIG.MAX_RETRIES,
+    initialDelay = RETRY_CONFIG.BASE_DELAY,
+    maxDelay = RETRY_CONFIG.MAX_DELAY,
     shouldRetry = () => true,
     onRetry = () => {}
   } = options;
@@ -234,11 +241,11 @@ export function createPersistentRetry(fn, options = {}) {
 // Generic API call function with retry logic
 export async function fetchWithRetry(url, options = {}, retryOptions = {}) {
   const {
-    maxRetries = 3,
-    initialDelay = 1000,
-    maxDelay = 10000,
-    factor = 2,
-    retryOnStatus = [408, 429, 500, 502, 503, 504],
+    maxRetries = RETRY_CONFIG.MAX_RETRIES,
+    initialDelay = RETRY_CONFIG.BASE_DELAY,
+    maxDelay = RETRY_CONFIG.MAX_DELAY,
+    factor = RETRY_CONFIG.BACKOFF_FACTOR,
+    retryOnStatus = RETRY_STATUS_CODES,
     retryOnNetworkError = true
   } = retryOptions;
 
@@ -329,27 +336,19 @@ export async function fetchWithRetry(url, options = {}, retryOptions = {}) {
 
 // Helper for timeout-safe GET requests with retry
 export async function getWithRetry(url, options = {}, retryOptions = {}) {
-  const fetchOptions = {
+  return fetchWithRetry(url, {
     method: 'GET',
-    ...options,
-    timeout: options.timeout || 30000 // Default 30 second timeout
-  };
-  
-  return fetchWithRetry(url, fetchOptions, retryOptions);
+    timeout: options.timeout || API_TIMEOUTS.DEFAULT,
+    ...options
+  }, retryOptions);
 }
 
 // Helper for timeout-safe POST requests with retry
 export async function postWithRetry(url, data, options = {}, retryOptions = {}) {
-  const fetchOptions = {
+  return fetchWithRetry(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    },
     body: JSON.stringify(data),
-    ...options,
-    timeout: options.timeout || 30000 // Default 30 second timeout
-  };
-  
-  return fetchWithRetry(url, fetchOptions, retryOptions);
+    timeout: options.timeout || API_TIMEOUTS.DEFAULT,
+    ...options
+  }, retryOptions);
 } 

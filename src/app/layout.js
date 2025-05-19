@@ -4,7 +4,11 @@ import { Inter } from 'next/font/google';
 import { ToastProvider } from '@/components/ui/toast';
 import { ToastInitializer } from '@/components/ToastHelper';
 
-const inter = Inter({ subsets: ['latin'] });
+const inter = Inter({ 
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-inter',
+});
 
 export const metadata = {
   title: "YouTube Drive Uploader",
@@ -28,7 +32,7 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" className="scroll-smooth">
+    <html lang="en" className={`scroll-smooth ${inter.variable}`}>
       <body
         className="font-sans antialiased"
         suppressHydrationWarning

@@ -208,9 +208,8 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle })
               {/* User Profile Button for Mobile - Modified to sign out directly */}
               {user && (
                 <button
-                  onClick={() => signOut({ callbackUrl: '/' })}
                   className="flex items-center p-1 rounded-full hover:bg-gray-100/50 dark:hover:bg-gray-800/50 transition-all"
-                  title="Sign Out"
+                  title={user.name}
                 >
                   {user.image ? (
                     <Image
