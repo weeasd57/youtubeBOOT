@@ -17,27 +17,24 @@ import { Input } from '@/components/ui/input';
 import { Loader, SearchIcon, ExternalLinkIcon, CheckCircleIcon, AlertCircleIcon, PlayIcon } from 'lucide-react';
 
 // Initialize Supabase client - avoid errors if environment variables are not available
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-// Log environment variables (without showing full key)
-console.log('Environment check:', {
-  supabaseUrlExists: !!supabaseUrl,
-  supabaseAnonKeyExists: !!supabaseAnonKey,
-  supabaseUrlPrefix: supabaseUrl ? supabaseUrl.substring(0, 10) + '...' : 'missing',
-});
+let supabaseInitializationError = null;
+if (!supabaseUrl || !supabaseAnonKey) {
+  supabaseInitializationError = "Application configuration error: Missing Supabase URL or Key. Please contact support.";
+  console.error(supabaseInitializationError);
+}
 
-// Create Supabase client
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Create Supabase client only if URLs are available
+const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
 export default function QueueDataTable({ filterStatus }) {
-  console.log('QueueDataTable rendered with filterStatus:', filterStatus);
   const { session } = useAuth();
-  console.log('Session:', session ? 'Active' : 'Not active', session?.user?.email);
   
   const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(supabaseInitializationError); // Initialize with potential config error
   const [searchTerm, setSearchTerm] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
 
@@ -45,14 +42,15 @@ export default function QueueDataTable({ filterStatus }) {
 
   // Fetch video data from Supabase
   useEffect(() => {
-    console.log('useEffect triggered - fetching videos');
-    console.log('Dependencies changed:', { filterStatus, sessionActive: !!session });
+    if (!supabase) {
+      setLoading(false);
+      // Error is already set by supabaseInitializationError
+      return;
+    }
     
     const fetchVideos = async () => {
-      console.log('Starting fetchVideos function');
       try {
         setLoading(true);
-        console.log('Set loading to true');
         
         // Build Supabase query
         let query = supabase
@@ -61,37 +59,34 @@ export default function QueueDataTable({ filterStatus }) {
         
         // Apply status filter if specified
         if (filterStatus) {
-          console.log('Applying status filter:', filterStatus);
           query = query.eq('status', filterStatus);
         }
         
         // Always filter by current user (no admin exception)
         if (session?.user) {
-          console.log('Filtering by user email:', session.user.email);
           query = query.eq('user_email', session.user.email);
-        } else {
-          console.log('No user session, query may return no results');
+        } else if (!session && !supabase) {
+           // Early exit if Supabase isn't initialized and no session
+          setLoading(false);
+          return;
         }
         
         // Order results
         query = query.order('created_at', { ascending: false });
         
-        console.log('Executing Supabase query...');
-        const { data, error } = await query;
+        const { data, error: queryError } = await query;
         
-        if (error) {
-          console.error('Supabase query error:', error);
-          throw error;
+        if (queryError) {
+          console.error('Supabase query error:', queryError);
+          throw queryError; // Throw the actual error object
         }
         
-        console.log(`Query successful, received ${data?.length || 0} videos`);
         setVideos(data || []);
-        setError(null);
+        setError(null); // Clear previous errors
       } catch (err) {
         console.error('Error fetching video data:', err);
-        setError('Failed to load video data');
+        setError(`Failed to load video data: ${err.message || 'Unknown error'}`);
       } finally {
-        console.log('Setting loading to false');
         setLoading(false);
       }
     };
@@ -99,8 +94,7 @@ export default function QueueDataTable({ filterStatus }) {
     fetchVideos();
     
     // Set up subscription for real-time changes
-    console.log('Setting up Supabase subscription');
-    const subscription = supabase
+    const channel = supabase
       .channel('video_queue_changes')
       .on('postgres_changes', { 
         event: '*', 
@@ -108,18 +102,27 @@ export default function QueueDataTable({ filterStatus }) {
         table: 'video_queue',
         filter: session?.user ? `user_email=eq.${session.user.email}` : undefined
       }, (payload) => {
-        console.log('Received real-time update:', payload);
-        fetchVideos();
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Received real-time update:', payload);
+        }
+        fetchVideos(); // Refetch data on change
       })
-      .subscribe((status) => {
-        console.log('Subscription status:', status);
+      .subscribe((status, err) => {
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Subscription status:', status);
+        }
+        if (err) {
+          console.error('Subscription error:', err);
+          // Optionally, set an error state related to real-time updates
+        }
       });
     
     return () => {
-      console.log('Cleaning up subscription');
-      supabase.removeChannel(subscription);
+      if (supabase && channel) {
+        supabase.removeChannel(channel);
+      }
     };
-  }, [filterStatus, session]);
+  }, [filterStatus, session]); // supabase is not added as a dependency as it's not expected to change
 
   // Filter videos by search term
   const filteredVideos = videos.filter(video => 
@@ -128,8 +131,6 @@ export default function QueueDataTable({ filterStatus }) {
     video.url?.toLowerCase().includes(searchTerm.toLowerCase())
   );
   
-  console.log('Filtered videos count:', filteredVideos.length, 'Total videos:', videos.length);
-
   // Get badge color based on status
   const getStatusBadgeStyle = (status) => {
     switch (status) {
@@ -167,18 +168,22 @@ export default function QueueDataTable({ filterStatus }) {
 
   // Handle priority update
   const handleUpdatePriority = async (id, newPriority) => {
+    if (!supabase) {
+      alert('Database connection is not available. Cannot update priority.');
+      return;
+    }
     try {
       setActionLoading(id);
       
-      const { error } = await supabase
+      const { error: updateError } = await supabase
         .from('video_queue')
         .update({ priority: newPriority })
         .eq('id', id);
       
-      if (error) throw error;
+      if (updateError) throw updateError;
     } catch (err) {
       console.error('Error updating priority:', err);
-      alert('Failed to update priority');
+      alert(`Failed to update priority: ${err.message || 'Unknown error'}`);
     } finally {
       setActionLoading(null);
     }
@@ -186,10 +191,14 @@ export default function QueueDataTable({ filterStatus }) {
 
   // Handle reprocessing request
   const handleReprocess = async (id) => {
+    if (!supabase) {
+      alert('Database connection is not available. Cannot reprocess video.');
+      return;
+    }
     try {
       setActionLoading(id);
       
-      const { error } = await supabase
+      const { error: updateError } = await supabase
         .from('video_queue')
         .update({
           status: 'pending',
@@ -198,10 +207,10 @@ export default function QueueDataTable({ filterStatus }) {
         })
         .eq('id', id);
       
-      if (error) throw error;
+      if (updateError) throw updateError;
     } catch (err) {
       console.error('Error reprocessing video:', err);
-      alert('Failed to reprocess video');
+      alert(`Failed to reprocess video: ${err.message || 'Unknown error'}`);
     } finally {
       setActionLoading(null);
     }
@@ -209,6 +218,13 @@ export default function QueueDataTable({ filterStatus }) {
 
   // Handle immediate processing of a single video
   const handleProcessNow = async (id) => {
+    const cronApiKey = process.env.NEXT_PUBLIC_CRON_API_KEY;
+    if (!cronApiKey) {
+      alert('Configuration error: CRON API Key is missing. Cannot process video.');
+      console.error('Missing NEXT_PUBLIC_CRON_API_KEY');
+      return;
+    }
+
     try {
       setActionLoading(id);
       
@@ -216,18 +232,20 @@ export default function QueueDataTable({ filterStatus }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_API_SECRET}`
+          'Authorization': `Bearer ${cronApiKey}`
         },
         body: JSON.stringify({ videoId: id })
       });
       
       if (!response.ok) {
         const data = await response.json();
-        throw new Error(data.error || 'Failed to process video');
+        throw new Error(data.error || 'Failed to process video (server error)');
       }
+      // Optionally, provide feedback on successful initiation
+      // alert('Video processing initiated.');
     } catch (err) {
       console.error('Error processing video:', err);
-      alert(`Failed to process video: ${err.message}`);
+      alert(`Failed to process video: ${err.message || 'Unknown client-side error'}`);
     } finally {
       setActionLoading(null);
     }
@@ -250,7 +268,6 @@ export default function QueueDataTable({ filterStatus }) {
   };
 
   if (loading) {
-    console.log('RENDERING LOADING STATE');
     return (
       <div className="flex justify-center items-center p-8">
         <Loader className="animate-spin mr-2" />
@@ -259,23 +276,32 @@ export default function QueueDataTable({ filterStatus }) {
     );
   }
 
+  // Render error state if error is present (includes config errors)
   if (error) {
-    console.log('RENDERING ERROR STATE:', error);
     return (
       <div className="bg-red-50 text-red-800 p-4 rounded-md">
-        <p>{error}</p>
-        <Button 
-          variant="outline" 
-          className="mt-2" 
-          onClick={() => window.location.reload()}
-        >
-          Try Again
-        </Button>
+        <AlertCircleIcon className="inline-block mr-2" />
+        <strong>Error:</strong> <p className="inline-block">{error}</p>
+        {/* Only show Try Again if it's not a config error */}
+        {!supabaseInitializationError && (
+          <Button 
+            variant="outline" 
+            className="mt-2 block" 
+            onClick={() => {
+              setError(null); // Clear error to allow re-fetch
+              // Note: fetchVideos will be called by useEffect if dependencies change or on initial load
+              // For a direct re-fetch, one might need to trigger useEffect or call fetchVideos directly
+              // For now, we rely on the existing useEffect logic or a page reload for simplicity.
+              // A more robust solution might involve a manual refetch function.
+              window.location.reload(); // Simplest way to force re-fetch and re-init
+            }}
+          >
+            Try Again
+          </Button>
+        )}
       </div>
     );
   }
-
-  console.log('RENDERING TABLE WITH DATA:', filteredVideos.length);
   
   return (
     <div className="bg-white rounded-md shadow">

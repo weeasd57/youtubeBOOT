@@ -23,7 +23,7 @@ function validateApiSecret(request) {
 export async function POST(request) {
   // التحقق من المصادقة
   if (!validateApiSecret(request)) {
-    return NextResponse.json({ error: 'غير مصرح به' }, { status: 401 });
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   
   try {
@@ -31,7 +31,7 @@ export async function POST(request) {
     const { videoId } = data;
     
     if (!videoId) {
-      return NextResponse.json({ error: 'معرف الفيديو مطلوب' }, { status: 400 });
+      return NextResponse.json({ error: 'Video ID is required' }, { status: 400 });
     }
     
     // استرجاع معلومات الفيديو
@@ -43,7 +43,7 @@ export async function POST(request) {
     
     if (error || !video) {
       return NextResponse.json({ 
-        error: error ? error.message : 'الفيديو غير موجود' 
+        error: error ? error.message : 'Video not found' 
       }, { status: error ? 500 : 404 });
     }
     
@@ -55,12 +55,12 @@ export async function POST(request) {
         .from('video_queue')
         .update({
           status: 'failed',
-          error_message: 'رمز الوصول غير صالح',
+          error_message: 'Invalid access token',
           updated_at: new Date().toISOString()
         })
         .eq('id', videoId);
       
-      return NextResponse.json({ error: 'رمز الوصول غير صالح' }, { status: 401 });
+      return NextResponse.json({ error: 'Invalid access token' }, { status: 401 });
     }
     
     // الحصول على معلومات المجلد
@@ -77,12 +77,12 @@ export async function POST(request) {
         .from('video_queue')
         .update({
           status: 'failed',
-          error_message: 'مجلد Drive غير متوفر',
+          error_message: 'Drive folder not available',
           updated_at: new Date().toISOString()
         })
         .eq('id', videoId);
       
-      return NextResponse.json({ error: 'مجلد Drive غير متوفر' }, { status: 400 });
+      return NextResponse.json({ error: 'Drive folder not available' }, { status: 400 });
     }
     
     // التحقق من وجود الفيديو في Drive
@@ -107,7 +107,7 @@ export async function POST(request) {
       
       return NextResponse.json({
         success: true,
-        message: 'الفيديو موجود بالفعل في Drive',
+        message: 'Video already exists in Drive',
         videoId: videoId,
         fileId: videoExists.fileId
       });
@@ -121,13 +121,13 @@ export async function POST(request) {
         .from('video_queue')
         .update({
           status: 'failed',
-          error_message: 'تعذر الحصول على رابط التنزيل',
+          error_message: 'Failed to get download link',
           updated_at: new Date().toISOString()
         })
         .eq('id', videoId);
       
       return NextResponse.json({ 
-        error: 'تعذر الحصول على رابط التنزيل' 
+        error: 'Failed to get download link' 
       }, { status: 400 });
     }
     
@@ -163,32 +163,46 @@ export async function POST(request) {
     
     return NextResponse.json({
       success: true,
-      message: 'تم معالجة الفيديو بنجاح',
+      message: 'Video processed successfully',
       videoId: videoId,
       fileId: uploadResult.fileId
     });
   } catch (error) {
-    console.error('خطأ في معالجة الفيديو:', error);
+    console.error('Error processing video:', error);
     
     try {
-      const { videoId } = await request.json();
-      if (videoId) {
+      // Attempt to parse videoId from request body again, if needed for error logging
+      // This might fail if request.json() was already consumed or if the body is not JSON
+      // Consider if videoId can be reliably obtained here or if it should be passed differently for error handling
+      let videoIdForErrorLogging;
+      try {
+        const body = await request.json(); // This line can cause issues if body already read
+        videoIdForErrorLogging = body.videoId;
+      } catch (parseError) {
+        console.warn('Could not parse videoId from request body in catch block:', parseError.message);
+        // videoId might be available from the 'video' object if fetched before the error
+      }
+
+      if (videoIdForErrorLogging) { // Use the potentially parsed videoId
         await supabase
           .from('video_queue')
           .update({
             status: 'failed',
-            error_message: error.message || 'خطأ غير معروف',
+            error_message: error.message || 'Unknown error during processing',
             updated_at: new Date().toISOString()
           })
-          .eq('id', videoId);
+          .eq('id', videoIdForErrorLogging);
+      } else {
+        // If videoId is not available, log a general error without updating a specific record
+        console.error('Failed to update specific video status due to missing videoId in error handler.');
       }
     } catch (e) {
-      console.error('خطأ إضافي أثناء تحديث حالة الفشل:', e);
+      console.error('Additional error during failure status update:', e);
     }
     
     return NextResponse.json({
       success: false,
-      error: error.message || 'خطأ في معالجة الفيديو'
+      error: error.message || 'Error processing video'
     }, { status: 500 });
   }
 }
@@ -217,7 +231,7 @@ async function checkFileExistsInDrive(drive, folderId, videoId) {
     
     return { exists: false };
   } catch (error) {
-    console.error('خطأ في التحقق من وجود الملف:', error);
+    console.error('Error checking file existence:', error);
     return { exists: false };
   }
 }
@@ -227,12 +241,12 @@ async function downloadVideo(url) {
   try {
     const response = await fetch(url);
     if (!response.ok) {
-      throw new Error(`فشل تنزيل الفيديو: ${response.status}`);
+      throw new Error(`Failed to download video: ${response.status}`);
     }
     
     return await response.arrayBuffer();
   } catch (error) {
-    console.error('خطأ في تنزيل الفيديو:', error);
+    console.error('Error downloading video:', error);
     throw error;
   }
 }
@@ -241,7 +255,8 @@ async function downloadVideo(url) {
 async function getDownloadLink(tiktokUrl) {
   try {
     // استخدام API الحالي لاستخراج رابط التنزيل
-    const response = await fetch('/api/tiktok-download', {
+    // Ensure this internal API call is robust or has its own error handling detailed elsewhere.
+    const response = await fetch('/api/tiktok-download', { // Assuming this is an internal API route
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -250,14 +265,14 @@ async function getDownloadLink(tiktokUrl) {
     });
     
     if (!response.ok) {
-      console.error('فشل في الحصول على رابط التنزيل:', response.status);
+      console.error('Failed to get download link from internal API:', response.status, await response.text());
       return null;
     }
     
     const data = await response.json();
     return data.downloadUrl;
   } catch (error) {
-    console.error('خطأ في الحصول على رابط التنزيل:', error);
+    console.error('Error getting download link:', error);
     return null;
   }
 }
@@ -297,7 +312,7 @@ async function uploadToDrive(drive, folderId, buffer, fileName, title, descripti
       webViewLink: response.data.webViewLink
     };
   } catch (error) {
-    console.error('خطأ في رفع الملف إلى Drive:', error);
+    console.error('Error uploading file to Drive:', error);
     throw error;
   }
 } 
