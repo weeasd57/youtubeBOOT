@@ -32,6 +32,7 @@ export function TikTokProvider({ children }) {
   const [concurrentDownloads, setConcurrentDownloads] = useState(3); // Default to 3 concurrent downloads
   const [activeDownloads, setActiveDownloads] = useState(0);
   const abortControllerRef = useRef(null);
+  const hasBeenCancelledRef = useRef(false);
 
   // Function to fetch Google Drive folders - using useCallback to avoid dependency cycle
   const fetchDriveFolders = useCallback(async (options = {}) => {
@@ -357,7 +358,7 @@ export function TikTokProvider({ children }) {
       }
       
       // Check if already aborted before making HEAD request
-      if (signal && signal.aborted) {
+      if (signal?.aborted) {
         throw new Error('Download was cancelled');
       }
       
@@ -365,7 +366,8 @@ export function TikTokProvider({ children }) {
       try {
         const headResponse = await fetch(url, { 
           method: 'HEAD',
-          signal // Pass the abort signal to the fetch request
+          signal, // Pass the abort signal to the fetch request
+          timeout: 10000 // Add 10 second timeout
         });
         if (headResponse.ok) {
           const contentLength = headResponse.headers.get('content-length');
@@ -426,17 +428,22 @@ export function TikTokProvider({ children }) {
       
       // Setup more frequent UI updates
       let lastProgressUpdate = 0;
+      let lastAbortCheck = 0;
       
       try {
         while(true) {
-          // Check if aborted before reading the next chunk
-          if (signal && signal.aborted) {
-            try {
-              await reader.cancel(); // Cancel the reader properly
-            } catch (cancelError) {
-              console.error('Error cancelling reader:', cancelError);
+          // Check for abort signal periodically to reduce overhead
+          const now = Date.now();
+          if (now - lastAbortCheck > 100) { // Check every 100ms
+            lastAbortCheck = now;
+            if (signal?.aborted) {
+              try {
+                await reader.cancel(); // Cancel the reader properly
+              } catch (cancelError) {
+                console.error('Error cancelling reader:', cancelError);
+              }
+              throw new Error('Download was cancelled');
             }
-            throw new Error('Download was cancelled');
           }
           
           let readResult;
@@ -917,6 +924,7 @@ export function TikTokProvider({ children }) {
 
   // وظيفة للتحقق من صحة الرابط قبل التحميل
   const validateUrl = async (url) => {
+    console.log('[DEBUG] validateUrl: checking', url);
     try {
       // التحقق من تنسيق URL
       if (!url || typeof url !== 'string') {
@@ -934,31 +942,29 @@ export function TikTokProvider({ children }) {
       }
 
       // محاولة التحقق من صحة الرابط باستخدام HEAD request
-      try {
-        const response = await fetch(url, { method: 'HEAD', timeout: 5000 });
-        
-        if (!response.ok) {
-          if (response.status === 404) {
-            return { valid: false, error: `Download link unavailable (404): The direct link in the JSON file is invalid or has expired` };
-          } else {
-            return { valid: false, error: `Download link unavailable (${response.status})` };
-          }
+      const headResponse = await fetch(url, { method: 'HEAD', timeout: 10000 });
+      console.log('[DEBUG] validateUrl: HEAD status', headResponse.status);
+      
+      if (!headResponse.ok) {
+        if (headResponse.status === 404) {
+          return { valid: false, error: `Download link unavailable (404): The direct link in the JSON file is invalid or has expired` };
+        } else {
+          return { valid: false, error: `Download link unavailable (${headResponse.status})` };
         }
-        
-        // التحقق من نوع المحتوى إذا كان متاحًا
-        const contentType = response.headers.get('content-type');
-        if (contentType && !contentType.includes('video') && !contentType.includes('octet-stream') && !contentType.includes('binary')) {
-          return { valid: false, error: `Download link does not contain a video file (${contentType})` };
-        }
-        
-        return { valid: true };
-      } catch (error) {
-        // قد يرفض بعض الخوادم طلبات HEAD أو تعطي timeout
-        // في هذه الحالة سنعيد صحة الرابط = true ونحاول التحميل المباشر
-        return { valid: true, warning: 'Could not verify the link, will try direct download' };
       }
+      
+      // التحقق من نوع المحتوى إذا كان متاحًا
+      const contentType = headResponse.headers.get('content-type');
+      if (contentType && !contentType.includes('video') && !contentType.includes('octet-stream') && !contentType.includes('binary')) {
+        return { valid: false, error: `Download link does not contain a video file (${contentType})` };
+      }
+      
+      return { valid: true };
     } catch (error) {
-      return { valid: false, error: `Error verifying link: ${error.message}` };
+      console.error('[DEBUG] validateUrl: HEAD error', error);
+      // قد يرفض بعض الخوادم طلبات HEAD أو تعطي timeout
+      // في هذه الحالة سنعيد صحة الرابط = true ونحاول التحميل المباشر
+      return { valid: true, warning: 'Could not verify the link, will try direct download' };
     }
   };
 
@@ -1108,33 +1114,44 @@ export function TikTokProvider({ children }) {
   // Modified downloadAllVideos function to implement parallel processing
   const downloadAllVideos = async () => {
     if (loading || downloadingAll) return;
-    
+    console.log('[DEBUG] downloadAllVideos: started');
     try {
-      // Create new abort controller for this batch
+      // Create new abort controller for this batch after aborting any existing one
+      if (abortControllerRef.current) {
+        try {
+          abortControllerRef.current.abort(); // Abort any existing downloads first
+          console.log('[DEBUG] downloadAllVideos: Aborted previous downloads');
+        } catch (error) {
+          console.error('[DEBUG] Error aborting existing downloads:', error);
+        }
+      }
       abortControllerRef.current = new AbortController();
-      
+      hasBeenCancelledRef.current = false;
       setDownloadingAll(true);
       setLoading(true);
       setProgress(0);
-      
+      console.log('[DEBUG] downloadAllVideos: State set, checking folder...');
       // Verify folder existence and check save preferences
       if (saveToDrive && driveFolderId) {
         const folderExists = await verifyFolderBeforeDownload();
         if (!folderExists) {
           setDownloadingAll(false);
           setLoading(false);
+          console.log('[DEBUG] downloadAllVideos: Folder does not exist, aborting.');
           toastHelper.error('The selected Drive folder no longer exists. Please select another folder.');
           await fetchDriveFolders();
           return;
         }
-        
+        console.log('[DEBUG] downloadAllVideos: Folder exists, proceeding.');
         // Notify user that videos will only be saved to Google Drive
         toastHelper.info('Videos will be saved to Google Drive only and not downloaded locally.');
       } else if (!saveToDrive) {
         // Notify user that videos will be downloaded locally
+        console.log('[DEBUG] downloadAllVideos: Will download locally.');
         toastHelper.info('Videos will be downloaded to your device.');
       } else {
         // No Drive folder selected but Drive save is enabled
+        console.log('[DEBUG] downloadAllVideos: No Drive folder selected, aborting.');
         toastHelper.warning('Please select a Google Drive folder or disable "Save to Drive" option.');
         setDownloadingAll(false);
         setLoading(false);
@@ -1194,6 +1211,11 @@ export function TikTokProvider({ children }) {
       // Process concurrency for downloads
       const maxConcurrent = concurrentDownloads;
       
+      // Make sure we have a fresh AbortController
+      if (!abortControllerRef.current) {
+        abortControllerRef.current = new AbortController();
+      }
+      
       // Start from the last downloaded index + 1 if it's valid, otherwise start from 0
       let currentIndex = 0;
       
@@ -1206,13 +1228,14 @@ export function TikTokProvider({ children }) {
       let completedCount = 0;
       let successCount = 0;
       let failedCount = 0;
+      let hasBeenCancelled = false;
       
       // Get the abort signal
       const signal = abortControllerRef.current.signal;
       
       // Function to start a new download
       const startNextDownload = async () => {
-        if (currentIndex >= pendingVideos.length || signal.aborted) {
+        if (currentIndex >= pendingVideos.length || signal.aborted || hasBeenCancelledRef.current) {
           return;
         }
         
@@ -1231,13 +1254,19 @@ export function TikTokProvider({ children }) {
         setCurrentVideo(video);
         
         try {
-          // Check for abort before processing
-          if (signal.aborted) {
+          // Check if the process has been cancelled
+          if (signal.aborted || hasBeenCancelledRef.current) {
             console.log("Download aborted during processing");
             return;
           }
           
           const result = await processVideoDownload(video);
+          
+          // Check again if cancelled after download
+          if (signal.aborted || hasBeenCancelledRef.current) {
+            console.log("Download process was cancelled after video completion");
+            return;
+          }
           
           // Update completed count
           completedCount++;
@@ -1259,8 +1288,8 @@ export function TikTokProvider({ children }) {
         } finally {
           setActiveDownloads(prev => Math.max(0, prev - 1));
           
-          // Start another download if not aborted
-          if (!signal.aborted) {
+          // Start another download if not aborted and not cancelled
+          if (!signal.aborted && !hasBeenCancelledRef.current) {
             startNextDownload();
           }
         }
@@ -1268,14 +1297,14 @@ export function TikTokProvider({ children }) {
       
       // Start initial batch of downloads based on concurrency
       const initialBatchSize = Math.min(maxConcurrent, pendingVideos.length);
-      for (let i = 0; i < initialBatchSize; i++) {
+      for (let i = 0; i < initialBatchSize && !hasBeenCancelledRef.current; i++) {
         startNextDownload();
       }
       
-      // Wait for all downloads to complete
+      // Wait for all downloads to complete or until cancelled
       let checkCount = 0;
-      while (completedCount < pendingVideos.length && activeDownloads > 0 && !signal.aborted) {
-        await new Promise(resolve => setTimeout(resolve, 500));
+      while (completedCount < pendingVideos.length && activeDownloads > 0 && !signal.aborted && !hasBeenCancelledRef.current) {
+        await new Promise(resolve => setTimeout(resolve, 100)); // Reduced wait time for faster cancellation
         
         checkCount++;
         
@@ -1326,113 +1355,64 @@ export function TikTokProvider({ children }) {
     } catch (error) {
       toastHelper.error(`Batch download error: ${error.message}`);
     } finally {
-      // Reset states
       setLoading(false);
       setDownloadingAll(false);
       setCurrentVideo(null);
       setActiveDownloads(0);
-      abortControllerRef.current = null;
     }
   };
 
-  // Add function to cancel ongoing downloads
+  // Add function to cancel ongoing downloads with cleanup
   const cancelDownloads = () => {
+    console.log('[DEBUG] cancelDownloads: called');
     try {
+      hasBeenCancelledRef.current = true;
+      setLoading(false);
+      setDownloadingAll(false);
+      setProgress(0);
+      setCurrentVideo(null);
+      setActiveDownloads(0);
+      // Abort any ongoing downloads
       if (abortControllerRef.current) {
-        // Store a reference to the current controller
-        const controller = abortControllerRef.current;
-        
-        // Create a new controller immediately to prevent further operations from using the aborted one
-        abortControllerRef.current = new AbortController();
-        
-        // Reset states immediately
-        setLoading(false);
-        setDownloadingAll(false);
-        setActiveDownloads(0);
-        
-        // Reset individual video states that are still processing
-        setVideos(prev => 
-          prev.map(v => {
-            if (v.status === 'processing' || v.status === 'downloading') {
-              return { ...v, status: 'pending', progress: 0 };
-            }
-            return v;
-          })
-        );
-        
-        // Clear current video
-        setCurrentVideo(null);
-        
-        // Clear downloading video IDs
-        setDownloadingVideoIds([]);
-        
-        // Set progress back to 0
-        setProgress(0);
-        
-        // Show toast notification
-        toastHelper.info('Downloads canceled successfully. You can resume from the last successful download.');
-        
-        // Abort after state updates to prevent React errors
-        setTimeout(() => {
-          try {
-            controller.abort();
-          } catch (error) {
-            console.error('Error during abort:', error);
-          }
-        }, 50);
-      } else {
-        // If no abort controller exists but states are still set, reset them
-        if (loading || downloadingAll) {
-          setLoading(false);
-          setDownloadingAll(false);
-          setProgress(0);
-          setCurrentVideo(null);
-          setActiveDownloads(0);
-          toastHelper.info('Downloads canceled. You can resume from the last successful download.');
+        try {
+          abortControllerRef.current.abort();
+          console.log('[DEBUG] cancelDownloads: Aborted current downloads');
+        } catch (abortError) {
+          console.error('[DEBUG] Error during abort:', abortError);
         }
       }
+      // Always create a new controller so new downloads can't use the old one
+      abortControllerRef.current = new AbortController();
+      setDownloadingVideoIds([]);
+      setProgress(0);
+      // Reset individual video states that are still processing or downloading
+      setVideos(prev =>
+        prev.map(v => {
+          if (v.status === 'processing' || v.status === 'downloading') {
+            return {
+              ...v,
+              status: 'pending',
+              progress: 0,
+              error: 'Download cancelled'
+            };
+          }
+          return v;
+        })
+      );
+      toastHelper.success('Downloads cancelled successfully');
+      console.log('[DEBUG] cancelDownloads: finished');
     } catch (error) {
-      console.error('Error in cancelDownloads:', error);
-      
-      // Force reset all states in case of error
+      console.error('[DEBUG] Error in cancelDownloads:', error);
       setLoading(false);
       setDownloadingAll(false);
       setActiveDownloads(0);
       setCurrentVideo(null);
       setDownloadingVideoIds([]);
       setProgress(0);
-      
-      // Create a new abort controller
       abortControllerRef.current = new AbortController();
-      
       toastHelper.warning('Error while canceling downloads. Application state has been reset.');
     }
   };
-
-  // Add function to set concurrency level
-  const setConcurrencyLevel = (level) => {
-    // Ensure level is between 1 and 10
-    const validLevel = Math.max(1, Math.min(10, parseInt(level) || 3));
-    setConcurrentDownloads(validLevel);
-    // Save to local storage for persistence
-    try {
-      localStorage.setItem('tiktok-concurrent-downloads', validLevel.toString());
-    } catch (e) {
-      // Ignore storage errors
-    }
-  };
-  
-  // Load concurrency preference from local storage
-  useEffect(() => {
-    try {
-      const savedConcurrency = localStorage.getItem('tiktok-concurrent-downloads');
-      if (savedConcurrency) {
-        setConcurrentDownloads(parseInt(savedConcurrency));
-      }
-    } catch (e) {
-      // Ignore storage errors
-    }
-  }, []);
 
   // Download single video
   const downloadSingleVideo = async (video) => {
@@ -1713,8 +1693,10 @@ export function TikTokProvider({ children }) {
     downloadingAll,
     downloadingVideoIds,
     cancelDownloads,
+    concurrentDownloads,
     setConcurrencyLevel,
-    concurrentDownloads
+    lastDownloadedIndex,
+    setConcurrentDownloads
   };
 
   return (
@@ -1731,4 +1713,6 @@ export const useTikTok = () => {
     throw new Error('useTikTok must be used within a TikTokProvider');
   }
   return context;
-}; 
+};
+
+const setConcurrencyLevel = (level) => setConcurrentDownloads(level);

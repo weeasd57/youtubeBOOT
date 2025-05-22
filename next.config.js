@@ -25,8 +25,6 @@ const nextConfig = {
   // Extended maximum response time for external API calls
   httpAgentOptions: {
     keepAlive: true,
-    responseTimeout: 60000, // 60 seconds
-    connectTimeout: 30000, // 30 seconds
   },
   images: {
     domains: [

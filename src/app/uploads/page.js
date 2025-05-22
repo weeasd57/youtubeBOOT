@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { FaUpload, FaSync, FaHistory, FaCalendarAlt, FaTable, FaClock, FaSpinner, FaVideo } from 'react-icons/fa';
 import Image from "next/image";

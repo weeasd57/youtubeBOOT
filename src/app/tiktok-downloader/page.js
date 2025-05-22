@@ -108,8 +108,10 @@ function TikTokDownloaderContent() {
     videos,
     jsonData,
     loading,
+    setLoading,
     currentVideo,
-    progress,
+    progress: contextProgress,
+    setProgress,
     saveToDrive,
     setSaveToDrive,
     folderName,
@@ -130,8 +132,9 @@ function TikTokDownloaderContent() {
     downloadingVideoIds,
     resetDownloader,
     cancelDownloads,
-    setConcurrencyLevel,
-    concurrentDownloads
+    concurrentDownloads,
+    setConcurrentDownloads,
+    lastDownloadedIndex
   } = useTikTok();
 
   const fileInputRef = useRef(null);
@@ -143,6 +146,8 @@ function TikTokDownloaderContent() {
   const [errorMessage, setErrorMessage] = useState('');
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [showFolderInput, setShowFolderInput] = useState(false);
+
+  const setConcurrencyLevel = (level) => setConcurrentDownloads(level);
 
   // Load drive folders when component mounts - only once
   useEffect(() => {
@@ -451,6 +456,11 @@ function TikTokDownloaderContent() {
     
     return `${hours}:${remainingMinutes < 10 ? '0' : ''}${remainingMinutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
   };
+
+  const isDownloading =
+    downloadingAll ||
+    loading ||
+    videos.some(v => v.status === 'downloading' || v.status === 'processing');
 
   return (
     <PageContainer user={user}>
@@ -818,31 +828,36 @@ function TikTokDownloaderContent() {
                   {videos.filter(v => v.status === 'completed').length} downloaded, 
                   {videos.filter(v => v.status === 'failed').length} failed
                 </p>
+                {lastDownloadedIndex >= 0 && (
+                  <p className="text-sm font-medium text-amber-600 dark:text-amber-500 mt-1">
+                    <FaSync className="inline-block mr-1" size={12} />
+                    Resume from video #{lastDownloadedIndex + 2}
+                  </p>
+                )}
               </div>
               
               <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={downloadAllVideos}
-                  disabled={loading || videos.length === 0}
-                  className="px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-md flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loading ? <FaSpinner className="animate-spin" /> : <FaDownload />}
-                  {loading ? "Downloading..." : "Download All Videos"}
-                </button>
-                
-                {/* Make Cancel button very prominent */}
-                {loading && (
+                {isDownloading ? (
                   <button
                     onClick={cancelDownloads}
                     className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md flex items-center gap-2 font-bold shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-200 animate-pulse"
+                    disabled={!isDownloading}
                   >
-                    <FaStop /> Cancel Downloads
+                    <FaStop /> Cancel All Downloads
+                  </button>
+                ) : (
+                  <button
+                    onClick={downloadAllVideos}
+                    disabled={videos.length === 0}
+                    className="px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-md flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <FaDownload /> Download All Videos
                   </button>
                 )}
                 
                 <button
                   onClick={resetDownloader}
-                  disabled={loading}
+                  disabled={loading || downloadingAll}
                   className="px-3 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-md flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <FaTrash />
@@ -855,13 +870,18 @@ function TikTokDownloaderContent() {
               <div className="mb-6">
                 <div className="mb-2 flex justify-between items-center">
                   <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    {progress}% Complete
+                    {contextProgress}% Complete
+                    {lastDownloadedIndex >= 0 && (
+                      <span className="ml-2 text-amber-500 dark:text-amber-400">
+                        (Resuming from #{lastDownloadedIndex + 2})
+                      </span>
+                    )}
                   </div>
                 </div>
-                <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                <div className="w-full h-4 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-amber-500 dark:bg-amber-600 transition-all duration-300 ease-out relative overflow-hidden"
-                    style={{ width: `${progress}%` }}
+                    style={{ width: `${contextProgress}%` }}
                   >
                     <div className="absolute inset-0 overflow-hidden">
                       <span className="absolute top-0 bottom-0 w-8 bg-white/30 -skew-x-30 animate-shimmer"></span>
@@ -931,7 +951,11 @@ function TikTokDownloaderContent() {
                         }
                         
                         return (
-                        <tr key={video.id} className={`transition-colors hover:bg-gray-100 dark:hover:bg-gray-900 border-b border-gray-200 dark:border-gray-800`}>
+                        <tr key={video.id} className={`transition-colors hover:bg-gray-100 dark:hover:bg-gray-900 border-b border-gray-200 dark:border-gray-800 ${
+                          lastDownloadedIndex >= 0 && videos.indexOf(video) === lastDownloadedIndex + 1 
+                            ? 'border-l-4 border-l-amber-500 bg-amber-50 dark:bg-amber-900/20' 
+                            : ''
+                        }`}>
                           <td className="px-6 py-4 text-left">
                             <div className="text-sm font-semibold text-gray-800 dark:text-gray-300">
                               {video.title}
@@ -946,6 +970,14 @@ function TikTokDownloaderContent() {
                                   : 'Local'
                                 }
                               </span>
+                              
+                              {/* Add resume indicator */}
+                              {lastDownloadedIndex >= 0 && videos.indexOf(video) === lastDownloadedIndex + 1 && (
+                                <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 animate-pulse">
+                                  <FaSync className="mr-1" size={8} />
+                                  Resume from here
+                                </span>
+                              )}
                             </div>
                           </td>
                           <td className="hidden md:table-cell px-6 py-4 text-left">
@@ -977,7 +1009,11 @@ function TikTokDownloaderContent() {
                               <button
                                 onClick={() => downloadSingleVideo(video)}
                                 disabled={video.status === 'processing' || loading || downloadingAll || downloadingVideoIds.includes(video.id)}
-                                className="px-3 py-1.5 rounded-md flex items-center gap-1 transition-all bg-amber-600 text-white hover:bg-amber-700 dark:bg-amber-600 dark:text-white hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                                className={`px-3 py-1.5 rounded-md flex items-center gap-1 transition-all ${
+                                  downloadingVideoIds.includes(video.id) 
+                                    ? 'bg-amber-700 text-white' 
+                                    : 'bg-amber-600 text-white hover:bg-amber-700 dark:bg-amber-600 dark:text-white hover:scale-105'
+                                } disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100`}
                               >
                                 {downloadingVideoIds.includes(video.id) ? (
                                   <>
@@ -1035,6 +1071,35 @@ function TikTokDownloaderContent() {
               <li>Direct links must point directly to video files (mp4) and not web pages</li>
               <li>Ensure that the direct links have not expired (TikTok links expire quickly)</li>
             </ul>
+          </div>
+        )}
+
+        {/* Add a resume notification when a resume position is detected */}
+        {lastDownloadedIndex >= 0 && (
+          <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg mb-6">
+            <div className="flex items-center gap-3">
+              <div className="bg-amber-100 dark:bg-amber-900/30 p-2 rounded-full">
+                <FaSync className="text-amber-600 dark:text-amber-400" size={16} />
+              </div>
+              <div>
+                <h3 className="text-md font-medium text-amber-700 dark:text-amber-400 mb-1">
+                  Resume Downloads Detected
+                </h3>
+                <p className="text-sm text-amber-600 dark:text-amber-500">
+                  Your previous download session was interrupted at video #{lastDownloadedIndex + 1}.
+                </p>
+                <p className="text-sm text-amber-800 dark:text-amber-400 mt-1 font-arabic">
+                  {/* Arabic explanation */}
+                  تم اكتشاف عملية تحميل سابقة لم تكتمل. يمكنك استئناف التحميل من حيث توقفت عن طريق الضغط على زر "استئناف التحميل".
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {errorMessage && (
+          <div className="p-4 bg-red-100 text-red-700 rounded mb-4">
+            {errorMessage}
           </div>
         )}
       </div>
