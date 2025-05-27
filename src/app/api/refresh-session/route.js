@@ -18,19 +18,21 @@ export async function GET() {
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session || !session.user?.email) {
+    if (!session || !session.authUserId || !session.activeAccountId) {
       return NextResponse.json(
-        { success: false, message: 'Not authenticated' },
+        { success: false, message: 'Not authenticated or active account not set' },
         { status: 401 }
       );
     }
     
-    // Get the user's email from the session
-    const email = session.user.email;
-    console.log(`Refreshing token for user: ${email}`);
+    // Get the user's auth ID and account ID from the session
+    const authUserId = session.authUserId;
+    const activeAccountId = session.activeAccountId;
+    const email = session.user?.email || 'unknown';
+    console.log(`Refreshing token for Auth User ID: ${authUserId}, Account ID: ${activeAccountId}, Email: ${email}`);
     
     // Check and update global failure counter for this user
-    const userKey = `${email}-failures`;
+    const userKey = `${authUserId}-${activeAccountId}-failures`;
     let userFailures = failureCounters.get(userKey) || { count: 0, lastFailure: 0 };
     
     // If it's been a long time since the last failure, reset the counter
@@ -40,10 +42,10 @@ export async function GET() {
     
     // If user has exceeded max failures, force sign out
     if (userFailures.count >= MAX_FAILURES_BEFORE_SIGNOUT) {
-      console.error(`User ${email} has had ${userFailures.count} token refresh failures - forcing sign out`);
+      console.error(`User ${authUserId} account ${activeAccountId} has had ${userFailures.count} token refresh failures - forcing sign out`);
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           message: 'Too many token refresh failures. Please sign in again.',
           action: 'sign_out',
           forceSignOut: true
@@ -52,7 +54,10 @@ export async function GET() {
       );
     }
     
-    // Attempt to refresh the tokens with limited retries
+    // Import the new getValidAccessToken function
+    const { getValidAccessToken } = await import('@/utils/refreshToken');
+    
+    // Attempt to get a valid access token (this will refresh if needed)
     let retryCount = 0;
     let networkErrorCount = 0;
     let lastError = null;
@@ -60,69 +65,30 @@ export async function GET() {
     // Try up to 3 times with increasing delays
     while (retryCount < 3) {
       try {
-        // Call the token refresh function
-        const result = await refreshAccessToken(email);
+        // Call the token validation/refresh function
+        const accessToken = await getValidAccessToken(authUserId, activeAccountId);
         
-        // Handle different response types
-        if (result.success) {
-          console.log('Refresh session successful, new token received');
+        // Handle successful token retrieval
+        if (accessToken) {
+          console.log('Refresh session successful, valid token obtained');
           
           // Reset failure counter on success
           failureCounters.delete(userKey);
           
-          // Return the new token information
+          // Return the success information
           return NextResponse.json({
             success: true,
             message: 'Tokens refreshed successfully',
             tokenInfo: {
-              accessToken: result.accessToken.substring(0, 10) + '...',
-              expiresAt: result.expiresAt,
+              accessToken: accessToken.substring(0, 10) + '...',
+              authUserId: authUserId,
+              activeAccountId: activeAccountId
             }
           });
         }
         
-        // Special handling for network errors
-        if (result.errorCode === 'NETWORK_ERROR') {
-          networkErrorCount++;
-          console.warn(`Network error during token refresh (${networkErrorCount})`);
-          
-          // If we've had multiple network errors, break out of the loop to avoid infinite retries
-          if (networkErrorCount >= 2) {
-            // Increment the global failure counter
-            userFailures.count++;
-            userFailures.lastFailure = Date.now();
-            failureCounters.set(userKey, userFailures);
-            
-            return NextResponse.json({
-              success: false,
-              message: 'Network connectivity issues detected',
-              error: result.error,
-              action: 'retry_later',
-              retryAfter: 60, // Suggest waiting 60 seconds
-              failureCount: userFailures.count,
-              maxFailures: MAX_FAILURES_BEFORE_SIGNOUT
-            }, { status: 503 });
-          }
-        }
-        // Handle access revocation case
-        else if (result.errorCode === 'ACCESS_REVOKED') {
-          console.warn(`Access revoked for user ${email}, forcing sign out`);
-          
-          // Reset counter since user will need to sign in again
-          failureCounters.delete(userKey);
-          
-          return NextResponse.json({
-            success: false,
-            message: 'Your access to Google has been revoked or expired. Please sign in again.',
-            error: result.error,
-            action: 'sign_out',
-            forceSignOut: true
-          }, { status: 401 });
-        }
-        else {
-          // For regular token failures, throw an error to trigger retry
-          throw new Error(result.error || 'Failed to refresh tokens');
-        }
+        // If no access token was returned, treat as an error
+        throw new Error('Failed to obtain valid access token');
       } catch (error) {
         lastError = error;
         retryCount++;

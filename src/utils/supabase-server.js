@@ -57,97 +57,82 @@ export const supabaseAdmin = createClient(
 
 // Function to save user data after sign-in
 export async function saveUserToSupabase(user) {
-  if (!user || !user.email) return null;
-  
+  if (!user?.email) {
+    throw new Error('saveUserToSupabase: User email is required');
+  }
+
   try {
-    // First, check if user exists in Supabase Auth
-    const { data, error: getUserError } = await supabaseAdmin.auth.admin.listUsers({
-      filter: {
-        term: user.email
-      }
-    });
-    
-    const existingAuthUser = data?.users?.find(u => u.email === user.email);
-    let userId = existingAuthUser?.id;
-    
-    // If not found, create a user in Supabase Auth
-    if (!userId) {
-      try {
-        const { data: createUserData, error: createUserError } = await supabaseAdmin.auth.admin.createUser({
+    console.log('saveUserToSupabase: Processing user:', user.email);
+
+    // Use upsert to handle both insert and update in one operation
+    const { data: savedUser, error: upsertError } = await supabaseAdmin
+      .from('users')
+      .upsert(
+        {
           email: user.email,
-          email_confirm: true,
-          user_metadata: {
-            full_name: user.name,
-            avatar_url: user.image
-          }
-        });
-        
-        if (createUserError) {
-          // If user already exists, just continue
-          if (createUserError.code === 'email_exists') {
-            console.log('User already exists in Supabase Auth:', user.email);
-          } else {
-            console.error('Error creating user in Supabase Auth:', createUserError);
-            return null;
-          }
-        } else {
-          console.log('Created user in Supabase Auth:', createUserData?.user?.id);
-          userId = createUserData?.user?.id;
+          name: user.name,
+          avatar_url: user.image,
+          updated_at: new Date().toISOString()
+        },
+        { 
+          onConflict: 'email',
+          returning: 'representation'
         }
-      } catch (createError) {
-        console.error('Exception creating user in Supabase Auth:', createError);
-        // Continue with the flow even if user creation fails
-      }
+      )
+      .select('*')
+      .single();
+
+    if (upsertError) {
+      throw upsertError;
     }
-    
-    // Now handle the user in the 'users' table
-    try {
-      // Check if user already exists in the users table
-      // Use email as the primary key instead of id
-      const { data: existingDbUser, error } = await supabaseAdmin
-        .from('users')
-        .select('email, name')  // Select specific columns to avoid 'id' column
-        .eq('email', user.email)
+
+    if (!savedUser) {
+      throw new Error('No user data returned after save');
+    }
+
+    // Ensure user has at least one account
+    const { data: existingAccount } = await supabaseAdmin
+      .from('user_accounts')
+      .select('*')
+      .eq('user_id', savedUser.id)
+      .maybeSingle();
+
+    if (!existingAccount) {
+      // Create default account if none exists
+      const { data: newAccount, error: accountError } = await supabaseAdmin
+        .from('user_accounts')
+        .insert({
+          user_id: savedUser.id,
+          email: user.email,  // Add the email field here
+          name: 'Default Account',
+          is_active: true
+        })
+        .select()
         .single();
-      
-      if (error && error.code !== 'PGRST116') { // Not found error is OK
-        throw error;
+
+      if (accountError) {
+        throw accountError;
       }
-      
-      if (existingDbUser) {
-        // Update existing user with only essential fields
-        const { data, error } = await supabaseAdmin
-          .from('users')
-          .update({
-            name: user.name
-          })
-          .eq('email', user.email)
-          .select('email, name')
-          .single();
-        
-        if (error) throw error;
-        return data;
-      } else {
-        // Insert new user with only essential fields
-        const { data, error } = await supabaseAdmin
-          .from('users')
-          .insert({
-            email: user.email,
-            name: user.name
-          })
-          .select('email, name')
-          .single();
-        
-        if (error) throw error;
-        return data;
+
+      // Update user with the new active account
+      const { data: updatedUser, error: updateError } = await supabaseAdmin
+        .from('users')
+        .update({ active_account_id: newAccount.id })
+        .eq('id', savedUser.id)
+        .select()
+        .single();
+
+      if (updateError) {
+        throw updateError;
       }
-    } catch (error) {
-      console.error('Error saving user to Supabase:', error);
-      return null;
+
+      return updatedUser;
     }
+
+    return savedUser;
   } catch (error) {
-    console.error('Error in user auth check:', error);
-    return null;
+    console.error('saveUserToSupabase error:', error);
+    throw error;
   }
 }
 
@@ -155,111 +140,90 @@ export async function saveUserToSupabase(user) {
 export async function saveUserTokens({ email, accessToken, refreshToken, expiresAt }) {
   try {
     if (!email || !accessToken) {
-      console.error('Missing required parameters for saveUserTokens');
+      console.error('saveUserTokens: Missing required parameters');
       return null;
     }
 
-    console.log(`Saving tokens for ${email}`);
-    
-    // Check if tokens already exist for this user
-    const { data: existingTokens, error: queryError } = await supabaseAdmin
-      .from('user_tokens')
-      .select('*')
-      .eq('user_email', email) // Using user_email for consistency
+    console.log('saveUserTokens: Starting token save for:', email);
+
+    // Get user data with auth and account info
+    const { data: userData, error: userError } = await supabaseAdmin
+      .from('users')
+      .select('id, active_account_id')
+      .eq('email', email)
       .single();
-    
-    if (queryError && queryError.code !== 'PGRST116') {
-      throw queryError;
+
+    if (userError) {
+      console.error('saveUserTokens: Error finding user:', userError);
+      return null;
     }
-    
-    const updateData = {
+
+    if (!userData.id || !userData.active_account_id) {
+      console.error('saveUserTokens: User or account not properly initialized:', userData);
+      return null;
+    }
+
+    // Calculate expiration time
+    let calculatedExpiresAt;
+    if (typeof expiresAt === 'number') {
+      calculatedExpiresAt = expiresAt;
+    } else if (typeof expiresAt === 'string' && !isNaN(Number(expiresAt))) {
+      calculatedExpiresAt = Number(expiresAt);
+    } else if (expiresAt instanceof Date) {
+      calculatedExpiresAt = Math.floor(expiresAt.getTime() / 1000);
+    } else {
+      calculatedExpiresAt = Math.floor(Date.now() / 1000) + 3600;
+    }
+
+    // Prepare token data
+    const tokenData = {
+      auth_user_id: userData.id,
+      account_id: userData.active_account_id,
+      user_email: email,
       access_token: accessToken,
+      refresh_token: refreshToken,
+      expires_at: calculatedExpiresAt,
+      is_valid: true,
+      error_message: null,
       updated_at: new Date().toISOString()
     };
-    
-    // Only include refresh token if provided
-    if (refreshToken) {
-      updateData.refresh_token = refreshToken;
+
+    // Try to update existing tokens first
+    const { data: updatedToken, error: updateError } = await supabaseAdmin
+      .from('user_tokens')
+      .update(tokenData)
+      .eq('user_email', email)
+      .select()
+      .single();
+
+    if (!updateError && updatedToken) {
+      console.log('saveUserTokens: Tokens updated successfully for:', email);
+      return updatedToken;
     }
-    
-    // Include expiry time if provided
-    if (expiresAt) {
-      // Ensure expiresAt is stored as a number (Unix timestamp in seconds)
-      if (typeof expiresAt === 'number') {
-        updateData.expires_at = expiresAt; 
-      } else if (typeof expiresAt === 'string' && !isNaN(Number(expiresAt))) {
-        // Convert string to number if it's a valid number
-        updateData.expires_at = Number(expiresAt);
-      } else if (expiresAt instanceof Date) {
-        // Convert Date to Unix timestamp
-        updateData.expires_at = Math.floor(expiresAt.getTime() / 1000);
-      } else {
-        // Default: use current time + 1 hour
-        updateData.expires_at = Math.floor(Date.now() / 1000) + 3600;
-        console.warn(`Invalid expiresAt format: ${expiresAt}, using fallback expiry time`);
-      }
-    }
-    
-    if (existingTokens) {
-      // Update existing tokens
-      const { data, error } = await supabaseAdmin
+
+    // If update failed because tokens don't exist, create new ones
+    if (updateError && updateError.code === 'PGRST116') {
+      const { data: newToken, error: insertError } = await supabaseAdmin
         .from('user_tokens')
-        .update(updateData)
-        .eq('user_email', email)
+        .insert({
+          ...tokenData,
+          created_at: new Date().toISOString()
+        })
         .select()
         .single();
-      
-      if (error) {
-        console.error('Error updating tokens:', error);
-        // Try again without any problematic fields that might be missing from the schema
-        const basicUpdateData = {
-          access_token: accessToken,
-          refresh_token: refreshToken,
-          updated_at: new Date().toISOString()
-        };
-        
-        const { data: retryData, error: retryError } = await supabaseAdmin
-          .from('user_tokens')
-          .update(basicUpdateData)
-          .eq('user_email', email);
-          
-        if (retryError) throw retryError;
-        return retryData;
+
+      if (insertError) {
+        console.error('saveUserTokens: Error creating tokens:', insertError);
+        return null;
       }
-      
-      console.log(`Updated tokens for ${email}`);
-      return data;
-    } else {
-      // Insert new tokens
-      updateData.user_email = email; // Add email for new records
-      
-      const { data, error } = await supabaseAdmin
-        .from('user_tokens')
-        .insert(updateData)
-        .select()
-        .single();
-      
-      if (error) {
-        console.error('Error inserting tokens:', error);
-        // Try again with only essential fields
-        const basicInsertData = {
-          user_email: email,
-          access_token: accessToken,
-          refresh_token: refreshToken,
-          updated_at: new Date().toISOString()
-        };
-        
-        const { data: retryData, error: retryError } = await supabaseAdmin
-          .from('user_tokens')
-          .insert(basicInsertData);
-          
-        if (retryError) throw retryError;
-        return retryData;
-      }
-      
-      console.log(`Inserted new tokens for ${email}`);
-      return data;
+
+      console.log('saveUserTokens: New tokens created successfully for:', email);
+      return newToken;
     }
+
+    // If we got here, something unexpected happened
+    console.error('saveUserTokens: Unexpected error:', updateError);
+    return null;
   } catch (error) {
     console.error('Error saving user tokens to Supabase:', error);
     return null;
@@ -267,16 +231,17 @@ export async function saveUserTokens({ email, accessToken, refreshToken, expires
 }
 
 // Function to save TikTok video data to Supabase
-export async function saveTikTokVideoData(email, videoData) {
+export async function saveTikTokVideoData(authUserId, accountId, videoData) {
   try {
     // Extract hashtags from the description
     const hashtags = (videoData.description || '').match(/#[a-zA-Z0-9_]+/g) || [];
     
-    // Insert video data
+    // Insert video data with account information
     const { data, error } = await supabaseAdmin
       .from('tiktok_videos')
       .insert({
-        user_email: email,
+        auth_user_id: authUserId,
+        account_id: accountId,
         video_id: videoData.videoId,
         title: videoData.title,
         description: videoData.description,
@@ -296,4 +261,4 @@ export async function saveTikTokVideoData(email, videoData) {
     console.error('Error saving TikTok video data to Supabase:', error);
     return null;
   }
-} 
+}

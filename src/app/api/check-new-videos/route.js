@@ -18,12 +18,15 @@ export async function GET() {
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session || !session.user?.email) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    if (!session || !session.authUserId || !session.activeAccountId) {
+      return NextResponse.json({ error: 'Not authenticated or active account not set' }
+
+    const authUserId = session.authUserId;
+    const activeAccountId = session.activeAccountId;, { status: 401 });
     }
 
     // Try to get a valid access token, refreshing if necessary
-    const accessToken = await getValidAccessToken(session.user.email);
+    const accessToken = await getValidAccessToken(authUserId, activeAccountId);
     
     if (!accessToken) {
       console.error("Failed to get valid access token");

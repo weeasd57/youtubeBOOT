@@ -1,20 +1,33 @@
-import { NextResponse } from 'next/server';
+import { withAuth } from 'next-auth/middleware';
 
-export function middleware(request) {
-  // Log the request path and query
-  if (request.nextUrl.pathname.startsWith('/api/auth/callback')) {
-    console.log('\n\n=== AUTH CALLBACK ===');
-    console.log('Path:', request.nextUrl.pathname);
-    console.log('Query:', Object.fromEntries(request.nextUrl.searchParams.entries()));
-    console.log('=====================\n\n');
+export default withAuth(
+  // `withAuth` augments your Next.js Request with the user's token.
+  function middleware(req) {
+    // console.log("middleware: ", req.nextUrl.pathname)
+    // console.log("middleware: ", req.nextauth.token)
+  },
+  {
+    callbacks: {
+      authorized: ({ token }) => {
+        // console.log("authorized callback token:", token);
+        // return true if the user is authorized
+        // For now, just check if token exists
+        return !!token;
+      },
+    },
+    pages: {
+      signIn: '/', // Redirect unauthenticated users to the landing page
+    },
   }
+);
 
-  return NextResponse.next();
-}
-
-// Only run middleware on auth paths
 export const config = {
   matcher: [
-    '/api/auth/:path*'
+    '/home', // Protect the home page
+    '/accounts/:path*', // Protect accounts pages
+    '/uploads/:path*', // Protect uploads pages
+    '/tiktok-downloader/:path*', // Protect tiktok downloader page
+    '/admin/:path*', // Protect admin pages
+    // Add other protected routes here
   ],
-} 
+};

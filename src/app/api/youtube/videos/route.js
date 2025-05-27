@@ -36,12 +36,16 @@ export async function GET() {
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session || !session.user?.email) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    if (!session || !session.authUserId || !session.activeAccountId) {
+      return NextResponse.json({ error: 'Not authenticated or active account not set' }, { status: 401 });
     }
 
+    const authUserId = session.authUserId;
+    const activeAccountId = session.activeAccountId;
+    console.log(`YouTube videos: Fetching for Auth User ID: ${authUserId}, Account ID: ${activeAccountId}`);
+
     // Get a valid access token, refreshing if necessary
-    const accessToken = await getValidAccessToken(session.user.email);
+    const accessToken = await getValidAccessToken(authUserId, activeAccountId);
     
     if (!accessToken) {
       return NextResponse.json({ error: 'Invalid access token' }, { status: 401 });

@@ -128,10 +128,10 @@ function LandingPageContent() {
                   </div>
                   <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-amber-600 text-white text-xs px-2 py-1 rounded-full">Step 1</div>
                   <h3 className="text-xl font-semibold text-gray-900 dark:text-amber-50 mb-2 text-center">
-                    Get TikTok Data
+                    Get Data
                   </h3>
                   <p className="text-gray-600 dark:text-amber-200/70 text-center mb-3">
-                    Get JSON data from <a href="https://apify.com" target="_blank" rel="noopener noreferrer" className="text-amber-600 hover:underline">Apify.com</a> with TikTok "posts" results
+                    Get JSON data from <a href="https://apify.com" target="_blank" rel="noopener noreferrer" className="text-amber-600 hover:underline">Apify.com</a> with "posts" results
                   </p>
                   
                   <button 
@@ -152,7 +152,7 @@ function LandingPageContent() {
                     Download Videos
                   </h3>
                   <p className="text-gray-600 dark:text-amber-200/70 text-center mb-3">
-                    Upload JSON file to batch download TikTok videos without watermarks using <a href="https://ssstiktok.io" target="_blank" rel="noopener noreferrer" className="text-amber-600 hover:underline">ssstiktok.io</a>
+                    Upload JSON file to batch download TikTok videos without watermarks.
                   </p>
                   <div className="text-xs text-gray-500 dark:text-gray-400 text-center mt-1">
                     Downloads HD videos with no watermarks

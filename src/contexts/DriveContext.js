@@ -1,8 +1,9 @@
 'use client';
 
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { fetchDriveFoldersWithCache } from '@/utils/driveHelpers';
 import { useSession } from 'next-auth/react';
+import { useAccounts } from '@/contexts/AccountContext';
 
 // Create context
 const DriveContext = createContext(null);
@@ -18,80 +19,107 @@ export function DriveProvider({ children }) {
   const [selectedFile, setSelectedFile] = useState(null);
   const [selectedFolder, setSelectedFolder] = useState(null);
   const { data: session } = useSession();
+  const { activeAccount } = useAccounts(); // Consume activeAccount from AccountContext
 
   // Real implementation for fetchDriveFiles
-  const fetchDriveFiles = useCallback(async (forceRefresh = false) => {
-    if (!session) {
-      console.warn('No session available, cannot fetch drive files');
-      return [];
-    }
-
-    setLoading(true);
-    setError(null);
-
+  const fetchDriveFiles = useCallback(async () => {
     try {
-      const response = await fetch('/api/drive/list-files', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        const errorData = await response.text();
-        throw new Error(`Failed to fetch files: ${errorData}`);
+      // Check for activeAccount instead of session properties
+      if (!activeAccount || !activeAccount.id) {
+        console.warn("fetchDriveFiles: No active account available.");
+        setDriveFiles([]); // Clear files if no active account
+        setError("Please ensure you're logged in and have an active account selected.");
+        return;
       }
 
-      const data = await response.json();
-      setDriveFiles(data.files || []);
-      setLastChecked(new Date());
-      return data.files || [];
+      setLoading(true);
+      setError(null);
+
+      // Direct API call using fetch instead of relying on driveService
+      try {
+        const response = await fetch('/api/drive-files');
+        
+        if (!response.ok) {
+          if (response.status === 401) {
+            throw new Error("Authentication required. Please sign in again.");
+          }
+          throw new Error(`Failed to fetch drive files: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        setDriveFiles(data.files || []);
+        setLastChecked(new Date());
+      } catch (apiError) {
+        console.error("API Error fetching files:", apiError);
+        setError(getUserFriendlyErrorMessage(apiError));
+        setDriveFiles([]);
+      }
     } catch (error) {
-      console.error('Error fetching drive files:', error);
+      console.error("Error in fetchDriveFiles:", error);
       setError(getUserFriendlyErrorMessage(error));
-      return [];
+      setDriveFiles([]);
     } finally {
       setLoading(false);
     }
-  }, [session]);
+  }, [activeAccount]); // Depend on activeAccount
 
-  // Real implementation for fetchDriveFolders using the shared utility
+  // Fetch files when activeAccount changes
+  useEffect(() => {
+    if (activeAccount) {
+      fetchDriveFiles();
+    } else {
+      // Clear files if active account is unset
+      setDriveFiles([]);
+    }
+  }, [activeAccount, fetchDriveFiles]);
+
+
+  // Real implementation for fetchDriveFolders using direct API call
   const fetchDriveFolders = useCallback(async (forceRefresh = false) => {
-    if (!session) {
-      console.warn('No session available, cannot fetch drive folders');
+    // Check for active account
+    if (!activeAccount) {
+      console.warn('No active account available, cannot fetch drive folders');
       return { success: false, error: 'Not authenticated' };
     }
 
     try {
-      // Use the shared utility function
-      const result = await fetchDriveFoldersWithCache({
-        forceRefresh: forceRefresh,
-        setLoadingState: setFoldersLoading,
-        setFoldersState: setDriveFolders,
-        onFolderCheck: (folders) => {
-          // Check if the currently selected folder still exists
-          if (selectedFolder) {
-            const folderStillExists = folders.some(folder => folder.id === selectedFolder.id);
-            if (!folderStillExists) {
-              console.log(`Selected folder ${selectedFolder.id} no longer exists, resetting selection`);
-              setSelectedFolder(null);
-            }
-          }
+      setFoldersLoading(true);
+      setError(null);
+
+      // Direct API call instead of utility function
+      const response = await fetch('/api/drive-folders');
+      
+      if (!response.ok) {
+        if (response.status === 401) {
+          setError("Authentication required. Please sign in again.");
+          return { success: false, error: 'Authentication required' };
         }
-      });
-
-      if (!result.success) {
-        console.error('Error fetching drive folders:', result.error);
-        setError(getUserFriendlyErrorMessage(result.error));
+        throw new Error(`Failed to fetch folders: ${response.statusText}`);
       }
+      
+      const data = await response.json();
+      const folders = data.folders || [];
+      
+      // Check if the currently selected folder still exists
+      if (selectedFolder) {
+        const folderStillExists = folders.some(folder => folder.id === selectedFolder.id);
+        if (!folderStillExists) {
+          console.log(`Selected folder ${selectedFolder.id} no longer exists, resetting selection`);
+          setSelectedFolder(null);
+        }
+      }
+      
+      setDriveFolders(folders);
+      return { success: true, folders };
 
-      return result;
     } catch (error) {
       console.error('Error in fetchDriveFolders:', error);
       setError(getUserFriendlyErrorMessage(error));
       return { success: false, error: error.message };
+    } finally {
+      setFoldersLoading(false);
     }
-  }, [session, selectedFolder]);
+  }, [activeAccount, selectedFolder]); // Depend on activeAccount and selectedFolder
 
   // Function to select a file
   const selectFile = (file) => {

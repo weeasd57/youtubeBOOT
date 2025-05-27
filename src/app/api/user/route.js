@@ -8,15 +8,15 @@ export async function GET() {
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session || !session.user?.email) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    if (!session || !session.authUserId) {
+      return NextResponse.json({ error: 'Not authenticated or user ID missing' }, { status: 401 });
     }
 
-    // Get user data from Supabase
+    // Get user data from Supabase using authUserId
     const { data, error } = await supabaseAdmin
       .from('users')
       .select('*')
-      .eq('email', session.user.email)
+      .eq('id', session.authUserId)
       .single();
     
     if (error) {
@@ -38,8 +38,8 @@ export async function PATCH(request) {
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session || !session.user?.email) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    if (!session || !session.authUserId) {
+      return NextResponse.json({ error: 'Not authenticated or user ID missing' }, { status: 401 });
     }
 
     const body = await request.json();
@@ -59,7 +59,7 @@ export async function PATCH(request) {
     const { data, error } = await supabaseAdmin
       .from('users')
       .update(updateData)
-      .eq('email', session.user.email)
+      .eq('id', session.authUserId)
       .select();
     
     if (error) {
@@ -74,4 +74,4 @@ export async function PATCH(request) {
       { status: 500 }
     );
   }
-} 
+}

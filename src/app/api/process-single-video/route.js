@@ -47,8 +47,25 @@ export async function POST(request) {
       }, { status: error ? 500 : 404 });
     }
     
-    // الحصول على رمز الوصول
-    const accessToken = await getValidAccessToken(video.user_email);
+    // الحصول على رمز الوصول باستخدام النظام الجديد
+    // تحقق من وجود auth_user_id و account_id في الفيديو
+    if (!video.auth_user_id || !video.account_id) {
+      console.error(`Process single video: Missing auth_user_id or account_id for video ${videoId}`);
+      await supabase
+        .from('video_queue')
+        .update({
+          status: 'failed',
+          error_message: 'Missing authentication data (auth_user_id or account_id)',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', videoId);
+      
+      return NextResponse.json({
+        error: 'Missing authentication data for video'
+      }, { status: 400 });
+    }
+    
+    const accessToken = await getValidAccessToken(video.auth_user_id, video.account_id);
     
     if (!accessToken) {
       await supabase

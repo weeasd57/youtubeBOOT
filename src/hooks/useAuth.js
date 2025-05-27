@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useSession } from '@/auth';
+import { useSession } from 'next-auth/react';
 import { createClient } from '@supabase/supabase-js';
 
 // إنشاء عميل Supabase مع قيم افتراضية للتطوير

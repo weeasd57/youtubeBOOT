@@ -12,7 +12,7 @@ export async function GET(req) {
     const session = await getServerSession(authOptions);
     
     if (!session) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+      return NextResponse.json({ error: 'Not authenticated or active account not set' }, { status: 401 });
     }
 
     if (!session.user?.email) {
@@ -21,7 +21,7 @@ export async function GET(req) {
     
     try {
       // Get a valid access token, refreshing if necessary
-      const accessToken = await getValidAccessToken(session.user.email);
+      const accessToken = await getValidAccessToken(authUserId, activeAccountId);
       
       if (!accessToken) {
         return NextResponse.json({ error: 'Invalid access token' }, { status: 401 });

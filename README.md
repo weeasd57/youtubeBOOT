@@ -265,3 +265,10 @@ supabase db execute -f scripts/create-processing-stats-table.sql
 curl -i --location --request GET 'https://[project-name-on-vercel].vercel.app/api/cron/process-video-batch' \
 --header 'Authorization: Bearer YOUR_CRON_API_KEY'
 ```
+┌───────────────────────┬──────────────────┬──────────────────┐
+│ Programming language  │ Files            │ Lines of code    │
+├───────────────────────┼──────────────────┼──────────────────┤
+│ Javascript            │ 99               │ 16719            │
+├───────────────────────┼──────────────────┼──────────────────┤
+│ Typescript            │ 4                │ 585              │
+└───────────────────────┴──────────────────┴──────────────────┘

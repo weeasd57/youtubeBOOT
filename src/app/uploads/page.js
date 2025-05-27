@@ -141,9 +141,8 @@ function UploadsContent() {
         </div>
 
         <Tabs defaultValue="scheduled" className="w-full mb-6" onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="scheduled">Scheduled Uploads</TabsTrigger>
-            <TabsTrigger value="queue">Video Queue</TabsTrigger>
             <TabsTrigger value="history">Upload History</TabsTrigger>
           </TabsList>
           
@@ -179,57 +178,6 @@ function UploadsContent() {
             </div>
           </TabsContent>
           
-          <TabsContent value="queue" className="pt-4">
-            <div className="bg-white dark:bg-black rounded-lg shadow-md p-4 sm:p-6 border dark:border-amber-700/30 transition-all duration-300">
-              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-4 sm:mb-6">
-                <div className="flex items-center gap-2">
-                  <FaVideo className="text-amber-500" />
-                  <h2 className="text-xl font-semibold dark:text-amber-50">Video Queue Management</h2>
-                </div>
-                <button
-                  onClick={handleRefresh}
-                  className="p-2 bg-blue-100 text-blue-600 dark:bg-amber-900/30 dark:text-amber-300 rounded-full hover:bg-blue-200 dark:hover:bg-amber-800/40 transition-all duration-300 transform hover:rotate-12 self-end sm:self-auto"
-                  title="Refresh Data"
-                  disabled={loadingCombined}
-                >
-                  <FaSync className={loadingCombined ? 'animate-spin' : ''} />
-                </button>
-              </div>
-              
-              <Tabs defaultValue="all" className="w-full">
-                <TabsList className="grid w-full grid-cols-4">
-                  <TabsTrigger value="all">All Videos</TabsTrigger>
-                  <TabsTrigger value="pending">Pending</TabsTrigger>
-                  <TabsTrigger value="processing">Processing</TabsTrigger>
-                  <TabsTrigger value="completed">Completed</TabsTrigger>
-                </TabsList>
-                
-                <TabsContent value="all">
-                  <div className="mt-4">
-                    <QueueDataTable filterStatus={null} />
-                  </div>
-                </TabsContent>
-                
-                <TabsContent value="pending">
-                  <div className="mt-4">
-                    <QueueDataTable filterStatus="pending" />
-                  </div>
-                </TabsContent>
-                
-                <TabsContent value="processing">
-                  <div className="mt-4">
-                    <QueueDataTable filterStatus="processing" />
-                  </div>
-                </TabsContent>
-                
-                <TabsContent value="completed">
-                  <div className="mt-4">
-                    <QueueDataTable filterStatus="completed" />
-                  </div>
-                </TabsContent>
-              </Tabs>
-            </div>
-          </TabsContent>
           
           <TabsContent value="history" className="pt-4">
             {logs && logs.length > 0 ? (
@@ -239,49 +187,36 @@ function UploadsContent() {
                   <h2 className="text-xl font-semibold dark:text-amber-50">Upload History</h2>
                 </div>
                 
-                <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
-                  <table className="min-w-full divide-y divide-gray-200 dark:divide-amber-800/30">
+                <div className="w-full overflow-hidden">
+                  <table className="w-full table-fixed divide-y divide-gray-200 dark:divide-amber-800/30">
                     <thead className="bg-gray-50 dark:bg-black/50">
                       <tr>
-                        <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-amber-300 uppercase tracking-wider">Date</th>
-                        <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-amber-300 uppercase tracking-wider">File</th>
-                        <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-amber-300 uppercase tracking-wider">Title</th>
-                        <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-amber-300 uppercase tracking-wider">Status</th>
-                        <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-amber-300 uppercase tracking-wider">Action</th>
+                        <th className="w-[20%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-amber-300 uppercase tracking-wider">Date</th>
+                        <th className="w-[30%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-amber-300 uppercase tracking-wider">File</th>
+                        <th className="w-[30%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-amber-300 uppercase tracking-wider">Title</th>
+                        <th className="w-[20%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-amber-300 uppercase tracking-wider">Status</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white dark:bg-black divide-y divide-gray-200 dark:divide-amber-800/20">
                       {logs.map((log) => (
                         <tr key={log.id} className="transition-colors duration-200 hover:bg-gray-50 dark:hover:bg-black/40">
-                          <td className="px-3 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm text-gray-500 dark:text-amber-200/70 break-words sm:whitespace-nowrap">
+                          <td className="w-[20%] px-2 py-3 text-xs sm:text-sm text-gray-500 dark:text-amber-200/70 break-words">
                             {new Date(log.created_at).toLocaleString()}
                           </td>
-                          <td className="px-3 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm text-gray-900 dark:text-amber-50 truncate max-w-[100px] sm:max-w-none sm:whitespace-nowrap">
+                          <td className="w-[30%] px-2 py-3 text-xs sm:text-sm text-gray-900 dark:text-amber-50 break-words">
                             {log.file_name}
                           </td>
-                          <td className="px-3 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm text-gray-900 dark:text-amber-50 truncate max-w-[100px] sm:max-w-none sm:whitespace-nowrap">
+                          <td className="w-[30%] px-2 py-3 text-xs sm:text-sm text-gray-900 dark:text-amber-50 break-words">
                             {log.title}
                           </td>
-                          <td className="px-3 sm:px-6 py-3 sm:py-4 text-center sm:text-left">
+                          <td className="w-[20%] px-2 py-3 text-center sm:text-left">
                             <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                              log.status === 'success' 
-                                ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200' 
+                              log.status === 'success'
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200'
                                 : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200'
                             }`}>
                               {log.status === 'success' ? 'Success' : 'Failed'}
                             </span>
-                          </td>
-                          <td className="px-3 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-medium text-center sm:text-left">
-                            {log.youtube_id && log.status === 'success' && (
-                              <a 
-                                href={`https://www.youtube.com/watch?v=${log.youtube_id}`}
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="text-blue-600 hover:text-blue-900 dark:text-amber-400 dark:hover:text-amber-300 transition-all duration-200"
-                              >
-                                View
-                              </a>
-                            )}
                           </td>
                         </tr>
                       ))}

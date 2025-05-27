@@ -106,7 +106,7 @@ export async function GET() {
     
     if (!session) {
       console.error("No session found");
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+      return NextResponse.json({ error: 'Not authenticated or active account not set' }, { status: 401 });
     }
 
     if (!session.user?.email) {
@@ -115,7 +115,7 @@ export async function GET() {
     }
 
     // Try to get a valid access token, refreshing if necessary
-    const accessToken = await getValidAccessToken(session.user.email);
+    const accessToken = await getValidAccessToken(authUserId, activeAccountId);
     
     if (!accessToken) {
       console.error("Failed to get valid access token");

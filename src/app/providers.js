@@ -10,6 +10,8 @@ import { YouTubeProvider } from '@/contexts/YouTubeContext';
 import { YouTubeChannelProvider } from '@/contexts/YouTubeChannelContext';
 import { ScheduledUploadsProvider } from '@/contexts/ScheduledUploadsContext';
 import { TikTokProvider } from '@/contexts/TikTokContext';
+import { AccountProvider } from '@/contexts/AccountContext';
+import { Toaster } from 'react-hot-toast';
 import { useState, useEffect } from 'react';
 
 // Simplified providers structure
@@ -25,20 +27,23 @@ export function Providers({ children }) {
   return (
     <SessionProvider>
       <ThemeProvider>
-        {!mounted ? (
-          // During initial render, just show a loading state
-          <div className="opacity-0">{children}</div>
-        ) : (
-          // Once mounted on client, use all providers
-          <UserProvider>
-            <DriveProvider>
-              <ContentProviders>
-                {children}
-              </ContentProviders>
-            </DriveProvider>
-          </UserProvider>
-        )}
+        <AccountProvider>
+          {!mounted ? (
+            // During initial render, just show a loading state
+            <div className="opacity-0">{children}</div>
+          ) : (
+            // Once mounted on client, use all providers
+            <UserProvider>
+              <DriveProvider>
+                <ContentProviders>
+                  {children}
+                </ContentProviders>
+              </DriveProvider>
+            </UserProvider>
+          )}
+        </AccountProvider>
       </ThemeProvider>
+      <Toaster position="bottom-right" />
     </SessionProvider>
   );
 }

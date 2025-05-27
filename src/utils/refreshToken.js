@@ -276,77 +276,123 @@ export async function refreshAccessToken(email) {
  * @param {string} email User's email
  * @returns {Promise<string|null>} Valid access token or null if unavailable
  */
-export async function getValidAccessToken(userEmail) {
+export async function getValidAccessToken(authUserId, accountId) {
   try {
-    if (!userEmail) {
-      console.error('لم يتم توفير بريد المستخدم');
+    if (!authUserId) {
+      console.error('getValidAccessToken: Missing required parameter (authUserId)');
       return null;
     }
 
-    // استرجاع بيانات المستخدم من قاعدة البيانات
+    console.log(`getValidAccessToken: Fetching token for Auth User ID: ${authUserId}, Account ID: ${accountId || 'N/A'}`);
+
+    // Get user tokens from the session or, if available (but we're not counting on it), from the token store
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('email')
+      .eq('id', authUserId)
+      .single();
+
+    if (userError || !user || !user.email) {
+      console.error('getValidAccessToken: Error fetching user email:', userError?.message || 'User not found');
+      return null;
+    }
+
+    const userEmail = user.email;
+    console.log(`getValidAccessToken: Found user email: ${userEmail}`);
+
+    // Fetch token data from the database based on user_email
     const { data: tokenData, error } = await supabase
       .from('user_tokens')
-      .select('access_token, refresh_token, expires_at')
+      .select('id, access_token, refresh_token, expires_at') // Select id as well for update
       .eq('user_email', userEmail)
       .single();
 
     if (error || !tokenData) {
-      console.error('خطأ في استرجاع بيانات رموز المستخدم:', error?.message || 'لم يتم العثور على رموز المستخدم');
+      console.error('getValidAccessToken: Error fetching user tokens:', error?.message || 'User tokens not found for this account');
       return null;
     }
 
-    // التحقق مما إذا كان رمز الوصول الحالي لا يزال صالحًا
+    // Check if the current access token is still valid
     if (tokenData.access_token && tokenData.expires_at) {
-      const expiryTime = new Date(tokenData.expires_at * 1000); // تحويل الطابع الزمني إلى تاريخ JavaScript
-      // إضافة هامش أمان بمقدار 5 دقائق
+      const expiryTime = new Date(tokenData.expires_at * 1000); // Convert timestamp to Date
+      // Add a safety margin of 5 minutes
       const safeExpiryTime = new Date(expiryTime.getTime() - 5 * 60 * 1000);
-      
+
       if (safeExpiryTime > new Date()) {
+        console.log(`getValidAccessToken: Existing access token is valid for account ${accountId}`);
         return tokenData.access_token;
       }
     }
 
-    // رمز الوصول منتهي الصلاحية أو غير موجود، تحديث
+    // Access token is expired or not available, attempt to refresh
     if (!tokenData.refresh_token) {
-      console.error('رمز التحديث غير متوفر للمستخدم:', userEmail);
+      console.error('getValidAccessToken: Refresh token not available for account:', accountId);
+      // TODO: Handle this case - maybe prompt user to re-authenticate Google Drive for this account
       return null;
     }
 
-    // تهيئة OAuth2 client
+    console.log(`getValidAccessToken: Access token expired, attempting refresh for account ${accountId}`);
+
+    // Initialize OAuth2 client
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
-      process.env.GOOGLE_REDIRECT_URI
+      process.env.GOOGLE_REDIRECT_URI // Or your redirect URI
     );
 
-    // تحديث رمز الوصول
-    oauth2Client.setCredentials({
-      refresh_token: tokenData.refresh_token
-    });
-
-    const { credentials } = await oauth2Client.refreshAccessToken();
-
-    // حساب وقت انتهاء الصلاحية
-    const expiresAt = Math.floor(Date.now() / 1000 + credentials.expires_in); // تخزين كطابع زمني
-
-    // تحديث قاعدة البيانات برمز الوصول الجديد ووقت انتهاء الصلاحية
-    const { error: updateError } = await supabase
-      .from('user_tokens')
-      .update({
-        access_token: credentials.access_token,
-        expires_at: expiresAt,
-        updated_at: new Date().toISOString()
-      })
-      .eq('user_email', userEmail);
-
-    if (updateError) {
-      console.error('خطأ في تحديث رمز الوصول:', updateError.message);
+    // Check if client ID and secret are available
+    if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+      console.error('getValidAccessToken: Missing Google OAuth credentials in environment variables');
       return null;
     }
 
-    return credentials.access_token;
+    // Set the refresh token
+    oauth2Client.setCredentials({
+      refresh_token: tokenData.refresh_token,
+    });
+
+    try {
+      // Refresh the token
+      const { credentials } = await oauth2Client.refreshAccessToken();
+
+      console.log(`getValidAccessToken: Token refreshed successfully for account ${accountId}`);
+
+      const accessToken = credentials.access_token;
+      const refreshToken = credentials.refresh_token || tokenData.refresh_token; // Use new refresh token if provided
+      const expiresAt = Math.floor(Date.now() / 1000 + credentials.expires_in); // Store as Unix timestamp
+
+      // Update the tokens in the database using the token record ID
+      const { error: updateError } = await supabase
+        .from('user_tokens')
+        .update({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+          expires_at: expiresAt,
+          updated_at: new Date().toISOString(),
+          // Reset retry count or error flags if you have them
+        })
+        .eq('id', tokenData.id); // Update using the fetched record ID
+
+      if (updateError) {
+        console.error('getValidAccessToken: Error updating tokens in database:', updateError.message);
+        // Decide how to handle this error - maybe log and continue, or return null
+        return null; // Return null if database update fails
+      }
+
+      console.log(`getValidAccessToken: Database updated with new token for account ${accountId}`);
+      return accessToken; // Return the new valid access token
+
+    } catch (refreshError) {
+      console.error('getValidAccessToken: Error refreshing token with Google OAuth:', refreshError);
+
+      // TODO: Implement more specific error handling for refresh errors
+      // e.g., revoked access (invalid_grant), network errors, etc.
+      // Based on the error, you might need to prompt the user to re-authenticate.
+
+      return null; // Return null if token refresh fails
+    }
   } catch (error) {
-    console.error('خطأ في تحديث رمز الوصول:', error.message);
+    console.error('getValidAccessToken: Unexpected error:', error);
     return null;
   }
 }

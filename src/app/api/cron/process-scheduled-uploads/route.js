@@ -139,7 +139,19 @@ export async function GET(request) {
           for (let attempt = 0; attempt < 3; attempt++) {
             try {
               // Get a valid access token for this user, refreshing if necessary
-              accessToken = await getValidAccessToken(upload.user_email);
+              // Check if we have the new authentication fields
+              if (upload.auth_user_id && upload.account_id) {
+                accessToken = await getValidAccessToken(upload.auth_user_id, upload.account_id);
+              } else if (upload.user_email) {
+                // Fallback to old system for backward compatibility
+                console.warn(`Cron job: Using fallback email-based auth for upload ${upload.id}`);
+                // For now, skip this upload as it needs to be migrated
+                tokenError = new Error('Upload needs to be migrated to new authentication system');
+                break;
+              } else {
+                tokenError = new Error('Missing authentication data');
+                break;
+              }
               
               if (accessToken) {
                 // نجحت المصادقة

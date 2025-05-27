@@ -60,16 +60,25 @@ export async function GET() {
     
     if (!session) {
       console.error("No session found");
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+      return NextResponse.json({ error: 'Not authenticated or active account not set' }, { status: 401 });
     }
 
     if (!session.user?.email) {
       console.error("Session exists but no user email found");
+      console.error("Session exists but no user email found");
       return NextResponse.json({ error: 'User email not found' }, { status: 401 });
     }
 
+    const authUserId = session.authUserId;
+    const activeAccountId = session.activeAccountId;
+
+    if (!authUserId || !activeAccountId) {
+        console.error("authUserId or activeAccountId not found in session");
+        return NextResponse.json({ error: 'Authentication information missing in session' }, { status: 401 });
+    }
+
     // Try to get a valid access token, refreshing if necessary
-    const accessToken = await getValidAccessToken(session.user.email);
+    const accessToken = await getValidAccessToken(authUserId, activeAccountId);
     
     if (!accessToken) {
       console.error("Failed to get valid access token");

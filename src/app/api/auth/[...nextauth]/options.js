@@ -32,57 +32,83 @@ export const authOptions = {
     async jwt({ token, account, user, trigger }) {
       // Initial sign in
       if (account && user) {
-        console.log('JWT callback - Initial sign in', { 
-          account_type: account.type,
-          scope: account.scope || 'No scope provided' 
-        });
+        console.log('JWT callback - Initial sign in for:', user.email);
         
-        // Save user to Supabase when they sign in
-        await saveUserToSupabase(user);
-        
-        // Save tokens to separate table for background access
-        if (account.access_token) {
-          await saveUserTokens({
+        try {
+          // Save user to Supabase and get their auth_user_id
+          const savedUser = await saveUserToSupabase(user);
+          if (!savedUser || !savedUser.id) {
+            throw new Error('Failed to save or retrieve user data from Supabase');
+          }
+
+          // Save tokens and get saved token data
+          const savedTokens = await saveUserTokens({
             email: user.email,
             accessToken: account.access_token,
             refreshToken: account.refresh_token,
             expiresAt: account.expires_at
           });
-        }
-        
-        return {
-          ...token,
-          access_token: account.access_token,
-          refresh_token: account.refresh_token,
-          expires_at: account.expires_at,
-        };
-      }
-      
-      // Handle session updates - load fresh token from database when session is updated
-      if (trigger === 'update' && token.email) {
-        console.log('JWT callback: Session update triggered, checking for fresh tokens');
-        try {
-          // Get the latest token from the database
-          const { data: userTokens, error } = await supabaseAdmin
-            .from('user_tokens')
-            .select('access_token, refresh_token, expires_at')
-            .eq('user_email', token.email)
-            .single();
-            
-          if (userTokens && !error) {
-            console.log('JWT callback: Found fresh tokens in database, updating session');
-            token.accessToken = userTokens.access_token;
-            token.expiresAt = userTokens.expires_at;
-            // Only update refresh token if it exists (it might not be returned in some refresh flows)
-            if (userTokens.refresh_token) {
-              token.refreshToken = userTokens.refresh_token;
-            }
+
+          if (!savedTokens || !savedTokens.access_token) {
+            throw new Error('Failed to save or retrieve token data');
           }
+
+          // Return the token with all required data
+          return {
+            ...token,
+            auth_user_id: savedUser.id,
+            active_account_id: savedUser.active_account_id,
+            access_token: savedTokens.access_token,
+            refresh_token: savedTokens.refresh_token,
+            expires_at: savedTokens.expires_at,
+          };
         } catch (error) {
-          console.error('JWT callback: Error fetching tokens from database:', error);
+          console.error('JWT callback - Error during initial sign in:', error);
+          token.error = error.message;
+          // Explicitly remove user IDs on error during initial sign-in
+          delete token.auth_user_id;
+          delete token.active_account_id;
+          return token;
         }
       }
       
+      // Handle session updates
+      if (trigger === 'update' && token.email) {
+        console.log('JWT callback - Session update triggered for:', token.email);
+        try {
+          // Get fresh user data
+          const { data: userData, error: userError } = await supabaseAdmin
+            .from('users')
+            .select('id, active_account_id')
+            .eq('email', token.email)
+            .single();
+
+          if (userError || !userData) {
+            // If user data fetching fails during update, log and clear user IDs from token
+            console.error('JWT callback - Failed to get user data during session update:', userError?.message || 'User data not found');
+            token.error = userError?.message || 'User data not found during session update';
+            delete token.auth_user_id;
+            delete token.active_account_id;
+            return token;
+          }
+
+          // Update token with fresh user data
+          return {
+            ...token,
+            auth_user_id: userData.id,
+            active_account_id: userData.active_account_id,
+          };
+        } catch (error) {
+          console.error('JWT callback - Unexpected error during session update:', error);
+          token.error = error.message;
+          // Explicitly remove user IDs on unexpected error during update
+          delete token.auth_user_id;
+          delete token.active_account_id;
+          return token;
+        }
+      }
+
+      // Return existing token if no updates needed
       return token;
     },
     async session({ session, token }) {
@@ -91,45 +117,21 @@ export const authOptions = {
       session.refreshToken = token.refresh_token;
       session.expiresAt = token.expires_at;
       session.error = token.error;
-      
-      // Save user data to Supabase
-      if (session.user) {
-        await saveUserToSupabase(session.user);
-      }
+      session.authUserId = token.auth_user_id;
+      session.activeAccountId = token.active_account_id;
       
       return session;
     },
     async redirect({ url, baseUrl }) {
-      // Handle redirects
       if (url.startsWith(baseUrl)) return url;
-      // If trying to go to home, allow it
       if (url.includes('/home')) return url;
-      // Default to the home page
       return baseUrl;
     },
   },
   pages: {
     signIn: '/',
     signOut: '/',
-    error: '/',
+    error: '/'
   },
-  secret: process.env.NEXTAUTH_SECRET,
-  events: {
-    async signIn({ user, account, profile }) {
-      // Save user data to Supabase when they sign in
-      if (user) {
-        await saveUserToSupabase(user);
-        
-        // Store tokens for background access
-        if (account && user.email) {
-          await saveUserTokens({
-            email: user.email,
-            accessToken: account.access_token,
-            refreshToken: account.refresh_token,
-            expiresAt: account.expires_at
-          });
-        }
-      }
-    },
-  },
-}; 
+  secret: process.env.NEXTAUTH_SECRET
+};
