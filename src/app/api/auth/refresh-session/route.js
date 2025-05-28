@@ -29,7 +29,7 @@ export async function POST() {
     // Get the primary account for this user
     const { data: primaryToken, error: tokenError } = await supabaseAdmin
       .from('user_tokens')
-      .select('account_id, access_token, refresh_token, expires_at, account_name, account_email')
+      .select('account_id, access_token, refresh_token, expires_at, name as account_name, email as account_email')
       .eq('auth_user_id', authUser.user.id)
       .eq('is_primary', true)
       .single();
@@ -47,8 +47,8 @@ export async function POST() {
       sessionData: {
         authUserId: authUser.user.id,
         activeAccountId: primaryToken.account_id,
-        accountName: primaryToken.account_name,
-        accountEmail: primaryToken.account_email,
+        accountName: primaryToken.name || primaryToken.account_name,
+        accountEmail: primaryToken.email || primaryToken.account_email,
         hasAccessToken: !!primaryToken.access_token,
         hasRefreshToken: !!primaryToken.refresh_token,
         tokenExpiresAt: primaryToken.expires_at

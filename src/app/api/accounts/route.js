@@ -38,7 +38,19 @@ export async function GET(request) {
       return NextResponse.json({ accounts: mockAccounts });
     }
 
-    // Regular database flow for real auth IDs
+    // Get user data to ensure we have the owner account details
+    const { data: userData, error: userError } = await supabaseAdmin
+      .from('users')
+      .select('email, name, avatar_url')
+      .eq('id', authUserId)
+      .single();
+
+    if (userError) {
+      console.error('API route /api/accounts: Supabase error fetching user data:', userError);
+      return NextResponse.json({ error: userError.message }, { status: 500 });
+    }
+    
+    // Regular database flow for real auth IDs - get all connected accounts
     const { data: accounts, error } = await supabaseAdmin
       .from('accounts')
       .select('*')
@@ -51,6 +63,38 @@ export async function GET(request) {
     }
 
     console.log(`API route /api/accounts: Found ${accounts?.length || 0} accounts for user ${authUserId}`);
+    
+    // If no accounts found for the user, create one automatically for the owner
+    if (!accounts || accounts.length === 0) {
+      console.log('No accounts found, creating owner account automatically');
+      
+      // Create new account for the owner
+      const { data: newAccount, error: insertError } = await supabaseAdmin
+        .from('accounts')
+        .insert({
+          owner_id: authUserId,
+          name: userData.name || 'Primary Account',
+          account_type: 'google', // Using 'google' as the account type for Google accounts
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error('Error creating owner account:', insertError);
+        return NextResponse.json({ error: insertError.message }, { status: 500 });
+      }
+      
+      // Update user with the new active account
+      await supabaseAdmin
+        .from('users')
+        .update({ active_account_id: newAccount.id })
+        .eq('id', authUserId);
+      
+      console.log('Created new owner account:', newAccount.id);
+      
+      return NextResponse.json({ accounts: [newAccount] });
+    }
 
     return NextResponse.json({ accounts: accounts || [] });
 

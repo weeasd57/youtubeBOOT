@@ -112,9 +112,9 @@ export default function AccountsPage() {
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-full bg-amber-500 text-white flex items-center justify-center overflow-hidden">
-                        {account.account_image ? (
+                        {account.image ? (
                           <Image 
-                            src={account.account_image} 
+                            src={account.image} 
                             alt="" 
                             width={40}
                             height={40}
@@ -122,14 +122,14 @@ export default function AccountsPage() {
                           />
                         ) : (
                           <span className="text-sm font-medium">
-                            {getInitials(account.account_name)}
+                            {getInitials(account.name)}
                           </span>
                         )}
                       </div>
                       
                       <div>
                         <div className="font-medium flex items-center">
-                          {account.account_name}
+                          {account.name}
                           {account.is_primary && (
                             <span className="ml-2 text-amber-500 text-xs flex items-center gap-1">
                               <FaStar className="w-3 h-3" /> Primary
@@ -142,7 +142,7 @@ export default function AccountsPage() {
                           )}
                         </div>
                         <div className="text-sm text-gray-500 dark:text-gray-400">
-                          {account.account_email}
+                          {account.email}
                         </div>
                       </div>
                     </div>

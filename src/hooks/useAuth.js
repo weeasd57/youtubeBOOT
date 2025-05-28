@@ -57,16 +57,59 @@ export function useAuth() {
           return;
         }
         
-        // استخدام بيانات وهمية للتطوير والاختبار
-        // في بيئة الإنتاج، يمكن استبدال هذا بالاستعلام الفعلي من Supabase
-        const mockUserData = {
-          id: session.user.id || '1',
-          email: session.user.email,
-          name: session.user.name || session.user.email.split('@')[0],
-          role: 'admin', // افتراض أن المستخدم لديه دور المسؤول
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
+        try {
+          // استعلام من Supabase للحصول على بيانات المستخدم
+          const { data: userData, error: supabaseError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('email', session.user.email)
+            .single();
+
+          if (supabaseError) throw supabaseError;
+
+          if (userData) {
+            if (isMounted) {
+              setUserData(userData);
+              setIsAdmin(userData.role === 'admin');
+              setError(null);
+              setLoading(false);
+            }
+          } else {
+            // إذا لم يكن المستخدم موجودًا، قم بإنشائه
+            const { error: insertError } = await supabase
+              .from('users')
+              .insert([{
+                email: session.user.email,
+                name: session.user.name || session.user.email.split('@')[0],
+                role: 'user',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              }])
+              .select('*')
+              .single();
+
+            if (insertError) throw insertError;
+
+            if (isMounted) {
+              setUserData({
+                email: session.user.email,
+                name: session.user.name || session.user.email.split('@')[0],
+                role: 'user',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              });
+              setIsAdmin(false);
+              setError(null);
+              setLoading(false);
+            }
+          }
+        } catch (err) {
+          console.error('خطأ في استرجاع بيانات المستخدم:', err);
+          if (isMounted) {
+            setError(err.message);
+            setLoading(false);
+          }
+        }
         
         if (isMounted) {
           setUserData(mockUserData);

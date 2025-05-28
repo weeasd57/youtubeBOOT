@@ -64,104 +64,78 @@ export async function saveUserToSupabase(user) {
   try {
     console.log('saveUserToSupabase: Processing user:', user.email);
 
-    // Use upsert to handle both insert and update in one operation
-    const { data: savedUser, error: upsertError } = await supabaseAdmin
+    // Start a transaction to ensure data consistency
+    // REMOVING the call to the problematic RPC
+    // const { data: result, error: transactionError } = await supabaseAdmin.rpc('handle_user_registration', {
+    //   p_email: user.email,
+    //   p_name: user.name,
+    //   p_avatar_url: user.image
+    // });
+
+    // if (transactionError) {
+    //   console.error('Transaction error in handle_user_registration:', transactionError);
+    //   throw transactionError;
+    // }
+
+    // ADDING direct INSERT/UPDATE logic for public.users table
+    console.log('Attempting upsert for user:', { email: user.email, name: user.name });
+    
+    const { data: userData, error: upsertError } = await supabaseAdmin
       .from('users')
-      .upsert(
-        {
-          email: user.email,
-          name: user.name,
-          avatar_url: user.image,
-          updated_at: new Date().toISOString()
-        },
-        { 
-          onConflict: 'email',
-          returning: 'representation'
-        }
-      )
-      .select('*')
-      .single();
+      .upsert({
+        email: user.email,
+        name: user.name,
+        avatar_url: user.image,
+        // Assuming 'role' has a default value in the table definition,
+        // or you might need to add it here if it's mandatory and not nullable.
+        // created_at and updated_at are likely handled by Supabase defaults/triggers
+      }, { onConflict: 'email' }) // Conflict resolution based on email
+      .select('*') // Select the inserted/updated row
+      .single(); // Expecting a single result
+
+    console.log('Upsert result:', { userData, upsertError });
 
     if (upsertError) {
+      console.error('Error upserting user data:', upsertError);
       throw upsertError;
     }
 
-    if (!savedUser) {
-      throw new Error('No user data returned after save');
+    console.log('saveUserToSupabase: User data upserted successfully:', userData.id);
+
+    // Double-check the user exists immediately after upsert
+    const { data: doubleCheck, error: doubleCheckError } = await supabaseAdmin
+      .from('users')
+      .select('id, email, name')
+      .eq('id', userData.id)
+      .single();
+
+    console.log('Double-check result:', { doubleCheck, doubleCheckError });
+
+    if (doubleCheckError || !doubleCheck) {
+      console.error('CRITICAL: User not found immediately after upsert!', doubleCheckError);
+      throw new Error(`User verification failed immediately after upsert: ${doubleCheckError?.message}`);
     }
 
-    // Ensure user has at least one account
-    const { data: existingAccount } = await supabaseAdmin
-      .from('user_accounts')
-      .select('*')
-      .eq('user_id', savedUser.id)
-      .maybeSingle();
-
-    if (!existingAccount) {
-      // Create default account if none exists
-      const { data: newAccount, error: accountError } = await supabaseAdmin
-        .from('user_accounts')
-        .insert({
-          user_id: savedUser.id,
-          email: user.email,  // Add the email field here
-          name: 'Default Account',
-          is_active: true
-        })
-        .select()
-        .single();
-
-      if (accountError) {
-        throw accountError;
-      }
-
-      // Update user with the new active account
-      const { data: updatedUser, error: updateError } = await supabaseAdmin
-        .from('users')
-        .update({ active_account_id: newAccount.id })
-        .eq('id', savedUser.id)
-        .select()
-        .single();
-
-      if (updateError) {
-        throw updateError;
-      }
-
-      return updatedUser;
-    }
-
-    return savedUser;
+    // Return the userData directly from upsert instead of fetching again
+    // This avoids potential timing issues with foreign key constraints
+    return userData;
   } catch (error) {
     console.error('saveUserToSupabase error:', error);
-    throw error;
+    throw error; // Re-throw the error to be caught by the caller (NextAuth callback)
   }
 }
 
 // Function to save user tokens for background access
-export async function saveUserTokens({ email, accessToken, refreshToken, expiresAt }) {
+// Now accepts authUserId and accountId directly
+export async function saveUserTokens({ authUserId, accountId, email, accessToken, refreshToken, expiresAt }) {
   try {
-    if (!email || !accessToken) {
-      console.error('saveUserTokens: Missing required parameters');
+    // Check for required parameters: authUserId and accountId are now mandatory
+    if (!authUserId || !accountId || !accessToken) {
+      console.error('saveUserTokens: Missing required parameters (authUserId, accountId, accessToken)');
       return null;
     }
 
-    console.log('saveUserTokens: Starting token save for:', email);
-
-    // Get user data with auth and account info
-    const { data: userData, error: userError } = await supabaseAdmin
-      .from('users')
-      .select('id, active_account_id')
-      .eq('email', email)
-      .single();
-
-    if (userError) {
-      console.error('saveUserTokens: Error finding user:', userError);
-      return null;
-    }
-
-    if (!userData.id || !userData.active_account_id) {
-      console.error('saveUserTokens: User or account not properly initialized:', userData);
-      return null;
-    }
+    console.log(`saveUserTokens: Starting token save for User ID: ${authUserId}, Account ID: ${accountId}`);
 
     // Calculate expiration time
     let calculatedExpiresAt;
@@ -172,23 +146,21 @@ export async function saveUserTokens({ email, accessToken, refreshToken, expires
     } else if (expiresAt instanceof Date) {
       calculatedExpiresAt = Math.floor(expiresAt.getTime() / 1000);
     } else {
+      // Default expiration (e.g., 1 hour from now) if not provided or invalid
       calculatedExpiresAt = Math.floor(Date.now() / 1000) + 3600;
+      console.warn('saveUserTokens: Using default expiration time for token.');
     }
 
     // Prepare token data
     const tokenData = {
-      auth_user_id: userData.id,
-      account_id: userData.active_account_id,
-      user_email: email,
+      user_email: email, // Use email as identifier since that's what the table has
       access_token: accessToken,
       refresh_token: refreshToken,
       expires_at: calculatedExpiresAt,
-      is_valid: true,
-      error_message: null,
-      updated_at: new Date().toISOString()
+      last_network_error: null
     };
 
-    // Try to update existing tokens first
+    // Try to update existing tokens for this user email
     const { data: updatedToken, error: updateError } = await supabaseAdmin
       .from('user_tokens')
       .update(tokenData)
@@ -196,37 +168,40 @@ export async function saveUserTokens({ email, accessToken, refreshToken, expires
       .select()
       .single();
 
-    if (!updateError && updatedToken) {
-      console.log('saveUserTokens: Tokens updated successfully for:', email);
-      return updatedToken;
-    }
+    // Check if the update was successful (PGRST116 means no rows matched the update condition)
+    if (!updateError || updateError.code === 'PGRST116') {
+      if (updateError && updateError.code === 'PGRST116') {
+          console.log(`saveUserTokens: No existing token found for email ${email}. Creating new token.`);
+      } else {
+          console.log(`saveUserTokens: Tokens updated successfully for email ${email}.`);
+          return updatedToken; // Return the successfully updated token
+      }
 
-    // If update failed because tokens don't exist, create new ones
-    if (updateError && updateError.code === 'PGRST116') {
+      // If update failed because tokens don't exist, create new ones
       const { data: newToken, error: insertError } = await supabaseAdmin
         .from('user_tokens')
-        .insert({
-          ...tokenData,
-          created_at: new Date().toISOString()
-        })
+        .insert(tokenData)
         .select()
         .single();
 
       if (insertError) {
         console.error('saveUserTokens: Error creating tokens:', insertError);
-        return null;
+        throw insertError; // Throw error to be caught by caller
       }
 
-      console.log('saveUserTokens: New tokens created successfully for:', email);
-      return newToken;
+      console.log(`saveUserTokens: New tokens created successfully for email ${email}.`);
+      return newToken; // Return the newly created token
+
+    } else {
+      // If we got here, something unexpected happened during the update attempt
+      console.error('saveUserTokens: Unexpected error during update attempt:', updateError);
+      throw updateError; // Throw the unexpected update error
     }
 
-    // If we got here, something unexpected happened
-    console.error('saveUserTokens: Unexpected error:', updateError);
-    return null;
   } catch (error) {
     console.error('Error saving user tokens to Supabase:', error);
-    return null;
+    // Re-throw the error so the caller can handle it
+    throw error;
   }
 }
 

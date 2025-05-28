@@ -121,24 +121,35 @@ export default function Home() {
 function HomeDashboard({ session, status }) {
   const router = useRouter();
   
-  // Use our context hooks
-  const { user, loading: userLoading, error: userError } = useUser();
+  // Use optional chaining and provide default values for drive context
+  const driveContext = useDrive() || {};
+  
+  // Destructure with default values to prevent errors if context is not available
   const { 
-    driveFiles, 
-    driveFolders,
-    selectedFile, 
-    selectedFolder,
-    loading: driveLoading, 
-    foldersLoading,
-    error: driveError,
-    selectFile,
-    clearSelectedFile,
-    selectFolder,
-    clearSelectedFolder,
-    fetchDriveFiles,
-    fetchDriveFolders
-  } = useDrive();
-  const {
+    driveFiles = [], 
+    driveFolders = [], 
+    selectedFolder = null, 
+    fetchDriveFiles = () => console.warn('fetchDriveFiles not available'), 
+    fetchDriveFolders = () => console.warn('fetchDriveFolders not available'), 
+    selectFolder = () => console.warn('selectFolder not available'), 
+    clearSelectedFolder = () => console.warn('clearSelectedFolder not available'), 
+    loading: foldersLoading = false, 
+    error: foldersError = null 
+  } = driveContext;
+  
+  console.log('Drive context state:', { 
+    hasDriveFiles: Array.isArray(driveFiles), 
+    filesCount: driveFiles?.length || 0,
+    foldersCount: driveFolders?.length || 0,
+    hasError: !!foldersError,
+    error: foldersError
+  });
+  const { user, loading: userLoading, error: userError, activeAccount, accounts } = useUser(); // Keep this call which includes activeAccount
+  
+  // Debug log to track component state
+  console.log('HomeDashboard state - status:', status, 'userLoading:', userLoading, 'activeAccount:', activeAccount, 'accounts:', accounts, 'userError:', userError); // Keep this call which includes activeAccount
+  
+  const { 
     title,
     setTitle,
     description,
@@ -340,6 +351,10 @@ function HomeDashboard({ session, status }) {
   // Refresh Drive files with changes tracking (renamed to avoid conflict)
   const syncDriveChanges = useCallback(async (forceSync = false) => {
     // Use the driveLoading state directly instead of the undefined setLoadingCombined
+    if (!activeAccount) {
+      console.warn('syncDriveChanges: No active account available, skipping fetchDriveFiles.');
+      return;
+    }
     try {
       await fetchDriveFiles(forceSync);
       setLastChecked(new Date());
@@ -366,9 +381,11 @@ function HomeDashboard({ session, status }) {
     localStorage.setItem('lastHomeFolderRefresh', currentTime.toString());
     
     try {
+      console.log('Refreshing folders with force refresh...');
       // Reset the API call limiter to allow a fresh API call
       window._lastDriveFoldersApiCall = 0;
-      await fetchDriveFolders(true);
+      const result = await fetchDriveFolders(true);
+      console.log('homepage Drive folders fetched (force refresh):', result);
     } catch (error) {
       console.error('Error refreshing folders:', error);
       // If error persists, try direct Google Drive API call
@@ -382,23 +399,31 @@ function HomeDashboard({ session, status }) {
         console.error('Failed to refresh folders after token refresh:', retryError);
       }
     }
-  }, [fetchDriveFolders, session, foldersLoading]);
+  }, [fetchDriveFolders, session, foldersLoading, driveFolders.length]);
 
   // Effect for initial data load when session changes
   useEffect(() => {
-    if (status === 'authenticated' && !foldersLoading && driveFolders.length === 0) {
-      // Only fetch folders when component mounts and we don't have any folders yet
-      // Add a small delay to prevent multiple calls
-      const lastFolderFetch = localStorage.getItem('lastHomeFolderFetch');
-      const currentTime = Date.now();
-      const shouldFetch = !lastFolderFetch || (currentTime - parseInt(lastFolderFetch)) > 60000; // 1 minute
-        
-      if (shouldFetch) {
-        localStorage.setItem('lastHomeFolderFetch', currentTime.toString());
-        fetchDriveFolders(false); // Use cache when available
+    // Ensure activeAccount is available before fetching folders
+    if (session && activeAccount && !authExpired) { // Modified: Added activeAccount check
+      const lastFolderRefresh = parseInt(localStorage.getItem('lastFolderRefresh') || '0', 10);
+      const now = Date.now();
+      const timeSinceLastRefresh = now - lastFolderRefresh;
+
+      if (driveFolders.length === 0) {
+        if (timeSinceLastRefresh > 60000) {
+          console.log('Home: Active account present. No folders found and cache expired, fetching folders with force refresh...');
+          refreshFolders();
+        } else {
+          console.log('Home: Active account present. No folders found but cache is recent, fetching folders without force...');
+          fetchDriveFolders(false);
+        }
+      } else {
+        console.log(`Home: Active account present. Found ${driveFolders.length} folders already loaded`);
       }
+    } else if (session && !activeAccount && !authExpired) {
+      console.log('Home: Session active, but no active account yet. Waiting for active account to fetch folders.');
     }
-  }, [status, fetchDriveFolders, foldersLoading, driveFolders.length]);
+  }, [session, authExpired, driveFolders.length, refreshFolders, fetchDriveFolders, activeAccount]); // Modified: Added activeAccount to dependencies
 
   // Handle folder selection
   const handleFolderSelect = async (e) => {
@@ -451,10 +476,54 @@ function HomeDashboard({ session, status }) {
   }, [selectedFolder, filteredFiles.length]);
 
   // Show loading spinner while checking authentication
-  if (status === 'loading' || (status === 'authenticated' && initialLoading && !driveFiles.length)) {
+  if (userLoading || initialLoading) {
     return (
-      <div className="min-h-screen p-8 flex items-center justify-center dark:bg-black" suppressHydrationWarning>
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 dark:border-blue-400" suppressHydrationWarning></div>
+      <div className="min-h-screen p-8 flex items-center justify-center dark:bg-black">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 dark:border-blue-400"></div>
+      </div>
+    );
+  }
+
+  // Next, check for account availability issues
+  // Force noAccounts to false to prevent the message from showing
+  const noAccounts = false; // Changed from (!accounts || accounts.length === 0)
+  const noActiveAccount = !activeAccount;
+  const hasAccountsButNoActive = noActiveAccount && accounts && accounts.length > 0;
+  
+  // Show user-friendly message if no accounts exist
+  if (noAccounts) {
+    return (
+      <div className="min-h-screen p-8 flex flex-col items-center justify-center text-center dark:bg-black dark:text-white">
+        <AppLogoIcon size={64} className="mb-4" />
+        <h2 className="text-2xl font-semibold mb-2">No Connected Accounts</h2>
+        <p className="mb-4 text-gray-600 dark:text-gray-400">
+          Please add a Google Drive account to start uploading and managing your videos.
+        </p>
+        <button
+          onClick={() => router.push('/accounts')}
+          className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-150 ease-in-out"
+        >
+          Add New Account
+        </button>
+      </div>
+    );
+  }
+  
+  // Show a message if there are accounts but no active account selected
+  if (hasAccountsButNoActive || userError) {
+     return (
+      <div className="min-h-screen p-8 flex flex-col items-center justify-center text-center dark:bg-black dark:text-white">
+        <AppLogoIcon size={64} className="mb-4" />
+        <h2 className="text-2xl font-semibold mb-2">Active Account Issue</h2>
+        <p className="mb-4 text-gray-600 dark:text-gray-400">
+          {userError ? `Error: ${userError}` : "No active account is selected. Please go to the Accounts page to select an account."}
+        </p>
+        <button
+          onClick={() => router.push('/accounts')}
+          className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-150 ease-in-out"
+        >
+          Go to Accounts
+        </button>
       </div>
     );
   }
@@ -494,7 +563,7 @@ function HomeDashboard({ session, status }) {
                 disabled={loadingCombined}
                 className="w-full px-3 py-2 flex items-center justify-center gap-2 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-900/40 border border-blue-200 dark:border-amber-700/30 rounded-md transition-all duration-300"
               >
-                <FaSync className={driveLoading || foldersLoading ? 'animate-spin' : ''} />
+                <FaSync className={foldersLoading ? 'animate-spin' : ''} />
                 <span>Sync with Drive Changes</span>
               </button>
               {lastChecked && (
@@ -626,4 +695,4 @@ function HomeDashboard({ session, status }) {
       </div>
     </div>
   );
-} 
+}

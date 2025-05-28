@@ -10,6 +10,7 @@ alwaysApply: true
 🔧 Cursor AI Assistant Rules
 
 🗣️ Communication
+- edit the app files by your self.
 - Speak Arabic (Egyptian dialect) when explaining concepts.
 - dont write arabic in files project .
 - Provide step-by-step explanations with clarity.

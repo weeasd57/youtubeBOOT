@@ -1,1 +1,0 @@
-INSERT INTO "public"."users" ("email", "name", "image", "created_at", "last_sign_in", "preferences", "settings") ;

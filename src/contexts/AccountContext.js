@@ -13,7 +13,7 @@ export function AccountProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Fetch connected accounts
+  // Fetch connected accounts - optimized to prevent infinite loops
   const fetchAccounts = useCallback(async () => {
     if (status !== 'authenticated' || !session?.user?.email) {
       setLoading(false);
@@ -24,48 +24,43 @@ export function AccountProvider({ children }) {
       setLoading(true);
       setError(null);
       
+      console.log('Fetching accounts...');
       const response = await fetch('/api/accounts');
       const data = await response.json();
       
       if (response.ok) {
-        // Make sure we have accounts data
         const accountsData = data.accounts || [];
         console.log('Fetched accounts:', accountsData.length);
 
-        // Only update accounts state if the data has actually changed (simple check)
-        if (accountsData.length !== accounts.length || 
-            (accountsData.length > 0 && accounts.length > 0 && accountsData[0].id !== accounts[0].id)) {
-            setAccounts(accountsData);
-            console.log('Accounts state updated.');
-        } else {
-            console.log('Accounts data unchanged, skipping accounts state update.');
-        }
-        
-        // Set active account if not already set or if current active account is not in the list
-        const currentAccountStillExists = activeAccount && 
-          accountsData.some(acc => acc.id === activeAccount.id);
+        // Update accounts state only if data has changed
+        setAccounts(prevAccounts => {
+          // Simple deep comparison
+          const hasChanged = JSON.stringify(prevAccounts) !== JSON.stringify(accountsData);
+          return hasChanged ? accountsData : prevAccounts;
+        });
+
+        // Handle active account
+        setActiveAccount(prevActive => {
+          if (accountsData.length === 0) {
+            return null;
+          }
+
+          // Check if current active account still exists
+          const currentAccountExists = prevActive && 
+            accountsData.some(acc => acc.id === prevActive.id);
           
-        if ((!activeAccount || !currentAccountStillExists) && accountsData.length > 0) {
-          // First try to find the primary account
+          if (currentAccountExists) {
+            return prevActive;
+          }
+
+          // Find primary or most recently used account
           const primary = accountsData.find(acc => acc.is_primary);
-          // Otherwise use the most recently used account (sorted by last_used_at)
           const sorted = [...accountsData].sort((a, b) => {
             return new Date(b.last_used_at || 0) - new Date(a.last_used_at || 0);
           });
           
-          const newActive = primary || sorted[0];
-          // Only update active account state if it's different
-          if (!activeAccount || activeAccount.id !== newActive.id) {
-              setActiveAccount(newActive);
-              console.log('Set active account:', newActive?.account_name);
-          } else {
-              console.log('Active account unchanged.');
-          }
-        } else if (accountsData.length === 0 && activeAccount !== null) {
-            // Clear active account if no accounts are fetched
-            setActiveAccount(null);
-            console.log('Cleared active account as no accounts were fetched.');
-        }
+          return primary || sorted[0] || null;
+        });
       } else {
         console.error('Failed to fetch accounts:', data.error);
         setError(data.error || 'Failed to fetch accounts');
@@ -76,7 +71,7 @@ export function AccountProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  }, [session, status]);
+  }, [session, status]); // Removed accounts and activeAccount from dependencies
 
   // Switch to a different account
   const switchAccount = async (accountId) => {
@@ -97,7 +92,7 @@ export function AccountProvider({ children }) {
       }
       
       setActiveAccount(account);
-      toast.success(`Switched to ${account.account_name || 'Google account'}`);
+      toast.success(`Switched to ${account.name || 'Google account'}`);
       return true;
     } catch (error) {
       console.error('Error switching account:', error);
@@ -176,18 +171,24 @@ export function AccountProvider({ children }) {
     }
   };
 
-  // Load accounts when session changes
+  // Load accounts when session changes - with debounce to prevent rapid calls
   useEffect(() => {
-    // Fetch accounts only when the session is authenticated and authUserId is available
-    if (status === 'authenticated' && session?.authUserId) {
-      fetchAccounts();
+    console.log('AccountContext useEffect triggered');
+    
+    // Only fetch if authenticated
+    if (status === 'authenticated' && session?.user?.email) {
+      const timer = setTimeout(() => {
+        fetchAccounts();
+      }, 500); // Small delay to prevent rapid successive calls
+      
+      return () => clearTimeout(timer);
     } else if (status === 'unauthenticated') {
-      // Clear accounts and active account when unauthenticated
+      // Clear state when unauthenticated
       setAccounts([]);
       setActiveAccount(null);
       setLoading(false);
     }
-  }, [session, status, fetchAccounts]); // Depend on session and status
+  }, [session, status, fetchAccounts]); // Only depend on session and status
 
   const value = {
     accounts,
@@ -200,7 +201,11 @@ export function AccountProvider({ children }) {
     refreshAccounts: fetchAccounts
   };
 
-  return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;
+  return (
+    <AccountContext.Provider value={value}>
+      {children}
+    </AccountContext.Provider>
+  );
 }
 
 // Custom hook for using the context

@@ -38,6 +38,9 @@ export async function fetchDriveFoldersWithCache(options = {}) {
     localStorage.removeItem('driveFolders');
     localStorage.removeItem('driveFoldersTimestamp');
     window._lastDriveFoldersApiCall = currentTime;
+  } else {
+    // Normal refresh, update the last API call time
+    window._lastDriveFoldersApiCall = currentTime;
   }
   
   try {
@@ -45,15 +48,16 @@ export async function fetchDriveFoldersWithCache(options = {}) {
     if (!forceRefresh) {
       const cachedFoldersJson = localStorage.getItem('driveFolders');
       const timestamp = localStorage.getItem('driveFoldersTimestamp');
+      const cacheMaxAge = 10 * 60 * 1000; // 10 minutes in milliseconds
       
       if (cachedFoldersJson && timestamp) {
         // Check if cache is still valid (less than 10 minutes old)
-        const cacheAge = Math.floor((Date.now() - parseInt(timestamp)) / (1000 * 60));
-        if (cacheAge < 10) {
+        const cacheAge = Date.now() - parseInt(timestamp);
+        if (cacheAge < cacheMaxAge) {
           try {
             const cachedFolders = JSON.parse(cachedFoldersJson);
             if (Array.isArray(cachedFolders)) {
-              console.log(`Using cached folders (${cacheAge} minutes old)`);
+              console.log(`Using cached Drive folders (${cacheAge / 1000}s old), found ${cachedFolders.length} folders`);
               
               // Update state if provided
               if (setFoldersState) {
@@ -73,19 +77,62 @@ export async function fetchDriveFoldersWithCache(options = {}) {
                 success: true, 
                 folders: cachedFolders,
                 fromCache: true,
-                cacheAge: cacheAge
+                cacheAge: Math.floor(cacheAge / (1000 * 60))
               };
             }
           } catch (cacheError) {
             console.error('Error reading from folder cache:', cacheError);
+            // Clear invalid cache
+            localStorage.removeItem('driveFolders');
+            localStorage.removeItem('driveFoldersTimestamp');
           }
+        } else {
+          console.log(`Cache expired (${cacheAge / 1000}s old), fetching fresh data`);
         }
+      } else if (!cachedFoldersJson) {
+        console.log('No cached folders found, fetching from API');
       }
+    } else {
+      console.log('Force refresh requested, bypassing cache');
     }
     
     // Throttle API calls based on time since last call
     if (!forceRefresh && (currentTime - lastApiCallTime) < apiCallMinInterval) {
-      // Return empty folders but with success=true to avoid triggering error UI
+      // Try to use cached data instead of returning empty array
+      const cachedFoldersJson = localStorage.getItem('driveFolders');
+      if (cachedFoldersJson) {
+        try {
+          const cachedFolders = JSON.parse(cachedFoldersJson);
+          if (Array.isArray(cachedFolders) && cachedFolders.length > 0) {
+            console.log('API call throttled, using cached folders');
+            
+            // Update state if provided
+            if (setFoldersState) {
+              setFoldersState(cachedFolders);
+            }
+            
+            // Run folder check callback if provided
+            if (onFolderCheck && typeof onFolderCheck === 'function') {
+              onFolderCheck(cachedFolders);
+            }
+            
+            if (setLoadingState) {
+              setLoadingState(false);
+            }
+            
+            return { 
+              success: true, 
+              folders: cachedFolders,
+              fromCache: true,
+              throttled: true
+            };
+          }
+        } catch (cacheError) {
+          console.error('Error reading from folder cache during throttling:', cacheError);
+        }
+      }
+      
+      // If no cache available, return empty folders but with success=true to avoid triggering error UI
       if (setFoldersState) {
         setFoldersState([]);
       }
@@ -94,7 +141,7 @@ export async function fetchDriveFoldersWithCache(options = {}) {
         setLoadingState(false);
       }
       
-      console.log('Throttling API call, returning empty folders array');
+      console.log('Throttling API call, no cache available, returning empty folders array');
       return {
         success: true,
         folders: [],
@@ -186,8 +233,17 @@ export async function fetchDriveFoldersWithCache(options = {}) {
     
     // Cache the folder data for future use - even if empty to prevent repeated calls
     try {
-      localStorage.setItem('driveFolders', JSON.stringify(folders));
-      localStorage.setItem('driveFoldersTimestamp', Date.now().toString());
+      if (Array.isArray(folders) && folders.length > 0) {
+        console.log(`Caching ${folders.length} Drive folders to localStorage`);
+        localStorage.setItem('driveFolders', JSON.stringify(folders));
+        localStorage.setItem('driveFoldersTimestamp', Date.now().toString());
+      } else {
+        console.warn('Not caching empty folders array to prevent overwriting valid cache');
+        // Only update timestamp if we don't have any cached data
+        if (!localStorage.getItem('driveFolders')) {
+          localStorage.setItem('driveFoldersTimestamp', Date.now().toString());
+        }
+      }
     } catch (cacheError) {
       console.warn('Failed to cache folders in localStorage:', cacheError);
     }
@@ -302,4 +358,4 @@ export async function checkDriveVideoProcessing(fileId) {
       status: 'error'
     };
   }
-} 
+}

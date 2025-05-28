@@ -126,21 +126,21 @@ export default function AccountSwitcher() {
         aria-expanded={isOpen}
       >
         <div className="relative h-8 w-8 overflow-hidden rounded-full">
-          {activeAccount?.account_image || session?.user?.image ? (
+          {activeAccount?.image || session?.user?.image ? (
             <Image
-              src={activeAccount?.account_image || session?.user?.image}
-              alt={activeAccount?.account_name || session?.user?.name || "User"}
+              src={activeAccount?.image || session?.user?.image}
+              alt={activeAccount?.name || session?.user?.name || "User"}
               fill
               className="object-cover"
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center bg-blue-500 text-white">
-              {getInitials(activeAccount?.account_name || session?.user?.name)}
+              {getInitials(activeAccount?.name || session?.user?.name)}
             </div>
           )}
         </div>
         <span className="max-w-[100px] truncate text-sm font-medium">
-          {activeAccount?.account_name || session?.user?.name}
+          {activeAccount?.name || session?.user?.name}
         </span>
       </button>
 
@@ -152,8 +152,12 @@ export default function AccountSwitcher() {
           </div>
 
           <div className="max-h-60 overflow-y-auto">
-            {accounts.map(account => (
-              <div 
+            {accounts
+              .filter((account, index, self) =>
+                index === self.findIndex(a => a.email === account.email)
+              )
+              .map(account => (
+              <div
                 key={account.id}
                 onClick={() => handleSwitchAccount(account.id)}
                 className={`px-4 py-2 flex items-center justify-between cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 ${
@@ -162,22 +166,22 @@ export default function AccountSwitcher() {
               >
                 <div className="flex items-center gap-2">
                   <div className="relative h-8 w-8 overflow-hidden rounded-full">
-                    {account.account_image ? (
+                    {account.image ? (
                       <Image
-                        src={account.account_image}
-                        alt={account.account_name || "User"}
+                        src={account.image}
+                        alt={account.name || "User"}
                         fill
                         className="object-cover"
                       />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center bg-blue-500 text-white">
-                        {getInitials(account.account_name)}
+                        {getInitials(account.name)}
                       </div>
                     )}
                   </div>
                   <div>
                     <div className="text-sm font-medium">
-                      {account.account_name}
+                      {account.name}
                       {account.is_primary && (
                         <span className="ml-1 text-yellow-500">
                           <FaStar className="inline-block w-3 h-3" />
@@ -185,7 +189,7 @@ export default function AccountSwitcher() {
                       )}
                     </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                      {account.account_email}
+                      {account.email}
                     </div>
                   </div>
                 </div>
@@ -220,16 +224,6 @@ export default function AccountSwitcher() {
                 </div>
               </div>
             ))}
-          </div>
-
-          <div className="border-t border-gray-200 dark:border-gray-700">
-            <button
-              onClick={() => signOut({ callbackUrl: '/' })}
-              className="px-4 py-2 w-full text-left flex items-center gap-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-            >
-              <FaSignOutAlt className="w-4 h-4" />
-              <span>Sign out</span>
-            </button>
           </div>
         </div>
       )}
