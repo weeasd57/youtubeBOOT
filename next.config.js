@@ -3,8 +3,6 @@ const path = require('path');
 
 const nextConfig = {
   reactStrictMode: true,
-  // Enable font optimization for Google Fonts
-  optimizeFonts: true,
   webpack: (config, { isServer }) => {
     config.resolve.alias['@'] = path.resolve(__dirname, 'src');
     // Add Supabase functions to ignored modules
