@@ -8,32 +8,45 @@ export async function PATCH(request, { params }) {
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session?.user?.email) {
+    if (!session?.authUserId) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    const { id } = params;
+    const { id } = await params;
+    const authUserId = session.authUserId;
     
     // Verify account belongs to user
     const { data: account, error: fetchError } = await supabaseAdmin
-      .from('user_tokens')
-      .select('id')
+      .from('accounts')
+      .select('id, owner_id')
       .eq('id', id)
-      .eq('user_email', session.user.email)
+      .eq('owner_id', authUserId)
       .single();
     
     if (fetchError || !account) {
+      console.error('Account not found:', fetchError);
       return NextResponse.json({ error: 'Account not found' }, { status: 404 });
     }
     
-    // Start a transaction to update primary status
-    const { error } = await supabaseAdmin.rpc('set_primary_account', {
-      p_account_id: id,
-      p_user_email: session.user.email
-    });
+    // First, set all accounts for this user to non-primary
+    const { error: resetError } = await supabaseAdmin
+      .from('accounts')
+      .update({ is_primary: false })
+      .eq('owner_id', authUserId);
     
-    if (error) {
-      console.error('Error setting primary account:', error);
+    if (resetError) {
+      console.error('Error resetting primary accounts:', resetError);
+      return NextResponse.json({ error: 'Failed to reset primary accounts' }, { status: 500 });
+    }
+    
+    // Then set the specified account as primary
+    const { error: setPrimaryError } = await supabaseAdmin
+      .from('accounts')
+      .update({ is_primary: true })
+      .eq('id', id);
+    
+    if (setPrimaryError) {
+      console.error('Error setting primary account:', setPrimaryError);
       return NextResponse.json({ error: 'Failed to set primary account' }, { status: 500 });
     }
     

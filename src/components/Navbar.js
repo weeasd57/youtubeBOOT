@@ -6,8 +6,6 @@ import { FaTable, FaDownload, FaBars, FaTimes, FaSync, FaHome, FaSignOutAlt, FaC
 import Image from "next/image";
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { signOut, signIn } from 'next-auth/react';
-import AccountSwitcher from './AccountSwitcher';
-import UserInfo from './UserInfo';
 import { UserInfoProvider } from '@/contexts/UserInfoContext';
 
 // Reusable NavLink Component
@@ -194,29 +192,27 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle })
                     {isUserMenuOpen && ( // Show menu if open, regardless of user presence based on new requirement
                       <div ref={userMenuRef} className="absolute right-0 mt-2 w-60 bg-white dark:bg-gray-900 shadow-lg rounded-md py-2 z-[9999] border border-gray-200 dark:border-gray-700">
                         {user && (
-                         <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-800">
-                            {/* Pass user prop to UserInfo if it's not consuming context */}
-                            {/* Assuming UserInfo consumes UserInfoContext */} 
-                            <UserInfo /> 
+                          <div className="px-4 py-2">
+                            {/* Display only email */}
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
+                                {user.email}
+                              </span>
+                            </div>
                           </div>
                         )}
                         
-                        <div className="pt-2">
-                          {/* Account Switcher nested inside user menu - only show if user exists */}
-                          {user && <AccountSwitcher />}
-                          
-                          <div className="border-t border-gray-200 dark:border-gray-800 mt-2 pt-2">
-                            <button
-                              onClick={() => {
-                                signOut();
-                                setIsUserMenuOpen(false); // Close menu after sign out
-                              }}
-                              className="w-full text-left px-4 py-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2 transition-colors rounded-md"
-                            >
-                              <FaSignOutAlt className="w-4 h-4" />
-                              <span>Sign Out</span>
-                            </button>
-                          </div>
+                        <div className="border-t border-gray-200 dark:border-gray-800 pt-2">
+                          <button
+                            onClick={() => {
+                              signOut();
+                              setIsUserMenuOpen(false); // Close menu after sign out
+                            }}
+                            className="w-full text-left px-4 py-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2 transition-colors rounded-md"
+                          >
+                            <FaSignOutAlt className="w-4 h-4" />
+                            <span>Sign Out</span>
+                          </button>
                         </div>
                       </div>
                     )}
@@ -343,8 +339,10 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle })
                 <div className="pt-2 mt-1 border-t border-gray-200 dark:border-gray-700">
                   {user && (
                     <div className="px-3 py-2">
-                       {/* Assuming UserInfo consumes UserInfoContext */} 
-                      <UserInfo />
+                      {/* Display only email */}
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
+                        {user.email}
+                      </span>
                     </div>
                   )}
                   

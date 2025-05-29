@@ -76,7 +76,7 @@ export function useDataFetching() {
   
   // Initialize data on first load and handle activeAccount changes
   useEffect(() => {
-    console.log('useDataFetching useEffect - status:', status, 'initialLoading:', initialLoading, 'activeAccount:', activeAccount, 'loadingAny:', loadingAny);
+    console.log('useDataFetching useEffect - status:', status, 'initialLoading:', initialLoading, 'activeAccount:', activeAccount);
     
     if (status === 'loading') {
       // If session is still loading, keep initialLoading true
@@ -120,7 +120,7 @@ export function useDataFetching() {
     
     // Handle activeAccount changes after initial load
     const activeAccountChanged = prevActiveAccountRef.current !== activeAccount;
-    if (activeAccountChanged && activeAccount && !loadingAny && !errorAny) {
+    if (activeAccountChanged && activeAccount) {
       console.log('Active account changed to:', activeAccount.id, 'refreshing data...');
       refreshAll(true); // Force refresh on account change
     }
@@ -129,7 +129,7 @@ export function useDataFetching() {
     prevActiveAccountRef.current = activeAccount;
     
 
-  }, [status, activeAccount, initialLoading, refreshAll, loadingAny, errorAny]);
+  }, [status, activeAccount, initialLoading, refreshAll]);
   
   // When the session changes (user logs out), reset the loading state
   useEffect(() => {

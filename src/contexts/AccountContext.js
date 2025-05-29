@@ -76,7 +76,17 @@ export function AccountProvider({ children }) {
   // Switch to a different account
   const switchAccount = async (accountId) => {
     try {
-      const account = accounts.find(acc => acc.id === accountId);
+      // First, find the account in current accounts list
+      let account = accounts.find(acc => acc.id === accountId);
+      
+      if (!account) {
+        // If not found, refresh accounts first
+        await fetchAccounts();
+        // Wait a bit for state to update, then check again
+        await new Promise(resolve => setTimeout(resolve, 100));
+        account = accounts.find(acc => acc.id === accountId);
+      }
+      
       if (!account) {
         throw new Error('Account not found');
       }
@@ -91,8 +101,13 @@ export function AccountProvider({ children }) {
         throw new Error(data.error || 'Failed to switch account');
       }
       
+      // Set the active account immediately
       setActiveAccount(account);
       toast.success(`Switched to ${account.name || 'Google account'}`);
+      
+      // Refresh accounts in background to update last_used_at
+      fetchAccounts();
+      
       return true;
     } catch (error) {
       console.error('Error switching account:', error);
@@ -188,7 +203,24 @@ export function AccountProvider({ children }) {
       setActiveAccount(null);
       setLoading(false);
     }
-  }, [session, status, fetchAccounts]); // Only depend on session and status
+  }, [session?.user?.email, status, session?.authUserId]); // Also depend on authUserId to refresh when it changes
+
+  // Additional effect to refresh accounts when returning from adding a new account
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.has('addingFor') && status === 'authenticated') {
+        // Remove the parameter from URL
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, '', newUrl);
+        
+        // Refresh accounts after a short delay to ensure the new account is saved
+        setTimeout(() => {
+          fetchAccounts();
+        }, 1000);
+      }
+    }
+  }, [status, fetchAccounts]);
 
   const value = {
     accounts,

@@ -157,29 +157,34 @@ export function DriveProvider({ children }) {
       // Fetch fresh data
       const fetchData = async () => {
         try {
-          // First, verify the account is still valid in Supabase
-          const { data: accountData, error: accountError } = await supabase
-            .from('accounts')
-            .select('id, is_active, last_used_at')
-            .eq('id', activeAccount.id)
-            .single();
-            
-          if (accountError || !accountData) {
-            console.error('Failed to verify account in Supabase:', accountError);
-            setError('Failed to verify account. Please reconnect your account.');
-            return;
+          // Try to verify the account in Supabase (optional check)
+          let accountValid = true;
+          try {
+            const { data: accountData, error: accountError } = await supabase
+              .from('accounts')
+              .select('id, is_active, last_used_at')
+              .eq('id', activeAccount.id)
+              .single();
+              
+            if (accountError) {
+              console.warn('Could not verify account in Supabase (continuing anyway):', accountError);
+              // Don't fail completely, just log the warning
+            } else if (accountData && !accountData.is_active) {
+              setError('This account is no longer active. Please select another account.');
+              accountValid = false;
+            }
+          } catch (supabaseError) {
+            console.warn('Supabase verification failed (continuing anyway):', supabaseError);
+            // Continue without Supabase verification
           }
           
-          if (!accountData.is_active) {
-            setError('This account is no longer active. Please select another account.');
-            return;
+          // If account seems valid or we can't verify, proceed with fetching drive data
+          if (accountValid) {
+            await Promise.all([
+              fetchDriveFiles(),
+              fetchDriveFolders()
+            ]);
           }
-          
-          // If account is valid, fetch drive data
-          await Promise.all([
-            fetchDriveFiles(),
-            fetchDriveFolders()
-          ]);
           
         } catch (error) {
           console.error('Error initializing Drive data:', error);
@@ -190,10 +195,10 @@ export function DriveProvider({ children }) {
       fetchData();
       
       // Set up periodic folder refresh (every 30 minutes)
-      const refreshInterval = 30 * 60 * 1000;
+      const refreshInterval = 60 * 60 * 1000; // Change to 60 minutes
       const periodicRefreshTimer = setInterval(() => {
         console.log('Periodic Drive folders refresh');
-        fetchDriveFolders(true); // Force refresh periodically
+        fetchDriveFolders(false); // Non-forced refresh periodically
       }, refreshInterval);
       
       return () => {
@@ -233,7 +238,7 @@ export function DriveProvider({ children }) {
     }, 30 * 60 * 1000); // 30 minutes
     
     return () => clearInterval(intervalId);
-  }, [activeAccount, selectedFolder, fetchDriveFolders]);
+  }, [activeAccount?.id, selectedFolder?.id]); // Use stable IDs instead of function references
 
   // Function to select a file
   const selectFile = (file) => {

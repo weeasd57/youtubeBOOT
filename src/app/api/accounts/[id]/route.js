@@ -8,21 +8,23 @@ export async function DELETE(request, { params }) {
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session?.user?.email) {
+    if (!session?.authUserId) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    const { id } = params;
+    const { id } = await params;
+    const authUserId = session.authUserId;
     
-    // Check if it's a primary account
+    // Check if account exists and belongs to user
     const { data: account, error: fetchError } = await supabaseAdmin
-      .from('user_tokens')
-      .select('is_primary')
+      .from('accounts')
+      .select('id, owner_id, is_primary')
       .eq('id', id)
-      .eq('user_email', session.user.email)
+      .eq('owner_id', authUserId)
       .single();
     
-    if (fetchError) {
+    if (fetchError || !account) {
+      console.error('Account not found:', fetchError);
       return NextResponse.json({ error: 'Account not found' }, { status: 404 });
     }
     
@@ -30,15 +32,26 @@ export async function DELETE(request, { params }) {
       return NextResponse.json({ error: 'Cannot delete primary account' }, { status: 400 });
     }
     
-    // Delete the account
-    const { error } = await supabaseAdmin
+    // Delete related tokens first
+    const { error: tokenDeleteError } = await supabaseAdmin
       .from('user_tokens')
       .delete()
-      .eq('id', id)
-      .eq('user_email', session.user.email);
+      .eq('account_id', id);
     
-    if (error) {
-      console.error('Error deleting account:', error);
+    if (tokenDeleteError) {
+      console.error('Error deleting account tokens:', tokenDeleteError);
+      // Continue with account deletion even if token deletion fails
+    }
+    
+    // Delete the account
+    const { error: accountDeleteError } = await supabaseAdmin
+      .from('accounts')
+      .delete()
+      .eq('id', id)
+      .eq('owner_id', authUserId);
+    
+    if (accountDeleteError) {
+      console.error('Error deleting account:', accountDeleteError);
       return NextResponse.json({ error: 'Failed to delete account' }, { status: 500 });
     }
     

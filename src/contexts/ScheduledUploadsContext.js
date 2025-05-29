@@ -114,7 +114,7 @@ export function ScheduledUploadsProvider({ children }) {
     if (session?.user?.email) {
       fetchScheduledUploads();
     }
-  }, [session, fetchScheduledUploads]);
+  }, [session?.user?.email, status]); // Use stable dependencies instead of fetchScheduledUploads
 
   const value = {
     scheduledUploads,

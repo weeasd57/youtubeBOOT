@@ -1,10 +1,22 @@
 import { withAuth } from 'next-auth/middleware';
+import { NextResponse } from 'next/server';
 
 export default withAuth(
   // `withAuth` augments your Next.js Request with the user's token.
   function middleware(req) {
-    // console.log("middleware: ", req.nextUrl.pathname)
-    // console.log("middleware: ", req.nextauth.token)
+    // Handle adding account flow
+    if (req.nextUrl.pathname === '/accounts' && req.nextUrl.searchParams.has('addingFor')) {
+      const addingFor = req.nextUrl.searchParams.get('addingFor');
+      // Set cookie to remember we're adding an account for this user
+      const response = NextResponse.next();
+      response.cookies.set('addingAccountFor', addingFor, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 60 * 5 // 5 minutes
+      });
+      return response;
+    }
   },
   {
     callbacks: {

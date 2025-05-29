@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { FaUpload, FaSync, FaHistory, FaEye, FaThumbsUp, FaCalendarAlt, FaClock, FaCloudUploadAlt, FaTable, FaDownload, FaHashtag, FaTiktok } from 'react-icons/fa';
 import Image from "next/image";
@@ -290,39 +290,43 @@ function HomeDashboard({ session, status }) {
     signOut({ callbackUrl: '/' });
   };
 
-  // Check if authentication has expired - with actual token validation
+  // Check if authentication has expired - with actual token validation (debounced)
   useEffect(() => {
     // Only set auth expired if there's an error message about expired authentication
     if (error && typeof error === 'string' && (
-      error.includes('Your YouTube authentication has expired') || 
+      error.includes('Your YouTube authentication has expired') ||
       error.includes('Authentication expired') ||
       error.includes('Invalid Credentials')
     )) {
-      // First, check if APIs are actually responding properly despite the error
-      const validateTokens = async () => {
-        try {
-          // Try to fetch a small amount of data from Drive or YouTube to verify if tokens work
-          const response = await fetch('/api/auth/debug');
-          const data = await response.json();
-          
-          // If we got a valid response with authenticated status, don't show the error
-          if (response.ok && data.status === 'authenticated' && 
-              data.tokenInfo && data.tokenInfo.isValid) {
-            setAuthExpired(false);
-            setError(null); // Clear the error message since tokens are actually working
-            console.log("Tokens are still valid, ignoring authentication error");
-          } else {
-            // If validation confirms tokens are invalid, show the error
+      // Debounce the validation to prevent excessive API calls
+      const timeoutId = setTimeout(() => {
+        const validateTokens = async () => {
+          try {
+            // Try to fetch a small amount of data from Drive or YouTube to verify if tokens work
+            const response = await fetch('/api/auth/debug');
+            const data = await response.json();
+            
+            // If we got a valid response with authenticated status, don't show the error
+            if (response.ok && data.status === 'authenticated' &&
+                data.tokenInfo && data.tokenInfo.isValid) {
+              setAuthExpired(false);
+              setError(null); // Clear the error message since tokens are actually working
+              console.log("Tokens are still valid, ignoring authentication error");
+            } else {
+              // If validation confirms tokens are invalid, show the error
+              setAuthExpired(true);
+            }
+          } catch (e) {
+            // If validation check itself fails, assume tokens are expired
+            console.error("Error validating tokens:", e);
             setAuthExpired(true);
           }
-        } catch (e) {
-          // If validation check itself fails, assume tokens are expired
-          console.error("Error validating tokens:", e);
-          setAuthExpired(true);
-        }
-      };
+        };
+        
+        validateTokens();
+      }, 1000); // Debounce for 1 second
       
-      validateTokens();
+      return () => clearTimeout(timeoutId);
     } else {
       setAuthExpired(false);
     }
@@ -335,18 +339,21 @@ function HomeDashboard({ session, status }) {
     }
   }, [status, router]);
 
-  // Set up auto-upload interval
+  // Set up auto-upload interval with ref to avoid recreating
+  const checkNewVideosRef = useRef(checkNewVideos);
+  checkNewVideosRef.current = checkNewVideos;
+
   useEffect(() => {
     let interval;
     if (session && autoUploadEnabled) {
       interval = setInterval(() => {
-        checkNewVideos();
+        checkNewVideosRef.current();
       }, 5 * 60 * 1000); // Check every 5 minutes
     }
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [session, autoUploadEnabled, checkNewVideos]);
+  }, [session, autoUploadEnabled]); // Removed checkNewVideos dependency
 
   // Refresh Drive files with changes tracking (renamed to avoid conflict)
   const syncDriveChanges = useCallback(async (forceSync = false) => {
@@ -399,7 +406,7 @@ function HomeDashboard({ session, status }) {
         console.error('Failed to refresh folders after token refresh:', retryError);
       }
     }
-  }, [fetchDriveFolders, session, foldersLoading, driveFolders.length]);
+  }, [fetchDriveFolders, session, foldersLoading]);
 
   // Effect for initial data load when session changes
   useEffect(() => {
@@ -423,7 +430,7 @@ function HomeDashboard({ session, status }) {
     } else if (session && !activeAccount && !authExpired) {
       console.log('Home: Session active, but no active account yet. Waiting for active account to fetch folders.');
     }
-  }, [session, authExpired, driveFolders.length, refreshFolders, fetchDriveFolders, activeAccount]); // Modified: Added activeAccount to dependencies
+  }, [session, authExpired, refreshFolders, fetchDriveFolders, activeAccount]); // Removed driveFolders.length to prevent infinite loops
 
   // Handle folder selection
   const handleFolderSelect = async (e) => {
@@ -446,34 +453,31 @@ function HomeDashboard({ session, status }) {
     }
   };
 
-  // Filter files based on selected folder
-  const filteredFiles = useMemo(() => {
+  // Filter items based on selected folder (show both files and folders)
+  const filteredItems = useMemo(() => {
     if (!driveFiles || driveFiles.length === 0) {
-      console.log('No drive files to filter');
+      console.log('No drive items to filter');
       return [];
     }
     
-    // إستبعاد المجلدات من القائمة أولاً
-    const videoFiles = driveFiles.filter(file => file.mimeType !== 'application/vnd.google-apps.folder');
-    
-    // If selectedFolder is null or 'all', return all files (excluding folders)
+    // If selectedFolder is null, return all items
     if (!selectedFolder) {
-      console.log(`Showing all ${videoFiles.length} files because selectedFolder is null`);
-      return videoFiles;
+      console.log(`Showing all ${driveFiles.length} items`);
+      return driveFiles;
     }
     
     // Otherwise filter by selected folder
-    console.log(`Filtering ${videoFiles.length} files by folder: ${selectedFolder.id}`);
-    const filtered = videoFiles.filter(file => file.parents && file.parents.includes(selectedFolder.id));
-    console.log(`Found ${filtered.length} files in folder ${selectedFolder.id}`);
+    console.log(`Filtering items by folder: ${selectedFolder.id}`);
+    const filtered = driveFiles.filter(item => item.parents && item.parents.includes(selectedFolder.id));
+    console.log(`Found ${filtered.length} items in folder ${selectedFolder.id}`);
     return filtered;
   }, [driveFiles, selectedFolder]);
 
   // Add some debug logging for folder selection
   useEffect(() => {
     console.log('Selected folder changed:', selectedFolder);
-    console.log('Filtered files count:', filteredFiles.length);
-  }, [selectedFolder, filteredFiles.length]);
+    console.log('Filtered items count:', filteredItems.length);
+  }, [selectedFolder, filteredItems.length]);
 
   // Show loading spinner while checking authentication
   if (userLoading || initialLoading) {
@@ -621,7 +625,7 @@ function HomeDashboard({ session, status }) {
                 <div className="overflow-y-auto max-h-[500px] w-full rounded-lg bg-white/50 dark:bg-black shadow-inner border border-amber-200 dark:border-amber-700/20 transition-all duration-300">
                   {driveFiles.length > 0 ? (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 p-3">
-                      {filteredFiles.map((file) => (
+                      {filteredItems.map((file) => (
                           <div
                             key={file.id}
                           className={`w-full h-full transition-all duration-300 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900/20 p-3 rounded-lg border ${

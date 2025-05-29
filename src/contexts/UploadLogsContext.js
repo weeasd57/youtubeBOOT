@@ -44,7 +44,7 @@ export function UploadLogsProvider({ children }) {
     if (session?.user?.email) {
       fetchLogs();
     }
-  }, [session, fetchLogs]);
+  }, [session?.user?.email, status]); // Use stable dependencies instead of fetchLogs
 
   const value = {
     logs,

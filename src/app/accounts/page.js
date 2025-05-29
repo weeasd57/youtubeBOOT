@@ -7,21 +7,37 @@ import { useRouter } from 'next/navigation';
 import { FaSignOutAlt, FaPlus, FaCheck, FaStar, FaTrash, FaUser, FaSync, FaArrowLeft } from 'react-icons/fa';
 import Link from 'next/link';
 import Image from 'next/image';
+import Navbar from '@/components/Navbar';
+import ThemeToggle from '@/components/ThemeToggle';
 
 export default function AccountsPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
-  const { 
-    accounts, 
-    activeAccount, 
-    loading, 
-    switchAccount, 
-    setPrimaryAccount, 
+  const [refreshing, setRefreshing] = useState(false);
+  const {
+    accounts,
+    activeAccount,
+    loading,
+    switchAccount,
+    setPrimaryAccount,
     removeAccount,
     error
   } = useAccounts();
   
   const [confirmingRemove, setConfirmingRemove] = useState(null);
+  const [fixingData, setFixingData] = useState(false);
+
+  const handleRefreshAuth = async () => {
+    setRefreshing(true);
+    try {
+      // Refresh accounts data
+      window.location.reload();
+    } catch (error) {
+      console.error('Error refreshing:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   // Redirect if not authenticated
   if (status === 'unauthenticated') {
@@ -30,7 +46,11 @@ export default function AccountsPage() {
   }
 
   const handleAddAccount = () => {
-    signIn('google', { callbackUrl: '/accounts' });
+    // Use URL parameter to indicate we're adding an additional account
+    const callbackUrl = session?.authUserId
+      ? `/accounts?addingFor=${session.authUserId}`
+      : '/accounts';
+    signIn('google', { callbackUrl });
   };
 
   const handleSwitchAccount = async (accountId) => {
@@ -52,6 +72,28 @@ export default function AccountsPage() {
     }
   };
 
+  const handleFixMissingData = async () => {
+    setFixingData(true);
+    try {
+      const response = await fetch('/api/accounts/fix-missing-data', {
+        method: 'POST',
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Fix result:', result);
+        // Refresh accounts after fixing
+        window.location.reload();
+      } else {
+        console.error('Failed to fix account data');
+      }
+    } catch (error) {
+      console.error('Error fixing account data:', error);
+    } finally {
+      setFixingData(false);
+    }
+  };
+
   const getInitials = (name) => {
     if (!name) return 'U';
     return name
@@ -63,18 +105,19 @@ export default function AccountsPage() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-5xl">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <Link 
-            href="/home" 
-            className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-          >
-            <FaArrowLeft className="text-gray-600 dark:text-gray-300" />
-          </Link>
-          <h1 className="text-2xl font-bold">Manage Accounts</h1>
+    <>
+      <Navbar
+        user={session?.user}
+        onRefreshAuth={handleRefreshAuth}
+        refreshing={refreshing}
+        themeToggle={<ThemeToggle />}
+      />
+      <div className="container mx-auto px-4 py-8 max-w-5xl">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold">Manage Accounts</h1>
+          </div>
         </div>
-      </div>
       
       {error && (
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6 text-red-700 dark:text-red-400">
@@ -185,7 +228,7 @@ export default function AccountsPage() {
             </div>
           </div>
           
-          <div className="flex justify-center">
+          <div className="flex justify-center gap-4">
             <button
               onClick={handleAddAccount}
               className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 flex items-center gap-2 transition-colors"
@@ -193,6 +236,17 @@ export default function AccountsPage() {
               <FaPlus className="w-4 h-4" />
               Add Another Google Account
             </button>
+            
+            {accounts.some(acc => !acc.email) && (
+              <button
+                onClick={handleFixMissingData}
+                disabled={fixingData}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2 transition-colors disabled:opacity-50"
+              >
+                <FaSync className={`w-4 h-4 ${fixingData ? 'animate-spin' : ''}`} />
+                Fix Missing Data
+              </button>
+            )}
           </div>
           
           <div className="mt-8 bg-gray-50 dark:bg-gray-900 rounded-lg p-6 border border-gray-200 dark:border-gray-800">
@@ -215,6 +269,7 @@ export default function AccountsPage() {
           </div>
         </>
       )}
-    </div>
+      </div>
+    </>
   );
 }

@@ -75,7 +75,7 @@ export function UserProvider({ children }) {
   // Effect for initial data load and session changes
   useEffect(() => {
     fetchUserData();
-  }, [fetchUserData]);
+  }, [session?.user?.email, status]); // Use stable dependencies instead of fetchUserData
 
   const value = {
     user,

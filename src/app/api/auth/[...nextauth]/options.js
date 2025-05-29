@@ -29,17 +29,72 @@ export const authOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, account, user, trigger }) {
+    async jwt({ token, account, user, trigger, req }) {
       // Initial sign in
       if (account && user) {
         console.log('JWT callback - Initial sign in for:', user.email);
 
         try {
           // Check if this is a new sign-in or an additional account
-          // The logic here determines if we're adding a new account to an existing user (isAdditionalAccount = true)
-          // or if this is potentially the first sign-in for a brand new user (isAdditionalAccount = false)
-          // The auth_user_id on the token is the key indicator for an existing logged-in user.
-          const isAdditionalAccount = token && token.auth_user_id;
+          let isAdditionalAccount = token && token.auth_user_id;
+          
+          // Check if we're adding an account (from cookie set by middleware)
+          if (!isAdditionalAccount && req?.cookies) {
+            const addingAccountFor = req.cookies.addingAccountFor;
+            if (addingAccountFor) {
+              console.log('Found addingAccountFor cookie:', addingAccountFor);
+              isAdditionalAccount = true;
+              token.auth_user_id = addingAccountFor;
+              
+              // Clear the cookie by setting it to expire
+              if (req.res) {
+                req.res.setHeader('Set-Cookie', 'addingAccountFor=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT');
+              }
+            }
+          }
+          
+          // Enhanced fallback: Check if this Google account should be linked to an existing user
+          if (!isAdditionalAccount) {
+            // First, check if there's already an account with this exact email
+            const { data: existingAccount, error: accountCheckError } = await supabaseAdmin
+              .from('accounts')
+              .select('id, owner_id, email')
+              .eq('email', user.email)
+              .single();
+            
+            if (!accountCheckError && existingAccount) {
+              // This exact Google account already exists, use the existing user
+              console.log('Google account already exists, using existing user:', existingAccount.owner_id);
+              isAdditionalAccount = true;
+              token.auth_user_id = existingAccount.owner_id;
+            } else {
+              // Check if there's a user in the database who might want to add this as additional account
+              // This happens when user signs in from landing page first, then adds another Google account
+              const { data: existingUser, error: userCheckError } = await supabaseAdmin
+                .from('users')
+                .select('id')
+                .eq('email', user.email)
+                .single();
+              
+              if (!userCheckError && existingUser) {
+                // User exists but this Google account doesn't - this could be an additional account
+                const { data: userAccounts, error: accountsError } = await supabaseAdmin
+                  .from('accounts')
+                  .select('id, email')
+                  .eq('owner_id', existingUser.id);
+                
+                if (!accountsError && userAccounts && userAccounts.length > 0) {
+                  // User has existing accounts, this is likely an additional account
+                  const accountExists = userAccounts.some(acc => acc.email === user.email);
+                  if (!accountExists) {
+                    console.log('Detected additional Google account for existing user:', existingUser.id);
+                    isAdditionalAccount = true;
+                    token.auth_user_id = existingUser.id;
+                  }
+                }
+              }
+            }
+          }
 
           if (isAdditionalAccount) {
             // This block handles adding an additional account to a user who is already logged in
@@ -66,6 +121,7 @@ export const authOptions = {
                 account_type: 'google',
                 email: user.email, // Store the account's email
                 image: user.image, // Store the account's profile image
+                is_primary: false, // New accounts are not primary by default
               })
               .select() // Return the inserted account
               .single();
@@ -91,37 +147,190 @@ export const authOptions = {
               throw new Error('Failed to save tokens for additional account');
             }
 
-            // Return updated token. The active_account_id in the token could potentially
-            // be switched to the new account, or kept as is. Let's switch for simplicity
-            // upon adding a new account, as seen in the original code structure.
+            // Don't switch to the new account automatically - keep the current active account
+            // Get the current active account info to maintain it
+            const { data: currentActiveAccount, error: activeAccountError } = await supabaseAdmin
+              .from('accounts')
+              .select('id, name, email, image, account_type')
+              .eq('id', token.active_account_id)
+              .single();
+
+            if (activeAccountError || !currentActiveAccount) {
+              // If current active account is not found, fall back to the new account
+              return {
+                ...token,
+                active_account_id: newAccount.id,
+                access_token: savedTokens.access_token,
+                refresh_token: savedTokens.refresh_token,
+                expires_at: savedTokens.expires_at,
+                auth_user_id: token.auth_user_id,
+                account: {
+                  id: newAccount.id,
+                  name: newAccount.name,
+                  email: newAccount.email,
+                  image: newAccount.image,
+                  account_type: newAccount.account_type,
+                }
+              };
+            }
+
+            // Keep the current active account and its tokens
+            const { data: currentTokens, error: tokenError } = await supabaseAdmin
+              .from('user_tokens')
+              .select('access_token, refresh_token, expires_at')
+              .eq('auth_user_id', token.auth_user_id)
+              .eq('account_id', token.active_account_id)
+              .single();
+
             return {
               ...token,
-              active_account_id: newAccount.id, // Set active to the newly added account
-              access_token: savedTokens.access_token, // Update tokens in session with the new account's tokens
-              refresh_token: savedTokens.refresh_token,
-              expires_at: savedTokens.expires_at,
-              // Ensure original auth_user_id is kept
+              // Keep the current active account
+              active_account_id: token.active_account_id,
+              // Use current account's tokens if available, otherwise use new account's tokens
+              access_token: currentTokens?.access_token || savedTokens.access_token,
+              refresh_token: currentTokens?.refresh_token || savedTokens.refresh_token,
+              expires_at: currentTokens?.expires_at || savedTokens.expires_at,
               auth_user_id: token.auth_user_id,
-              // You might want to add other account-specific info to the token here if needed
-              account: { // Add details about the active account to the token
-                 id: newAccount.id,
-                 name: newAccount.name,
-                 email: newAccount.email,
-                 image: newAccount.image,
-                 account_type: newAccount.account_type,
-              }
+              account: currentActiveAccount
             };
 
           } else {
             // Regular first-time sign in flow
             console.log('Regular first-time sign in flow or existing user without auth_user_id in token:', user.email);
 
-            // Save or update user data in public.users table
-            // saveUserToSupabase now only handles the upsert into public.users
-            const savedUser = await saveUserToSupabase(user);
-            if (!savedUser || !savedUser.id) {
-              console.error('Failed to save or retrieve user data from public.users for email:', user.email);
-              throw new Error('Failed to save or retrieve user data from public.users');
+            // IMPORTANT: For additional accounts, we should NOT create a new user
+            // Instead, we should find the primary user and link this account to them
+            
+            let savedUser = null;
+            
+            // First, check if there's already a user in the system (any user)
+            // This handles the case where user signs in with one Gmail, then adds another Gmail
+            const { data: anyExistingUser, error: anyUserError } = await supabaseAdmin
+              .from('users')
+              .select('*')
+              .limit(1)
+              .single();
+
+            if (!anyUserError && anyExistingUser) {
+              // There's already a user in the system, this should be an additional account
+              console.log('Found existing user in system, treating as additional account:', anyExistingUser.id);
+              savedUser = anyExistingUser;
+              
+              // Mark this as additional account
+              isAdditionalAccount = true;
+              token.auth_user_id = anyExistingUser.id;
+            } else {
+              // No users in system yet, this is truly the first user
+              console.log('No users in system, creating first user');
+              savedUser = await saveUserToSupabase(user);
+              if (!savedUser || !savedUser.id) {
+                console.error('Failed to save or retrieve user data from public.users for email:', user.email);
+                throw new Error('Failed to save or retrieve user data from public.users');
+              }
+            }
+
+            // If this was detected as an additional account, handle it like the additional account flow
+            if (isAdditionalAccount) {
+              console.log('Redirecting to additional account flow for user:', savedUser.id);
+              
+              // Create a new account entry in public.accounts for this Google account
+              const { data: newAccount, error: accountError } = await supabaseAdmin
+                .from('accounts')
+                .insert({
+                  owner_id: savedUser.id, // Link to the existing user
+                  name: user.name || 'Google Account', // Use Google profile name
+                  account_type: 'google',
+                  email: user.email, // Store the account's email
+                  image: user.image, // Store the account's profile image
+                  is_primary: false, // New accounts are not primary by default
+                })
+                .select() // Return the inserted account
+                .single();
+
+              if (accountError) {
+                console.error('Error creating additional account in public.accounts:', accountError);
+                throw new Error(`Failed to create additional account: ${accountError.message}`);
+              }
+
+              console.log('Successfully added new account:', newAccount.id);
+
+              // Save tokens for this new account
+              const savedTokens = await saveUserTokens({
+                authUserId: savedUser.id,
+                accountId: newAccount.id,
+                email: user.email,
+                accessToken: account.access_token,
+                refreshToken: account.refresh_token,
+                expiresAt: account.expires_at
+              });
+
+              if (!savedTokens) {
+                throw new Error('Failed to save tokens for additional account');
+              }
+
+              // Get the current primary account to keep it active
+              const { data: primaryAccount, error: primaryError } = await supabaseAdmin
+                .from('accounts')
+                .select('id, name, email, image, account_type')
+                .eq('owner_id', savedUser.id)
+                .eq('is_primary', true)
+                .single();
+
+              if (primaryError || !primaryAccount) {
+                // If no primary account found, make this one primary
+                await supabaseAdmin
+                  .from('accounts')
+                  .update({ is_primary: true })
+                  .eq('id', newAccount.id);
+
+                return {
+                  ...token,
+                  auth_user_id: savedUser.id,
+                  active_account_id: newAccount.id,
+                  access_token: savedTokens.access_token,
+                  refresh_token: savedTokens.refresh_token,
+                  expires_at: savedTokens.expires_at,
+                  error: null,
+                  user: {
+                    id: savedUser.id,
+                    email: savedUser.email,
+                    name: savedUser.name,
+                    image: savedUser.avatar_url,
+                  },
+                  account: {
+                    id: newAccount.id,
+                    name: newAccount.name,
+                    email: newAccount.email,
+                    image: newAccount.image,
+                    account_type: newAccount.account_type,
+                  }
+                };
+              }
+
+              // Keep the primary account active
+              const { data: primaryTokens, error: tokenError } = await supabaseAdmin
+                .from('user_tokens')
+                .select('access_token, refresh_token, expires_at')
+                .eq('auth_user_id', savedUser.id)
+                .eq('account_id', primaryAccount.id)
+                .single();
+
+              return {
+                ...token,
+                auth_user_id: savedUser.id,
+                active_account_id: primaryAccount.id,
+                access_token: primaryTokens?.access_token || savedTokens.access_token,
+                refresh_token: primaryTokens?.refresh_token || savedTokens.refresh_token,
+                expires_at: primaryTokens?.expires_at || savedTokens.expires_at,
+                error: null,
+                user: {
+                  id: savedUser.id,
+                  email: savedUser.email,
+                  name: savedUser.name,
+                  image: savedUser.avatar_url,
+                },
+                account: primaryAccount
+              };
             }
 
             console.log('Saved user details:', {
