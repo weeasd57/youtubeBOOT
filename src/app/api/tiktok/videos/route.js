@@ -1,8 +1,5 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/utils/supabase-server';
-
-import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/utils/supabase-server';
 import { getServerSession } from 'next-auth'; // Import getServerSession
 import { authOptions } from '@/app/api/auth/[...nextauth]/options'; // Import authOptions
 
