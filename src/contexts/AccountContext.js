@@ -76,6 +76,9 @@ export function AccountProvider({ children }) {
   // Switch to a different account
   const switchAccount = async (accountId) => {
     try {
+      // Show loading state
+      setLoading(true);
+      
       // First, find the account in current accounts list
       let account = accounts.find(acc => acc.id === accountId);
       
@@ -91,9 +94,21 @@ export function AccountProvider({ children }) {
         throw new Error('Account not found');
       }
       
+      // Optimistically update the UI
+      const updatedAccounts = accounts.map(acc => ({
+        ...acc,
+        last_used_at: acc.id === accountId ? new Date().toISOString() : acc.last_used_at
+      }));
+      
+      setAccounts(updatedAccounts);
+      setActiveAccount(account);
+      
       // Update last_used_at on the server
       const response = await fetch(`/api/accounts/${accountId}/activate`, {
-        method: 'POST'
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
       });
       
       if (!response.ok) {
@@ -101,18 +116,25 @@ export function AccountProvider({ children }) {
         throw new Error(data.error || 'Failed to switch account');
       }
       
-      // Set the active account immediately
-      setActiveAccount(account);
+      // Force refresh the page data
+      if (typeof window !== 'undefined') {
+        window.location.reload();
+      }
+      
       toast.success(`Switched to ${account.name || 'Google account'}`);
       
-      // Refresh accounts in background to update last_used_at
-      fetchAccounts();
+      // Refresh accounts to ensure everything is in sync
+      await fetchAccounts();
       
       return true;
     } catch (error) {
       console.error('Error switching account:', error);
+      // Revert optimistic update on error
+      await fetchAccounts();
       toast.error(error.message || 'Failed to switch account');
       return false;
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -193,8 +215,11 @@ export function AccountProvider({ children }) {
     // Only fetch if authenticated
     if (status === 'authenticated' && session?.user?.email) {
       const timer = setTimeout(() => {
-        fetchAccounts();
-      }, 500); // Small delay to prevent rapid successive calls
+        fetchAccounts().catch(error => {
+          console.error('Error in fetchAccounts:', error);
+          toast.error('Failed to load accounts');
+        });
+      }, 300); // Small delay to prevent rapid successive calls
       
       return () => clearTimeout(timer);
     } else if (status === 'unauthenticated') {

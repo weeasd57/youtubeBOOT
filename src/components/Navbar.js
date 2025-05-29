@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FaTable, FaDownload, FaBars, FaTimes, FaSync, FaHome, FaSignOutAlt, FaChevronDown, FaUser, FaList, FaUserCog } from 'react-icons/fa';
+import { FaTable, FaDownload, FaBars, FaTimes, FaSync, FaHome, FaSignOutAlt, FaChevronDown, FaUser, FaList, FaUserCog, FaMoon, FaSun, FaGoogle } from 'react-icons/fa';
 import Image from "next/image";
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { signOut, signIn } from 'next-auth/react';
@@ -24,7 +24,7 @@ const NavLink = ({ href, icon: Icon, isActive, onClick, children }) => (
   </Link>
 );
 
-export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle }) {
+export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, isLandingPage }) {
   const pathname = usePathname();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -67,6 +67,59 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle })
   const isActive = (path) => {
     return pathname === path;
   };
+
+  // If we're on the landing page, show a simplified version of the navbar
+  if (isLandingPage) {
+    return (
+      <UserInfoProvider user={user}>
+        <div className={`sticky top-0 z-40 transition-all duration-300 ${scrolled ? 'py-1' : 'py-2'} w-full max-w-full`}>
+          <div className="px-4 max-w-7xl mx-auto">
+            <div className="backdrop-blur-md bg-white/75 dark:bg-black/80 rounded-lg shadow-lg border border-white/20 dark:border-amber-600/30 p-3 w-full">
+              <div className="flex items-center justify-between min-w-0">
+                {/* Logo and App Name */}
+                <div className="flex items-center space-x-3 min-w-0 flex-shrink-0">
+                  <div className="rounded-full overflow-hidden flex items-center justify-center w-10 h-10 shadow-sm">
+                    <Image
+                      src="/android-chrome-192x192.png"
+                      alt="App Logo"
+                      width={40}
+                      height={40}
+                      className="object-cover"
+                    />
+                  </div>
+                  <h1 className="text-lg font-bold tracking-tight dark:text-amber-50 bg-gradient-to-r from-amber-600 to-amber-400 bg-clip-text text-transparent whitespace-nowrap">
+                    YouTube Drive Uploader
+                  </h1>
+                </div>
+                
+                {/* Right side with theme toggle and sign in button */}
+                <div className="flex items-center space-x-4">
+                  {/* Theme toggle button */}
+                  <button 
+                    onClick={themeToggle}
+                    className="p-2 rounded-full text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-all duration-300 hover:scale-110"
+                    title="Toggle dark/light mode"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
+                    </svg>
+                  </button>
+                  
+                  {/* Sign In Button */}
+                  <button
+                    onClick={() => signIn('google')}
+                    className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-md font-medium transition-all duration-300 hover:scale-105 shadow-md"
+                  >
+                    <FaGoogle /> Sign In
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </UserInfoProvider>
+    );
+  }
 
   return (
     <UserInfoProvider user={user}>
@@ -147,7 +200,16 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle })
             
             {/* User Menu and Auth Controls */}
             <div className="flex items-center space-x-3 md:space-x-4 min-w-0 flex-shrink-0">
-              {themeToggle}
+              {/* Theme toggle button */}
+              <button 
+                onClick={themeToggle}
+                className="p-2 rounded-full text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-all duration-300 hover:scale-110"
+                title="Toggle dark/light mode"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
+                </svg>
+              </button>
               
               {user && onRefreshAuth && (
                 <button
@@ -259,8 +321,17 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle })
             </Link>
 
             <div className="flex items-center gap-2">
-              {themeToggle}
-
+              {/* Theme toggle button for mobile */}
+              <button 
+                onClick={themeToggle}
+                className="p-1.5 rounded-full text-amber-600 dark:text-amber-400 hover:bg-amber-50/50 dark:hover:bg-amber-900/20 transition-all"
+                aria-label="Toggle theme"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
+                </svg>
+              </button>
+              
               {user && onRefreshAuth && (
                 <button
                   onClick={onRefreshAuth}
@@ -272,7 +343,7 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle })
                   <FaSync className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
                 </button>
               )}
-
+              
               <button
                 onClick={() => {
                   setIsMenuOpen(!isMenuOpen);
@@ -374,7 +445,6 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle })
                      </button>
                  </div>
               )}
-
               </div>
             </div>
           )}

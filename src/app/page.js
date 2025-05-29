@@ -69,31 +69,6 @@ function LandingPageContent() {
 
   return (
     <div className="min-h-screen flex flex-col dark:bg-black transition-colors duration-300">
-      <header className="bg-white dark:bg-black shadow-sm border-b border-transparent dark:border-amber-700/20">
-        <div className="max-w-6xl mx-auto p-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-blue-600 dark:text-amber-400 flex items-center gap-2">
-            <div className="w-8 h-8 relative">
-              <Image 
-                src="/android-chrome-192x192.png" 
-                alt="App Logo"
-                fill
-                className="object-cover"
-              />
-            </div>
-            <span>YouTube Drive Uploader</span>
-          </h1>
-          <div className="flex items-center gap-4">
-            <ThemeToggle />
-            <button
-              onClick={() => signIn('google')}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white dark:bg-amber-600 dark:hover:bg-amber-700 px-4 py-2 rounded-md transition-all duration-300 transform hover:scale-105 dark:border dark:border-amber-500/20"
-            >
-              <FaGoogle /> Sign In
-            </button>
-          </div>
-        </div>
-      </header>
-
       <main className="flex-grow">
         <section className="py-16 px-4">
           <div className="max-w-4xl mx-auto text-center">

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/options';
+import { supabaseAdmin } from '@/utils/supabase-server';
 // import { updateSession } from 'next-auth/react'; // updateSession is client-side
 
 // API route to switch the active account
@@ -44,12 +45,54 @@ export async function POST(request) {
 
     console.log(`API route /api/accounts/switch: User ${authUserId} has access to account ID: ${accountId}`);
 
-    // TODO: Implement logic to update the user's session/JWT with the new active_account_id
-    // As discussed, this is typically triggered client-side after this API call succeeds.
-    // The client will need to call update() or getSession({ event: 'callback' })
+    // First, deactivate all accounts for this user to ensure only one is active
+    const { error: deactivateError } = await supabaseAdmin
+      .from('accounts')
+      .update({ is_active: false })
+      .eq('owner_id', authUserId);
 
-    // For now, just return a success message. The client will need to handle session update.
-    return NextResponse.json({ message: 'Account switch request validated. Client should update session.', newAccountId: accountId }, { status: 200 });
+    if (deactivateError) {
+      console.error('Error deactivating accounts:', deactivateError);
+      return NextResponse.json({ error: 'Failed to deactivate accounts' }, { status: 500 });
+    }
+
+    // Then activate the selected account and update its timestamp
+    const { error: activateError } = await supabaseAdmin
+      .from('accounts')
+      .update({
+        is_active: true,
+        last_used_at: new Date().toISOString()
+      })
+      .eq('id', accountId)
+      .eq('owner_id', authUserId);
+
+    if (activateError) {
+      console.error('Error activating account:', activateError);
+      return NextResponse.json({ error: 'Failed to activate account' }, { status: 500 });
+    }
+
+    // Update the user's active account
+    const { error: updateError } = await supabaseAdmin
+      .from('users')
+      .update({
+        active_account_id: accountId,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', authUserId);
+
+    if (updateError) {
+      console.error('Error updating user active account:', updateError);
+      return NextResponse.json({ error: 'Failed to update active account' }, { status: 500 });
+    }
+
+    console.log(`API route /api/accounts/switch: Successfully switched user ${authUserId} to account ${accountId}`);
+
+    // Return success message. The client will need to handle session update.
+    return NextResponse.json({
+      message: 'Account switched successfully',
+      newAccountId: accountId,
+      success: true
+    }, { status: 200 });
 
   } catch (error) {
     console.error('API route /api/accounts/switch: Unexpected error:', error);

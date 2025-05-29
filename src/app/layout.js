@@ -3,6 +3,8 @@ import { Providers } from "./providers";
 import { Inter } from 'next/font/google';
 import { ToastProvider } from '@/components/ui/toast';
 import { ToastInitializer } from '@/components/ToastHelper';
+import FooterWrapper from '@/components/FooterWrapper';
+import NavbarWrapper from '@/components/NavbarWrapper';
 
 const inter = Inter({ 
   subsets: ['latin'],
@@ -34,12 +36,18 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en" className={`scroll-smooth ${inter.variable}`}>
       <body
-        className="font-sans antialiased"
+        className="font-sans antialiased flex flex-col min-h-screen"
         suppressHydrationWarning
       >
         <ToastProvider>
           <ToastInitializer />
-          <Providers>{children}</Providers>
+          <Providers>
+            <NavbarWrapper />
+            <main className="flex-grow">
+              {children}
+            </main>
+            <FooterWrapper />
+          </Providers>
         </ToastProvider>
       </body>
     </html>

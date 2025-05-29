@@ -5,7 +5,6 @@ import { FaSync } from 'react-icons/fa';
 import { signOut, useSession } from 'next-auth/react';
 import Image from "next/image";
 import ThemeToggle from './ThemeToggle';
-import Navbar from './Navbar';
 import ClientOnly from './ClientOnly';
 import AuthErrorBanner from './AuthErrorBanner';
 import { toastHelper } from './ToastHelper';
@@ -105,14 +104,6 @@ export default function PageContainer({ user, children, onRefresh = null, error 
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-black text-black dark:text-amber-50 transition-colors duration-300">
-      {/* Navbar - sticky with auth buttons */}
-      <Navbar 
-        user={user} 
-        onRefreshAuth={handleRefreshAuth} 
-        refreshing={refreshing} 
-        themeToggle={<ThemeToggle />}
-      />
-
       {/* Content with padding to account for sticky navbar */}
       <div className="mt-4 pb-16">
         {/* Show auth error banner conditionally */}

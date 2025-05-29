@@ -7,7 +7,6 @@ import { useRouter } from 'next/navigation';
 import { FaSignOutAlt, FaPlus, FaCheck, FaStar, FaTrash, FaUser, FaSync, FaArrowLeft } from 'react-icons/fa';
 import Link from 'next/link';
 import Image from 'next/image';
-import Navbar from '@/components/Navbar';
 import ThemeToggle from '@/components/ThemeToggle';
 
 export default function AccountsPage() {
@@ -106,12 +105,6 @@ export default function AccountsPage() {
 
   return (
     <>
-      <Navbar
-        user={session?.user}
-        onRefreshAuth={handleRefreshAuth}
-        refreshing={refreshing}
-        themeToggle={<ThemeToggle />}
-      />
       <div className="container mx-auto px-4 py-8 max-w-5xl">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">

@@ -112,31 +112,48 @@ export const authOptions = {
               throw new Error(`Failed to fetch existing user (${token.auth_user_id}) from public.users: ${userError?.message}`);
             }
 
-            // Create a new account entry in public.accounts for this Google account
-            const { data: newAccount, error: accountError } = await supabaseAdmin
+            // Check if an account with this email already exists for this user
+            const { data: existingAccount, error: existingAccountError } = await supabaseAdmin
               .from('accounts')
-              .insert({
-                owner_id: token.auth_user_id, // Link to the authenticated user
-                name: user.name || 'Google Account', // Use Google profile name
-                account_type: 'google',
-                email: user.email, // Store the account's email
-                image: user.image, // Store the account's profile image
-                is_primary: false, // New accounts are not primary by default
-              })
-              .select() // Return the inserted account
+              .select('id, email')
+              .eq('owner_id', token.auth_user_id)
+              .eq('email', user.email)
               .single();
 
-            if (accountError) {
-              console.error('Error creating additional account in public.accounts:', accountError);
-              throw new Error(`Failed to create additional account: ${accountError.message}`);
+            let accountId;
+            
+            if (!existingAccountError && existingAccount) {
+              // Account with this email already exists for this user - update its tokens
+              console.log('Account with email already exists, updating tokens:', existingAccount.id);
+              accountId = existingAccount.id;
+            } else {
+              // Create a new account entry in public.accounts for this Google account
+              const { data: newAccount, error: accountError } = await supabaseAdmin
+                .from('accounts')
+                .insert({
+                  owner_id: token.auth_user_id, // Link to the authenticated user
+                  name: user.name || 'Google Account', // Use Google profile name
+                  account_type: 'google',
+                  email: user.email, // Store the account's email
+                  image: user.image, // Store the account's profile image
+                  is_primary: false, // New accounts are not primary by default
+                })
+                .select() // Return the inserted account
+                .single();
+
+              if (accountError) {
+                console.error('Error creating additional account in public.accounts:', accountError);
+                throw new Error(`Failed to create additional account: ${accountError.message}`);
+              }
+
+              console.log('Successfully added new account:', newAccount.id);
+              accountId = newAccount.id;
             }
 
-            console.log('Successfully added new account:', newAccount.id);
-
-            // Save tokens for this new account - associate with the specific account ID
+            // Save tokens for this account - associate with the specific account ID
             const savedTokens = await saveUserTokens({
               authUserId: token.auth_user_id, // Pass authUserId
-              accountId: newAccount.id, // Pass the specific account ID
+              accountId: accountId, // Pass the specific account ID
               email: user.email,
               accessToken: account.access_token,
               refreshToken: account.refresh_token,
@@ -159,17 +176,17 @@ export const authOptions = {
               // If current active account is not found, fall back to the new account
               return {
                 ...token,
-                active_account_id: newAccount.id,
+                active_account_id: accountId,
                 access_token: savedTokens.access_token,
                 refresh_token: savedTokens.refresh_token,
                 expires_at: savedTokens.expires_at,
                 auth_user_id: token.auth_user_id,
                 account: {
-                  id: newAccount.id,
-                  name: newAccount.name,
-                  email: newAccount.email,
-                  image: newAccount.image,
-                  account_type: newAccount.account_type,
+                  id: accountId,
+                  name: user.name || 'Google Account',
+                  email: user.email,
+                  image: user.image,
+                  account_type: 'google',
                 }
               };
             }
