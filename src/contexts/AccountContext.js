@@ -116,12 +116,33 @@ export function AccountProvider({ children }) {
         throw new Error(data.error || 'Failed to switch account');
       }
       
+      // Set flags in localStorage to trigger refreshes in other contexts
+      if (typeof window !== 'undefined') {
+        // Clear any cached data
+        localStorage.removeItem('driveFolders');
+        localStorage.removeItem('driveFoldersTimestamp');
+        localStorage.removeItem('youtubeChannelInfo');
+        localStorage.removeItem('lastCheckedConnection');
+        
+        // Set flags for context refreshes
+        localStorage.setItem('accountSwitched', 'true');
+        localStorage.setItem('accountSwitchedTimestamp', Date.now().toString());
+        
+        // Dispatch a storage event to notify other tabs
+        window.dispatchEvent(new StorageEvent('storage', {
+          key: 'accountSwitched',
+          newValue: 'true'
+        }));
+      }
+      
+      // تحسين رسالة التأكيد - استخدم معلومات الاسم أو معرف الحساب إذا كان البريد الإلكتروني غير متوفر
+      const accountName = account.email || account.name || `Account ${account.id.substring(0, 8)}`;
+      toast.success(`Switched to ${accountName}`);
+      
       // Force refresh the page data
       if (typeof window !== 'undefined') {
         window.location.reload();
       }
-      
-      toast.success(`Switched to ${account.name || 'Google account'}`);
       
       // Refresh accounts to ensure everything is in sync
       await fetchAccounts();

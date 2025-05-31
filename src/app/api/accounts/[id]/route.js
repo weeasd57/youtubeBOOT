@@ -18,7 +18,7 @@ export async function DELETE(request, { params }) {
     // Check if account exists and belongs to user
     const { data: account, error: fetchError } = await supabaseAdmin
       .from('accounts')
-      .select('id, owner_id, is_primary')
+      .select('id, owner_id, account_type')
       .eq('id', id)
       .eq('owner_id', authUserId)
       .single();
@@ -28,8 +28,19 @@ export async function DELETE(request, { params }) {
       return NextResponse.json({ error: 'Account not found' }, { status: 404 });
     }
     
-    if (account.is_primary) {
-      return NextResponse.json({ error: 'Cannot delete primary account' }, { status: 400 });
+    // Check if this is the user's only account
+    const { count, error: countError } = await supabaseAdmin
+      .from('accounts')
+      .select('id', { count: 'exact' })
+      .eq('owner_id', authUserId);
+    
+    if (countError) {
+      console.error('Error counting accounts:', countError);
+      return NextResponse.json({ error: 'Failed to check account count' }, { status: 500 });
+    }
+    
+    if (count === 1) {
+      return NextResponse.json({ error: 'Cannot delete the only account. Add another account first.' }, { status: 400 });
     }
     
     // Delete related tokens first

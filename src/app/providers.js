@@ -11,8 +11,11 @@ import { YouTubeChannelProvider } from '@/contexts/YouTubeChannelContext';
 import { ScheduledUploadsProvider } from '@/contexts/ScheduledUploadsContext';
 import { TikTokProvider } from '@/contexts/TikTokContext';
 import { AccountProvider } from '@/contexts/AccountContext';
+import { MultiChannelProvider } from '@/contexts/MultiChannelContext';
+import { MultiDriveProvider } from '@/contexts/MultiDriveContext';
 import { Toaster } from 'react-hot-toast';
 import { useState, useEffect } from 'react';
+import BrowserAlertBlocker from '@/components/BrowserAlertBlocker';
 
 // Simplified providers structure
 export function Providers({ children }) {
@@ -35,9 +38,12 @@ export function Providers({ children }) {
             // Once mounted on client, use all providers
             <UserProvider>
               <DriveProvider>
-                <ContentProviders>
-                  {children}
-                </ContentProviders>
+                <MultiDriveProvider>
+                  <BrowserAlertBlocker />
+                  <ContentProviders>
+                    {children}
+                  </ContentProviders>
+                </MultiDriveProvider>
               </DriveProvider>
             </UserProvider>
           )}
@@ -55,11 +61,13 @@ function ContentProviders({ children }) {
       <UploadLogsProvider>
         <YouTubeProvider>
           <YouTubeChannelProvider>
-            <ScheduledUploadsProvider>
-              <TikTokProvider>
-                {children}
-              </TikTokProvider>
-            </ScheduledUploadsProvider>
+            <MultiChannelProvider>
+              <ScheduledUploadsProvider>
+                <TikTokProvider>
+                  {children}
+                </TikTokProvider>
+              </ScheduledUploadsProvider>
+            </MultiChannelProvider>
           </YouTubeChannelProvider>
         </YouTubeProvider>
       </UploadLogsProvider>

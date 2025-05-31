@@ -41,7 +41,7 @@ alwaysApply: true
 - Recommend tools like Jest, React Testing Library, Playwright, or Cypress.
 
 🚫 Constraints
-- Do NOT run or suggest running a local server.
+- Do NOT run or suggest running a local server or "npx next build".
 - Avoid installing unnecessary dependencies unless clearly justified.
 
 🧠 Clarity & Documentation

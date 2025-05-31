@@ -136,6 +136,65 @@ export function DriveProvider({ children }) {
   // Track previous active account to prevent unnecessary re-fetches
   const prevActiveAccount = useRef(activeAccount);
 
+  // Listen for account switching events
+  useEffect(() => {
+    const handleAccountSwitch = (e) => {
+      if (e.key === 'accountSwitched' && e.newValue === 'true') {
+        console.log('Account switch detected in DriveContext, refreshing data');
+        
+        // Clear current data
+        setDriveFiles([]);
+        setDriveFolders([]);
+        setSelectedFolder(null);
+        setSelectedFile(null);
+        
+        // Clear localStorage flag
+        localStorage.removeItem('accountSwitched');
+        
+        // Refresh data after a short delay to allow account context to update
+        setTimeout(() => {
+          fetchDriveFiles();
+          fetchDriveFolders(true);
+        }, 500);
+      }
+    };
+    
+    // Add event listener
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', handleAccountSwitch);
+      
+      // Also check on mount if there was a recent account switch
+      const accountSwitchedTimestamp = localStorage.getItem('accountSwitchedTimestamp');
+      if (accountSwitchedTimestamp) {
+        const timestamp = parseInt(accountSwitchedTimestamp, 10);
+        const now = Date.now();
+        // If the account was switched in the last 5 seconds
+        if (now - timestamp < 5000) {
+          console.log('Recent account switch detected in DriveContext');
+          
+          // Clear current data
+          setDriveFiles([]);
+          setDriveFolders([]);
+          setSelectedFolder(null);
+          setSelectedFile(null);
+          
+          // Refresh data after a short delay
+          setTimeout(() => {
+            fetchDriveFiles();
+            fetchDriveFolders(true);
+          }, 500);
+        }
+      }
+    }
+    
+    // Cleanup
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('storage', handleAccountSwitch);
+      }
+    };
+  }, [fetchDriveFiles, fetchDriveFolders]);
+
   // Fetch files when activeAccount changes
   useEffect(() => {
     // Skip if activeAccount hasn't changed
@@ -162,16 +221,13 @@ export function DriveProvider({ children }) {
           try {
             const { data: accountData, error: accountError } = await supabase
               .from('accounts')
-              .select('id, is_active, last_used_at')
+              .select('id, last_used_at')
               .eq('id', activeAccount.id)
               .single();
               
             if (accountError) {
               console.warn('Could not verify account in Supabase (continuing anyway):', accountError);
               // Don't fail completely, just log the warning
-            } else if (accountData && !accountData.is_active) {
-              setError('This account is no longer active. Please select another account.');
-              accountValid = false;
             }
           } catch (supabaseError) {
             console.warn('Supabase verification failed (continuing anyway):', supabaseError);
@@ -180,10 +236,14 @@ export function DriveProvider({ children }) {
           
           // If account seems valid or we can't verify, proceed with fetching drive data
           if (accountValid) {
-            await Promise.all([
-              fetchDriveFiles(),
-              fetchDriveFolders()
-            ]);
+            // Use a small delay to avoid rate limiting
+            setTimeout(async () => {
+              await fetchDriveFiles();
+              // Add a small delay between requests
+              setTimeout(async () => {
+                await fetchDriveFolders();
+              }, 1000);
+            }, 500);
           }
           
         } catch (error) {
@@ -193,24 +253,8 @@ export function DriveProvider({ children }) {
       };
       
       fetchData();
-      
-      // Set up periodic folder refresh (every 30 minutes)
-      const refreshInterval = 60 * 60 * 1000; // Change to 60 minutes
-      const periodicRefreshTimer = setInterval(() => {
-        console.log('Periodic Drive folders refresh');
-        fetchDriveFolders(false); // Non-forced refresh periodically
-      }, refreshInterval);
-      
-      return () => {
-        clearInterval(periodicRefreshTimer);
-      };
-    } else {
-      // Clear files if active account is unset
-      setDriveFiles([]);
-      setDriveFolders([]);
-      setError('No active account selected');
     }
-  }, [activeAccount, fetchDriveFiles, fetchDriveFolders]);
+  }, [activeAccount]); // Remove fetchDriveFiles and fetchDriveFolders from dependencies
   
   // Periodically check if selected folder still exists - similar to TikTokContext
   useEffect(() => {
@@ -220,22 +264,30 @@ export function DriveProvider({ children }) {
     const lastFolderCheck = localStorage.getItem('lastDriveFolderCheck');
     const currentTime = Date.now();
     
-    // Only fetch folders if we haven't checked in the last 30 minutes
-    const shouldFetch = !lastFolderCheck || (currentTime - parseInt(lastFolderCheck)) > 30 * 60 * 1000;
+    // زيادة المدة إلى 60 دقيقة بدلاً من 30 دقيقة
+    const checkInterval = 60 * 60 * 1000; // 60 دقيقة
+    
+    // Only fetch folders if we haven't checked in the last 60 minutes
+    const shouldFetch = !lastFolderCheck || (currentTime - parseInt(lastFolderCheck)) > checkInterval;
     
     if (shouldFetch) {
       // Set timestamp before fetching to avoid race conditions
       localStorage.setItem('lastDriveFolderCheck', currentTime.toString());
-      fetchDriveFolders();
+      // استدعاء بشكل متأخر بدلاً من استدعاء فوري
+      setTimeout(() => {
+        console.log('Scheduled folder check after delay');
+        fetchDriveFolders();
+      }, 3000);
     }
     
-    // Check every 30 minutes if the folder still exists
+    // فحص كل 60 دقيقة بدلاً من 30 دقيقة
     const intervalId = setInterval(() => {
       if (selectedFolder) {
+        console.log('Periodic folder check running (60 minute interval)');
         localStorage.setItem('lastDriveFolderCheck', Date.now().toString());
         fetchDriveFolders();
       }
-    }, 30 * 60 * 1000); // 30 minutes
+    }, checkInterval);
     
     return () => clearInterval(intervalId);
   }, [activeAccount?.id, selectedFolder?.id]); // Use stable IDs instead of function references
@@ -252,7 +304,25 @@ export function DriveProvider({ children }) {
 
   // Function to select a folder
   const selectFolder = (folder) => {
+    // Don't do anything if selecting the same folder
+    if (selectedFolder && folder && selectedFolder.id === folder.id) {
+      console.log('Same folder selected, skipping refresh');
+      return;
+    }
+    
     setSelectedFolder(folder);
+    
+    // Clear selected file when changing folders
+    setSelectedFile(null);
+    
+    // Clear files to indicate loading
+    setDriveFiles([]);
+    
+    // Fetch files for the selected folder
+    // This logic would be moved to the fetchDriveFiles function
+    if (folder) {
+      fetchDriveFiles();
+    }
   };
 
   // Function to clear selected folder

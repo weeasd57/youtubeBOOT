@@ -61,3 +61,54 @@ body, .animate-theme {
 .animate-fade-in {
   animation: fadeIn 0.3s ease-out forwards;
 }
+
+/* اضافة قواعد CSS لإخفاء نوافذ التأكيد المزعجة */
+dialog {
+  display: none !important;
+}
+
+/* ضبط z-index للتوست لتكون دائما في المقدمة */
+[data-toaster] {
+  z-index: 9999 !important;
+}
+
+/* قواعد خاصة بنوافذ التأكيد في كروم */
+.modal-backdrop, 
+#confirmation-dialog,
+.modal-container {
+  display: none !important;
+}
+
+/* قواعد مخصصة لإصلاح عرض الحسابات */
+.account-email-placeholder {
+  font-style: italic;
+  color: rgba(245, 158, 11, 0.7); /* لون باهت للنص المفقود */
+  font-size: 0.85em;
+}
+
+/* تحسين عرض حساب غير مكتمل المعلومات */
+.account-incomplete {
+  border-left: 3px solid rgba(245, 158, 11, 0.7);
+  padding-left: 0.5rem;
+}
+
+/* تصميم القوائم المنسدلة */
+.account-dropdown {
+  max-height: 300px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(245, 158, 11, 0.5) transparent;
+}
+
+.account-dropdown::-webkit-scrollbar {
+  width: 6px;
+}
+
+.account-dropdown::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.account-dropdown::-webkit-scrollbar-thumb {
+  background-color: rgba(245, 158, 11, 0.5);
+  border-radius: 6px;
+}

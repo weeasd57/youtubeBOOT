@@ -25,12 +25,10 @@ export async function GET(request) {
         {
           id: session.activeAccountId || `mock-account-${Date.now()}`,
           owner_id: authUserId,
-          account_type: 'primary',
+          account_type: 'google',
           name: 'Primary Account',
-          description: 'Your main account',
-          is_active: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          email: 'mock@example.com',
+          created_at: new Date().toISOString()
         }
       ];
       
@@ -53,7 +51,7 @@ export async function GET(request) {
     // Regular database flow for real auth IDs - get all connected accounts
     const { data: accounts, error } = await supabaseAdmin
       .from('accounts')
-      .select('*')
+      .select('id, email, owner_id, name, account_type, created_at, image')
       .eq('owner_id', authUserId)
       .order('created_at', { ascending: true }); // Order by creation date
 
@@ -64,6 +62,32 @@ export async function GET(request) {
 
     console.log(`API route /api/accounts: Found ${accounts?.length || 0} accounts for user ${authUserId}`);
     
+    // تحقق من البيانات المفقودة في الحسابات
+    if (accounts && accounts.length > 0) {
+      accounts.forEach((account, index) => {
+        console.log(`Account ${index + 1}: ID=${account.id}, Email=${account.email || 'MISSING'}, Name=${account.name || 'MISSING'}`);
+        
+        // إذا كان البريد الإلكتروني مفقودًا، حاول استخدام بريد المستخدم الأساسي
+        if (!account.email && userData && userData.email) {
+          console.log(`Fixing missing email for account ${account.id} with user email: ${userData.email}`);
+          accounts[index].email = userData.email;
+          
+          // تحديث قاعدة البيانات بشكل غير متزامن
+          supabaseAdmin
+            .from('accounts')
+            .update({ email: userData.email })
+            .eq('id', account.id)
+            .then(({ error }) => {
+              if (error) {
+                console.error(`Failed to update email for account ${account.id}:`, error);
+              } else {
+                console.log(`Successfully updated email for account ${account.id}`);
+              }
+            });
+        }
+      });
+    }
+
     // If no accounts found for the user, create one automatically for the owner
     if (!accounts || accounts.length === 0) {
       console.log('No accounts found, creating owner account automatically');
@@ -74,8 +98,9 @@ export async function GET(request) {
         .insert({
           owner_id: authUserId,
           name: userData.name || 'Primary Account',
+          email: userData.email,
           account_type: 'google', // Using 'google' as the account type for Google accounts
-          updated_at: new Date().toISOString()
+          image: userData.avatar_url
         })
         .select()
         .single();
@@ -117,51 +142,49 @@ export async function POST(request) {
     const authUserId = session.authUserId;
     const activeAccountId = session.activeAccountId;
     const body = await request.json();
-    const { name, description } = body; // Required: name for the new sub-account
+    const { name, email } = body; // Required: name for the new account
 
     if (!name) {
         return NextResponse.json({ error: 'Account name is required' }, { status: 400 });
     }
 
-    // Check if the active account is a primary account owned by the user
+    // Check if the active account belongs to the user
     const { data: activeAccount, error: fetchAccountError } = await supabaseAdmin
         .from('accounts')
         .select('id, account_type, owner_id')
         .eq('id', activeAccountId)
         .single();
 
-    if (fetchAccountError || !activeAccount || activeAccount.owner_id !== authUserId || activeAccount.account_type !== 'primary') {
-        console.warn(`API route /api/accounts: User ${authUserId} attempted to create sub-account from non-primary or unowned account ${activeAccountId}`);
-        return NextResponse.json({ error: 'Unauthorized: Can only create sub-accounts from your primary account' }, { status: 403 });
+    if (fetchAccountError || !activeAccount || activeAccount.owner_id !== authUserId) {
+        console.warn(`API route /api/accounts: User ${authUserId} attempted to create account from unowned account ${activeAccountId}`);
+        return NextResponse.json({ error: 'Unauthorized: Can only create accounts you own' }, { status: 403 });
     }
 
-    console.log(`API route /api/accounts: Creating sub-account for user ${authUserId} under primary account ${activeAccountId}`);
+    console.log(`API route /api/accounts: Creating account for user ${authUserId}`);
 
-    // Insert the new sub-account
+    // Insert the new account
     const { data: newAccount, error: insertError } = await supabaseAdmin
         .from('accounts')
         .insert([{
-            owner_id: authUserId, // Sub-account is also owned by the primary user
-            parent_account_id: activeAccountId, // Link to the primary account
-            account_type: 'sub',
+            owner_id: authUserId,
             name: name,
-            description: description,
-            is_active: true // New accounts are active by default
+            email: email || null,
+            account_type: 'google'
         }])
         .select()
         .single();
 
     if (insertError) {
-        console.error('API route /api/accounts: Supabase error creating sub-account:', insertError);
+        console.error('API route /api/accounts: Supabase error creating account:', insertError);
         return NextResponse.json({ error: insertError.message }, { status: 500 });
     }
 
-    console.log(`API route /api/accounts: Sub-account created with ID: ${newAccount.id}`);
+    console.log(`API route /api/accounts: Account created with ID: ${newAccount.id}`);
 
     return NextResponse.json(newAccount, { status: 201 }); // Return the newly created account
 
   } catch (error) {
-    console.error('API route /api/accounts: Unexpected error during sub-account creation:', error);
+    console.error('API route /api/accounts: Unexpected error during account creation:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

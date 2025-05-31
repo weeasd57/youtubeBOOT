@@ -9,6 +9,8 @@ import { useYouTubeChannel } from '@/contexts/YouTubeChannelContext';
 import DriveThumbnail from '@/components/DriveThumbnail';
 import { signIn, signOut, useSession } from 'next-auth/react';
 import { toastHelper } from './ToastHelper';
+import { useAccounts } from '@/contexts/AccountContext';
+import { useMultiChannel } from '@/contexts/MultiChannelContext';
 
 const YouTubeLogoIcon = ({ className = "", size = 24 }) => (
   <div className={`relative ${className}`} style={{ width: size, height: size }}>
@@ -33,6 +35,10 @@ export default function YouTubeConnectionStatus({ onRefreshSuccess, showAuthRefr
     getDebugReport
   } = useYouTubeChannel();
   
+  const { accounts, activeAccount, switchAccount } = useAccounts();
+  const { channelsInfo, loadingChannels, errors, refreshChannel } = useMultiChannel();
+  const [selectedAccountId, setSelectedAccountId] = useState(null);
+  
   // إضافة تنقيح لعرض بيانات القناة في الكونسول
   useEffect(() => {
     if (channelInfo) {
@@ -46,6 +52,19 @@ export default function YouTubeConnectionStatus({ onRefreshSuccess, showAuthRefr
       });
     }
   }, [channelInfo]);
+
+  // Set the selected account to the active account on component mount
+  useEffect(() => {
+    if (activeAccount && !selectedAccountId) {
+      setSelectedAccountId(activeAccount.id);
+    }
+  }, [activeAccount, selectedAccountId]);
+
+  // Handle account tab selection
+  const handleAccountSelect = (accountId) => {
+    setSelectedAccountId(accountId);
+    // Don't reload the channel info when selecting a tab
+  };
 
   const { data: session, status } = useSession();
   const [refreshing, setRefreshing] = useState(false);
@@ -89,54 +108,51 @@ export default function YouTubeConnectionStatus({ onRefreshSuccess, showAuthRefr
   };
 
   // Get status information and colors
-  const getStatusInfo = () => {
-    switch (connectionStatus) {
+  const getStatusInfo = (status = connectionStatus) => {
+    switch (status) {
       case 'connected':
         return {
           text: 'Connected to YouTube',
           color: 'text-green-600',
-          bgColor: 'bg-green-100',
-          icon: <FaCheck className="text-green-600" />
+          bgColor: 'bg-green-100'
         };
       case 'expired':
         return {
           text: 'Authentication Expired',
           color: 'text-orange-600',
-          bgColor: 'bg-orange-100',
-          icon: <FaTimes className="text-orange-600" />
+          bgColor: 'bg-orange-100'
         };
       case 'suspended':
         return {
           text: 'YouTube Account Suspended',
           color: 'text-red-600',
-          bgColor: 'bg-red-100',
-          icon: <FaExclamationTriangle className="text-red-600" />
+          bgColor: 'bg-red-100'
         };
       case 'disconnected':
         return {
           text: 'Not Connected',
           color: 'text-red-600',
-          bgColor: 'bg-red-100',
-          icon: <FaTimes className="text-red-600" />
+          bgColor: 'bg-red-100'
         };
       case 'error':
         return {
           text: 'Connection Error',
           color: 'text-red-600',
-          bgColor: 'bg-red-100',
-          icon: <FaTimes className="text-red-600" />
+          bgColor: 'bg-red-100'
         };
       default:
         return {
           text: 'Checking Connection...',
           color: 'text-blue-600',
-          bgColor: 'bg-blue-100',
-          icon: <FaSync className="text-blue-600 animate-spin" />
+          bgColor: 'bg-blue-100'
         };
     }
   };
 
-  const statusInfo = getStatusInfo();
+  // Get status info for selected account
+  const statusInfo = selectedAccountId && channelsInfo[selectedAccountId] 
+    ? getStatusInfo(channelsInfo[selectedAccountId].status)
+    : getStatusInfo();
 
   const refreshAuth = useCallback(async () => {
     setRefreshing(true);
@@ -232,42 +248,231 @@ export default function YouTubeConnectionStatus({ onRefreshSuccess, showAuthRefr
               </button>
             )}
             <button
-              onClick={() => refreshConnection(true)}
+              onClick={() => {
+                if (selectedAccountId) {
+                  refreshChannel(selectedAccountId);
+                } else {
+                  refreshConnection(true);
+                }
+              }}
               className="p-2 bg-red-100 text-red-600 dark:bg-amber-900/30 dark:text-amber-300 rounded-full hover:bg-red-200 dark:hover:bg-amber-800/40 transition-all duration-300 transform hover:rotate-12"
-              disabled={isChecking}
-              title="Refresh Connection Status"
+              disabled={isChecking || (selectedAccountId && loadingChannels[selectedAccountId])}
+              title={selectedAccountId ? "Refresh Selected Account Channel Info" : "Refresh Connection Status"}
             >
-              <FaSync className={isChecking ? 'animate-spin' : ''} />
+              <FaSync className={(isChecking || (selectedAccountId && loadingChannels[selectedAccountId])) ? 'animate-spin' : ''} />
             </button>
           </div>
         </div>
 
-        <div className={`p-4 ${statusInfo.bgColor} dark:bg-opacity-20 rounded-lg mb-4 border dark:border-amber-800/20`}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <YouTubeLogoIcon size={36} className="mr-3" />
-              <div>
-                <h3 className={`text-lg font-medium ${statusInfo.color}`}>
-                  {statusInfo.text}
-                </h3>
-                {lastChecked ? (
-                  <p className="text-sm text-gray-500 dark:text-amber-200/60">
-                    Last checked: {formatLastCheckedTime(lastChecked)}
-                  </p>
-                ) : (
-                  <p className="text-sm text-gray-500 dark:text-amber-200/60">
-                    Never checked
-                  </p>
-                )}
-              </div>
-            </div>
-            <div className="text-2xl">
-              {statusInfo.icon}
+        {/* Account tabs */}
+        {accounts && accounts.length > 0 && (
+          <div className="mb-4 border-b border-amber-200 dark:border-amber-800/30">
+            <div className="flex overflow-x-auto">
+              {accounts.map(account => (
+                <button
+                  key={account.id}
+                  onClick={() => handleAccountSelect(account.id)}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    selectedAccountId === account.id 
+                      ? 'border-amber-500 text-amber-600 dark:text-amber-400' 
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-amber-600 dark:hover:text-amber-400'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    {account.image ? (
+                      <div className="w-6 h-6 rounded-full overflow-hidden">
+                        <Image 
+                          src={account.image} 
+                          alt={account.name || 'User'}
+                          width={24}
+                          height={24}
+                          className="w-full h-full object-cover" 
+                        />
+                      </div>
+                    ) : (
+                      <div className="w-6 h-6 rounded-full bg-amber-500 text-white flex items-center justify-center">
+                        <span className="text-xs font-bold">
+                          {account.name ? account.name.charAt(0).toUpperCase() : 'U'}
+                        </span>
+                      </div>
+                    )}
+                    <span>{account.name || account.email || 'Account'}</span>
+                  </div>
+                </button>
+              ))}
             </div>
           </div>
-        </div>
+        )}
 
-        {/* Debug Information Panel */}
+        {/* Show selected account info */}
+        {selectedAccountId && (
+          <div>
+            {/* Account info */}
+            {accounts && accounts.find(acc => acc.id === selectedAccountId) && (
+              <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-md border border-amber-200 dark:border-amber-800/30">
+                <div className="flex items-center gap-4">
+                  {(() => {
+                    const account = accounts.find(acc => acc.id === selectedAccountId);
+                    return (
+                      <>
+                        {account.image ? (
+                          <div className="w-12 h-12 rounded-full overflow-hidden">
+                            <Image 
+                              src={account.image} 
+                              alt={account.name || 'User'}
+                              width={48}
+                              height={48}
+                              className="w-full h-full object-cover" 
+                            />
+                          </div>
+                        ) : (
+                          <div className="w-12 h-12 rounded-full bg-amber-500 text-white flex items-center justify-center">
+                            <span className="text-lg font-bold">
+                              {account.name ? account.name.charAt(0).toUpperCase() : 'U'}
+                            </span>
+                          </div>
+                        )}
+                        <div>
+                          <h3 className="font-medium text-lg dark:text-amber-50">
+                            {account.name || 'Google Account'}
+                          </h3>
+                          <p className="text-sm text-gray-600 dark:text-amber-200/70">
+                            {account.email}
+                          </p>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+
+            {/* Channel info for selected account */}
+            {loadingChannels[selectedAccountId] ? (
+              <div className="flex justify-center py-4">
+                <FaSync className="animate-spin text-amber-500 w-6 h-6" />
+              </div>
+            ) : channelsInfo[selectedAccountId] ? (
+              <div className={`p-4 ${statusInfo.bgColor} dark:bg-opacity-20 rounded-lg mb-4 border dark:border-amber-800/20`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <YouTubeLogoIcon size={36} className="mr-3" />
+                    <div>
+                      <h3 className={`text-lg font-medium ${statusInfo.color}`}>
+                        {channelsInfo[selectedAccountId].channelTitle || 'YouTube Channel'}
+                      </h3>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        Last checked: {formatLastCheckedTime(channelsInfo[selectedAccountId].lastUpdated)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => refreshChannel(selectedAccountId)}
+                      className="p-2 bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300 rounded-full hover:bg-amber-200 dark:hover:bg-amber-800/40 transition-all duration-300"
+                      disabled={loadingChannels[selectedAccountId]}
+                      title="Refresh Channel Info"
+                    >
+                      <FaSync className={loadingChannels[selectedAccountId] ? 'animate-spin' : ''} />
+                    </button>
+                  </div>
+                </div>
+                
+                {/* Channel stats */}
+                {channelsInfo[selectedAccountId] && !areStatsHidden(channelsInfo[selectedAccountId]) && (
+                  <div className="mt-4 grid grid-cols-3 gap-4">
+                    <div className="p-3 bg-white dark:bg-black/60 rounded-lg border border-gray-200 dark:border-gray-800/30 text-center shadow-sm">
+                      <div className="flex justify-center text-blue-500 dark:text-amber-400 mb-1">
+                        <FaVideo className="w-5 h-5" />
+                      </div>
+                      <div className="text-lg font-semibold dark:text-amber-50">
+                        {formatNumber(channelsInfo[selectedAccountId].statistics?.videoCount || channelsInfo[selectedAccountId].videoCount)}
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">Videos</div>
+                    </div>
+                    
+                    <div className="p-3 bg-white dark:bg-black/60 rounded-lg border border-gray-200 dark:border-gray-800/30 text-center shadow-sm">
+                      <div className="flex justify-center text-blue-500 dark:text-amber-400 mb-1">
+                        <FaUsers className="w-5 h-5" />
+                      </div>
+                      <div className="text-lg font-semibold dark:text-amber-50">
+                        {formatNumber(channelsInfo[selectedAccountId].statistics?.subscriberCount || channelsInfo[selectedAccountId].subscriberCount)}
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">Subscribers</div>
+                    </div>
+                    
+                    <div className="p-3 bg-white dark:bg-black/60 rounded-lg border border-gray-200 dark:border-gray-800/30 text-center shadow-sm">
+                      <div className="flex justify-center text-blue-500 dark:text-amber-400 mb-1">
+                        <FaEye className="w-5 h-5" />
+                      </div>
+                      <div className="text-lg font-semibold dark:text-amber-50">
+                        {formatNumber(channelsInfo[selectedAccountId].statistics?.viewCount || channelsInfo[selectedAccountId].viewCount)}
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">Views</div>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Hidden stats message */}
+                {channelsInfo[selectedAccountId] && areStatsHidden(channelsInfo[selectedAccountId]) && (
+                  <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-900/30 rounded-lg border border-gray-200 dark:border-gray-800/30 text-center">
+                    <p className="text-gray-600 dark:text-gray-400">
+                      Channel statistics are hidden on this YouTube channel
+                    </p>
+                  </div>
+                )}
+                
+                {/* Channel actions */}
+                <div className="mt-4 flex gap-2">
+                  <a
+                    href={`https://youtube.com/channel/${channelsInfo[selectedAccountId].channelId || channelsInfo[selectedAccountId].id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-1.5 text-sm rounded-md bg-red-600 hover:bg-red-700 text-white flex items-center gap-2 transition-colors"
+                  >
+                    <FaYoutube /> View Channel
+                  </a>
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 bg-amber-50 dark:bg-amber-900/10 rounded-lg mb-4 border border-amber-200 dark:border-amber-800/20 text-center">
+                <p className="text-amber-800 dark:text-amber-200">
+                  {errors[selectedAccountId] || "No YouTube channel connected to this account"}
+                </p>
+                <button
+                  onClick={() => {
+                    // Connect YouTube
+                    window.location.href = '/api/auth/youtube';
+                  }}
+                  className="mt-2 px-3 py-1.5 text-sm rounded-md bg-red-600 hover:bg-red-700 text-white flex items-center gap-2 transition-colors mx-auto"
+                >
+                  <FaYoutube /> Connect YouTube
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Error message */}
+        {error && (
+          <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800/30 text-center">
+            <p className="text-red-600 dark:text-red-400">
+              {error}
+            </p>
+            {showAuthRefresh && (
+              <button
+                onClick={refreshAuth}
+                disabled={refreshing}
+                className="mt-2 px-3 py-1.5 text-sm rounded-md bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2 transition-colors mx-auto disabled:bg-blue-400 disabled:cursor-not-allowed"
+              >
+                {refreshing ? <FaSync className="animate-spin" /> : <FaGoogle />}
+                Refresh Authentication
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Debug info panel */}
         {showDebugInfo && debugReport && (
           <div className="mt-4 mb-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-200 dark:border-gray-700 p-4 text-sm">
             <div className="flex justify-between items-center mb-2">
@@ -355,172 +560,7 @@ export default function YouTubeConnectionStatus({ onRefreshSuccess, showAuthRefr
             </div>
           </div>
         )}
-
-        {connectionStatus === 'connected' && channelInfo && (
-          <div className="mt-4">
-            <h3 className="font-medium text-lg mb-4 dark:text-amber-50">Channel Information</h3>
-            
-            <div className="flex flex-col md:flex-row gap-4">
-              {/* Channel Profile */}
-              <div className="flex-1 bg-gray-50 dark:bg-black/60 p-4 rounded-lg border dark:border-amber-700/30 transition-all duration-300">
-                <div className="flex items-center gap-4">
-                  {channelInfo.thumbnailUrl && (
-                    <div className="relative w-16 h-16 rounded-full overflow-hidden border dark:border-amber-500/30">
-                      <DriveThumbnail
-                        src={channelInfo.thumbnailUrl}
-                        alt={channelInfo.channelTitle || 'Channel'}
-                        width={64}
-                        height={64}
-                        fallbackText={channelInfo.channelTitle || 'Y'}
-                        className="rounded-full"
-                      />
-                    </div>
-                  )}
-                  <div>
-                    <h4 className="text-lg font-medium dark:text-amber-50">{channelInfo.channelTitle}</h4>
-                    <p className="text-sm text-gray-500 dark:text-amber-200/60">ID: {channelInfo.channelId}</p>
-                  </div>
-                </div>
-                
-                {areStatsHidden(channelInfo) && (
-                  <div className="mt-3 text-amber-600 dark:text-amber-400 text-sm">
-                    <p>Channel statistics may be private or restricted.</p>
-                    <p className="mt-1">YouTube API sometimes returns zero counts even when content exists.</p>
-                  </div>
-                )}
-              </div>
-              
-              {/* Channel Stats */}
-              <div className="flex-1 grid grid-cols-3 gap-2">
-                <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg flex flex-col items-center justify-center border dark:border-blue-800/20 transition-all duration-300 hover:-translate-y-1">
-                  <FaVideo className="text-blue-500 dark:text-blue-400 text-xl mb-1" />
-                  <span className="text-lg font-semibold dark:text-amber-50">
-                    {formatNumber(channelInfo.videoCount || channelInfo.statistics?.videoCount)}
-                  </span>
-                  <span className="text-xs text-gray-500 dark:text-amber-200/60">Videos</span>
-                  
-                  {(channelInfo.videoCount === 0 || channelInfo.statistics?.videoCount === 0) && channelInfo.uploadsPlaylistId && (
-                    <a 
-                      href={`https://www.youtube.com/playlist?list=${channelInfo.uploadsPlaylistId}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-blue-500 dark:text-amber-400 mt-1 underline"
-                    >
-                      Check Uploads
-                    </a>
-                  )}
-                </div>
-                
-                <div className="bg-purple-50 dark:bg-purple-900/20 p-3 rounded-lg flex flex-col items-center justify-center border dark:border-purple-800/20 transition-all duration-300 hover:-translate-y-1">
-                  <FaUsers className="text-purple-500 dark:text-purple-400 text-xl mb-1" />
-                  <span className="text-lg font-semibold dark:text-amber-50">
-                    {channelInfo.statsHidden ? 'Hidden' : formatNumber(channelInfo.subscriberCount || channelInfo.statistics?.subscriberCount)}
-                  </span>
-                  <span className="text-xs text-gray-500 dark:text-amber-200/60">Subscribers</span>
-                </div>
-                
-                <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded-lg flex flex-col items-center justify-center border dark:border-green-800/20 transition-all duration-300 hover:-translate-y-1">
-                  <FaEye className="text-green-500 dark:text-green-400 text-xl mb-1" />
-                  <span className="text-lg font-semibold dark:text-amber-50">
-                    {formatNumber(channelInfo.viewCount || channelInfo.statistics?.viewCount)}
-                  </span>
-                  <span className="text-xs text-gray-500 dark:text-amber-200/60">Views</span>
-                </div>
-              </div>
-            </div>
-            
-            {channelInfo.uploadsPlaylistId && (
-              <div className="mt-4 text-center flex justify-center space-x-3">
-                <a 
-                  href={`https://www.youtube.com/channel/${channelInfo.channelId}`} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md transition-all duration-300 transform hover:scale-105 border border-transparent dark:border-amber-500/20"
-                >
-                  <YouTubeLogoIcon className="text-red-500" />
-                  Visit Channel
-                </a>
-                
-                <a 
-                  href={`https://www.youtube.com/playlist?list=${channelInfo.uploadsPlaylistId}`} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-md transition-all duration-300 transform hover:scale-105 border border-transparent dark:border-amber-500/20"
-                >
-                  <FaVideo />
-                  View Videos
-                </a>
-              </div>
-            )}
-            
-            {!channelInfo.uploadsPlaylistId && (
-              <div className="mt-4 text-center">
-                <a 
-                  href={`https://www.youtube.com/channel/${channelInfo.channelId}`} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md transition-all duration-300 transform hover:scale-105 border border-transparent dark:border-amber-500/20"
-                >
-                  <YouTubeLogoIcon className="text-red-500" />
-                  Visit Channel
-                </a>
-              </div>
-            )}
-          </div>
-        )}
-
-        {connectionStatus === 'expired' && (
-          <div className="mt-4">
-            <RefreshButton 
-              onSuccess={handleRefreshSuccess}
-              className="w-full justify-center"
-            />
-            <p className="text-sm text-gray-500 dark:text-amber-200/60 mt-2 text-center">
-              Click to refresh your YouTube connection
-            </p>
-          </div>
-        )}
-
-        {connectionStatus === 'suspended' && (
-          <div className="mt-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/30 rounded-lg">
-            <div className="flex items-center gap-3 mb-2">
-              <FaExclamationTriangle className="text-red-600 text-lg" />
-              <h3 className="font-medium text-red-800 dark:text-red-300">YouTube Account Suspended</h3>
-            </div>
-            <p className="text-sm text-red-600 dark:text-red-300">
-              Your YouTube account has been suspended. Please visit the YouTube website to resolve this issue.
-            </p>
-            <div className="mt-3 flex justify-center">
-              <a 
-                href="https://support.google.com/youtube/answer/2802168" 
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md transition-all duration-300"
-              >
-                <FaYoutube />
-                YouTube Help Center
-              </a>
-            </div>
-          </div>
-        )}
       </div>
-
-      {showAuthRefresh && session && (
-        <div className="mt-2">
-          <button
-            onClick={refreshAuth}
-            disabled={refreshing}
-            className="flex items-center gap-2 text-xs px-3 py-1.5 bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/40 dark:hover:bg-blue-800/60 text-blue-700 dark:text-blue-300 rounded-md transition-colors"
-          >
-            {refreshing ? (
-              <FaSyncAlt className="animate-spin" />
-            ) : (
-              <FaHistory />
-            )}
-            {refreshing ? 'Refreshing...' : 'Refresh Google Authentication'}
-          </button>
-        </div>
-      )}
     </div>
   );
 } 

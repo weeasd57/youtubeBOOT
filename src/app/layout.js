@@ -5,6 +5,7 @@ import { ToastProvider } from '@/components/ui/toast';
 import { ToastInitializer } from '@/components/ToastHelper';
 import FooterWrapper from '@/components/FooterWrapper';
 import NavbarWrapper from '@/components/NavbarWrapper';
+import DialogBlockerWrapper from '@/components/DialogBlockerWrapper';
 
 const inter = Inter({ 
   subsets: ['latin'],
@@ -41,6 +42,7 @@ export default function RootLayout({ children }) {
       >
         <ToastProvider>
           <ToastInitializer />
+          <DialogBlockerWrapper />
           <Providers>
             <NavbarWrapper />
             <main className="flex-grow">

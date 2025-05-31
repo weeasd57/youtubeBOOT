@@ -10,6 +10,131 @@ import {
 } from './api-config';
 
 /**
+ * وحدة مساعدة للتحكم في معدل استعلامات API
+ */
+
+// متغير عام لتخزين آخر وقت تم فيه استدعاء كل مسار API
+const apiThrottleMap = {};
+
+/**
+ * دالة للتحقق مما إذا كان يمكن استدعاء API معين استنادًا إلى قيود معدل الاستدعاء
+ * @param {string} apiPath - مسار API المراد استدعاؤه
+ * @param {number} minInterval - الحد الأدنى للفاصل الزمني بين الاستدعاءات بالمللي ثانية
+ * @returns {boolean} - ما إذا كان يمكن استدعاء API
+ */
+export function canCallApi(apiPath, minInterval = 10000) {
+  const now = Date.now();
+  const lastCallTime = apiThrottleMap[apiPath] || 0;
+  
+  // إذا لم يمر وقت كاف منذ آخر استدعاء، ارجع false
+  if (now - lastCallTime < minInterval) {
+    console.log(`[Rate Limiter] API call to ${apiPath} throttled. Last call was ${now - lastCallTime}ms ago.`);
+    return false;
+  }
+  
+  // تحديث وقت آخر استدعاء
+  apiThrottleMap[apiPath] = now;
+  return true;
+}
+
+/**
+ * دالة مساعدة لاستدعاء API مع التحكم في معدل الاستدعاء
+ * @param {string} url - عنوان URL للاستدعاء
+ * @param {Object} options - خيارات الاستدعاء
+ * @param {number} minInterval - الحد الأدنى للفاصل الزمني بين الاستدعاءات بالمللي ثانية
+ * @returns {Promise<Response>} - استجابة الاستدعاء أو استجابة مخزنة مؤقتًا
+ */
+export async function fetchWithThrottle(url, options = {}, minInterval = 10000) {
+  // استخراج المسار الأساسي من URL
+  const urlObj = new URL(url, window.location.origin);
+  const apiPath = urlObj.pathname;
+  
+  // التحقق مما إذا كان يمكن استدعاء API
+  if (!canCallApi(apiPath, minInterval)) {
+    // محاولة استرداد استجابة مخزنة مؤقتًا
+    try {
+      const cachedResponse = localStorage.getItem(`api_cache_${apiPath}`);
+      if (cachedResponse) {
+        console.log(`[Cache] Using cached response for ${apiPath}`);
+        return new Response(cachedResponse, {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', 'X-From-Cache': 'true' }
+        });
+      }
+    } catch (e) {
+      console.warn('[Cache] Error accessing cache:', e);
+    }
+    
+    // إذا لم تكن هناك استجابة مخزنة، ارجع استجابة خطأ
+    return new Response(JSON.stringify({ error: 'Rate limited', cached: false }), {
+      status: 429,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  // استدعاء API
+  try {
+    const response = await fetch(url, options);
+    
+    // إذا كانت الاستجابة ناجحة، قم بتخزينها مؤقتًا
+    if (response.ok) {
+      try {
+        const clonedResponse = response.clone();
+        const responseText = await clonedResponse.text();
+        localStorage.setItem(`api_cache_${apiPath}`, responseText);
+        localStorage.setItem(`api_cache_${apiPath}_time`, Date.now().toString());
+      } catch (e) {
+        console.warn('[Cache] Error caching response:', e);
+      }
+    }
+    
+    return response;
+  } catch (error) {
+    console.error(`[API] Error fetching ${url}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * دالة لتنظيف ذاكرة التخزين المؤقت القديمة
+ * @param {number} maxAge - العمر الأقصى للبيانات المخزنة مؤقتًا بالمللي ثانية
+ */
+export function cleanupApiCache(maxAge = 3600000) { // ساعة واحدة افتراضيًا
+  try {
+    const now = Date.now();
+    
+    // البحث عن جميع مفاتيح التخزين المؤقت
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      
+      // التحقق مما إذا كان المفتاح يتعلق بالتخزين المؤقت للـ API
+      if (key && key.startsWith('api_cache_')) {
+        // التحقق من الوقت
+        const timeKey = `${key}_time`;
+        const timestamp = parseInt(localStorage.getItem(timeKey) || '0', 10);
+        
+        // إذا كان العمر أكبر من الحد الأقصى، قم بحذفه
+        if (now - timestamp > maxAge) {
+          localStorage.removeItem(key);
+          localStorage.removeItem(timeKey);
+          console.log(`[Cache] Cleaned up stale cache for ${key}`);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[Cache] Error cleaning up cache:', e);
+  }
+}
+
+// تنظيف التخزين المؤقت عند تحميل الصفحة
+if (typeof window !== 'undefined') {
+  // تأخير التنظيف لتجنب التأثير على أداء تحميل الصفحة
+  setTimeout(() => {
+    cleanupApiCache();
+  }, 5000);
+}
+
+/**
  * Executes a function with exponential backoff retry logic
  * @param {Function} fn - The async function to execute
  * @param {Object} options - Configuration options

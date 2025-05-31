@@ -40,6 +40,66 @@ export function YouTubeChannelProvider({ children }) {
   const lastRefreshTimeRef = useRef(0);
   // مرجع لتتبع ما إذا تم تجاوز الحصة - moved inside component
   const quotaExceededTimeRef = useRef(0);
+  
+  // Add a reference for the current active account
+  const activeAccountRef = useRef(null);
+
+  // Check for account changes and refresh connection when the active account changes
+  useEffect(() => {
+    // Listen for storage events to detect account changes across tabs
+    const handleStorageChange = (e) => {
+      if (e.key === 'accountSwitched' && e.newValue === 'true') {
+        debugLog('Account switched detected, refreshing connection');
+        // Clear local storage flag
+        localStorage.removeItem('accountSwitched');
+        
+        // Reset connection status and channel info
+        setConnectionStatus('unknown');
+        setChannelInfo(null);
+        
+        // Force a refresh of the connection
+        refreshConnection(true).catch(err => {
+          debugLog('Error refreshing connection after account switch', err);
+        });
+      }
+    };
+    
+    // Add event listener
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', handleStorageChange);
+      
+      // Also check on mount if there was a recent account switch
+      const accountSwitchedTimestamp = localStorage.getItem('accountSwitchedTimestamp');
+      if (accountSwitchedTimestamp) {
+        const timestamp = parseInt(accountSwitchedTimestamp, 10);
+        const now = Date.now();
+        // If the account was switched in the last 5 seconds
+        if (now - timestamp < 5000) {
+          debugLog('Recent account switch detected, refreshing connection');
+          localStorage.removeItem('accountSwitchedTimestamp');
+          localStorage.removeItem('accountSwitched');
+          
+          // Reset connection status and channel info
+          setConnectionStatus('unknown');
+          setChannelInfo(null);
+          
+          // Force a refresh of the connection after a short delay
+          setTimeout(() => {
+            refreshConnection(true).catch(err => {
+              debugLog('Error refreshing connection after recent account switch', err);
+            });
+          }, 500);
+        }
+      }
+    }
+    
+    // Cleanup
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('storage', handleStorageChange);
+      }
+    };
+  }, []);
 
   // التحقق مما إذا كان التحديث مسموحًا بناءً على حدود المعدل - moved inside component
   const canRefresh = (forceRefresh = false) => {

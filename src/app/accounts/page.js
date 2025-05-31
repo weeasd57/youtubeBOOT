@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSession, signIn } from 'next-auth/react';
 import { useAccounts } from '@/contexts/AccountContext';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { FaSignOutAlt, FaPlus, FaCheck, FaStar, FaTrash, FaUser, FaSync, FaArrowLeft } from 'react-icons/fa';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -11,6 +11,7 @@ import ThemeToggle from '@/components/ThemeToggle';
 
 export default function AccountsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: session, status } = useSession();
   const [refreshing, setRefreshing] = useState(false);
   const {
@@ -25,6 +26,56 @@ export default function AccountsPage() {
   
   const [confirmingRemove, setConfirmingRemove] = useState(null);
   const [fixingData, setFixingData] = useState(false);
+  const [processingSwitch, setProcessingSwitch] = useState(false);
+
+  // معالجة معلمة switchTo في URL
+  useEffect(() => {
+    const switchToId = searchParams.get('switchTo');
+    if (switchToId && !processingSwitch) {
+      console.log(`Found switchTo parameter with account ID: ${switchToId}`);
+      setProcessingSwitch(true);
+      
+      // تأخير قصير لضمان تحميل الحسابات قبل التبديل
+      const timer = setTimeout(async () => {
+        try {
+          // البحث عن الحساب في قائمة الحسابات
+          const accountExists = accounts?.some(acc => acc.id === switchToId);
+          
+          if (accountExists) {
+            console.log(`Switching to account: ${switchToId}`);
+            // تنظيف ذاكرة التخزين المؤقت
+            localStorage.removeItem('driveFolders');
+            localStorage.removeItem('driveFoldersTimestamp');
+            localStorage.removeItem('lastHomeFolderRefresh');
+            localStorage.removeItem('lastDriveFolderCheck');
+            localStorage.removeItem('lastTokenFetch');
+            localStorage.removeItem('cachedUserTokens');
+            localStorage.removeItem('lastDriveRefresh');
+            
+            // تعيين علامات تبديل الحساب
+            localStorage.setItem('accountSwitched', 'true');
+            localStorage.setItem('accountSwitchedTimestamp', Date.now().toString());
+            
+            // تبديل الحساب
+            await switchAccount(switchToId);
+            
+            // توجيه المستخدم إلى الصفحة الرئيسية بعد التبديل
+            setTimeout(() => {
+              router.push('/home');
+            }, 500);
+          } else {
+            console.warn(`Account with ID ${switchToId} not found`);
+          }
+        } catch (error) {
+          console.error('Error processing switchTo parameter:', error);
+        } finally {
+          setProcessingSwitch(false);
+        }
+      }, 1000); // تأخير بمقدار 1 ثانية
+      
+      return () => clearTimeout(timer);
+    }
+  }, [searchParams, accounts, switchAccount, router, processingSwitch]);
 
   const handleRefreshAuth = async () => {
     setRefreshing(true);
@@ -190,15 +241,6 @@ export default function AccountsPage() {
                           className="px-3 py-1 text-xs rounded border border-amber-500 text-amber-500 hover:bg-amber-500 hover:text-white transition-colors"
                         >
                           Switch to
-                        </button>
-                      )}
-                      
-                      {!account.is_primary && (
-                        <button
-                          onClick={() => handleSetPrimary(account.id)}
-                          className="px-3 py-1 text-xs rounded border border-amber-500 text-amber-500 hover:bg-amber-500 hover:text-white transition-colors"
-                        >
-                          Set as Primary
                         </button>
                       )}
                       

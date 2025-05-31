@@ -14,6 +14,14 @@ export default function NavbarWrapper() {
   
   // Check if we're on the landing page
   const isLandingPage = pathname === '/';
+  
+  // Hide navbar on terms and privacy pages
+  const hideNavbar = pathname === '/terms' || pathname === '/privacy';
+  
+  // If navbar should be hidden, return null
+  if (hideNavbar) {
+    return null;
+  }
 
   const handleRefreshAuth = async () => {
     setRefreshing(true);
