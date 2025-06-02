@@ -115,10 +115,14 @@ export default function FileListItem({
       className={`relative flex flex-col w-full transition-all ${
         hovered ? 'bg-gray-50 dark:bg-gray-900/30' : ''
       } ${className}`}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={() => {
+        setHovered(true);
+      }}
+      onMouseLeave={() => {
+        setHovered(false);
+      }}
     >
-      <div className="w-full flex justify-center mb-2">
+      <div className="w-full flex justify-center mb-2 relative">
         <DriveThumbnail 
           src={file.thumbnailLink} 
           alt={displayTitle}

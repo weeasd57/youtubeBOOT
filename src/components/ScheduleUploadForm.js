@@ -10,6 +10,7 @@ import { InfoCircledIcon } from "@radix-ui/react-icons";
 import DriveThumbnail from '@/components/DriveThumbnail';
 import { processVideoTitle, generateCleanTitleFromFileName } from '@/utils/titleHelpers';
 import { supabase } from '@/utils/supabase-client';
+import TikTokShareButton from './TikTokShareButton';
 
 // Add a custom app logo component for consistency
 const AppLogoIcon = ({ className = "", size = 24 }) => (
@@ -522,6 +523,22 @@ export default function ScheduleUploadForm({ file, multipleFiles = [], onSchedul
     });
   };
 
+  // Get the currently selected videos for TikTok sharing
+  const getSelectedVideos = () => {
+    return filesData.filter(f => f.selected);
+  };
+
+  // Get the first selected video or null
+  const getFirstSelectedVideo = () => {
+    const selected = getSelectedVideos();
+    return selected.length > 0 ? selected[0] : null;
+  };
+  
+  // Get count of selected videos
+  const getSelectedCount = () => {
+    return getSelectedVideos().length;
+  };
+
   if (!filesData.length) {
     if (multipleFiles.length === 0 && !file) {
         return <p className="text-gray-600 dark:text-gray-400">No files selected for scheduling.</p>;
@@ -535,13 +552,36 @@ export default function ScheduleUploadForm({ file, multipleFiles = [], onSchedul
         {/* Header with responsive styling */}
         <div className="bg-gradient-to-r from-blue-700 to-blue-600 dark:from-blue-800 dark:to-blue-700 text-white p-3 sm:p-4 rounded-t-xl">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <h3 className="text-xl font-bold flex items-center flex-wrap">
-              <FaCalendarAlt className="mr-2 text-white text-lg" />
-              <span>Schedule Uploads</span>
-              <span className="ml-2 px-3 py-1 bg-white/20 text-white text-xs font-bold rounded-full flex items-center">
-                {filesData.length} {filesData.length === 1 ? 'video' : 'videos'}
-              </span>
-            </h3>
+            <div className="flex items-center justify-between w-full">
+              <h3 className="text-xl font-bold flex items-center flex-wrap">
+                <FaCalendarAlt className="mr-2 text-white text-lg" />
+                <span>Schedule Uploads</span>
+                <span className="ml-2 px-3 py-1 bg-white/20 text-white text-xs font-bold rounded-full flex items-center">
+                  {filesData.length} {filesData.length === 1 ? 'video' : 'videos'}
+                </span>
+              </h3>
+              
+              {/* TikTok Share Button */}
+              <div className="flex items-center">
+                {filesData.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-white/80">
+                      {getSelectedCount() > 0 ? (
+                        getSelectedCount() === 1 ? 
+                          '1 video selected' : 
+                          `${getSelectedCount()} videos selected`
+                      ) : 'No videos selected'}
+                    </span>
+                    <TikTokShareButton 
+                      videoUrl={getFirstSelectedVideo()?.fileId ? `/api/drive/download?fileId=${getFirstSelectedVideo()?.fileId}` : null}
+                      videoTitle={getSelectedCount() > 1 
+                        ? `${getFirstSelectedVideo()?.title || getFirstSelectedVideo()?.fileName} and ${getSelectedCount() - 1} more` 
+                        : getFirstSelectedVideo()?.title || getFirstSelectedVideo()?.fileName}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
             <div className="flex items-center text-xs text-blue-100 bg-black/10 px-3 py-1.5 rounded-lg">
               <FaClock className="mr-1.5 animate-pulse" />
               {formatCurrentDateTime()}

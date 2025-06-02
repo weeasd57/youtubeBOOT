@@ -836,7 +836,12 @@ function HomeDashboard({ session, status }) {
       setSelectedFiles(selectedFiles.filter(f => f.id !== file.id));
     } else {
       // Check if there's TikTok data for this file
-      const tikTokFileData = tikTokFeatureEnabled ? tikTokData.getTikTokDataForDriveFile(file.id) : null;
+      // Add null check and ensure the function exists before calling it
+      const tikTokFileData = tikTokFeatureEnabled && 
+                           tikTokData && 
+                           typeof tikTokData.getTikTokDataForDriveFile === 'function' ? 
+                           tikTokData.getTikTokDataForDriveFile(file.id) : 
+                           null;
       
       // Add TikTok data to the file object if available
       const enhancedFile = tikTokFileData ? {
@@ -851,25 +856,67 @@ function HomeDashboard({ session, status }) {
     }
   };
 
+  // Add state for select all loading
+  const [selectingAll, setSelectingAll] = useState(false);
+  const [processingProgress, setProcessingProgress] = useState(0);
+
   // Select all files for scheduling
-  const selectAllFiles = () => {
-    if (selectedFiles.length === driveFiles.length) {
+  const selectAllFiles = async () => {
+    // Use filteredItems instead of driveFiles to respect folder filtering
+    if (selectedFiles.length === filteredItems.length) {
       setSelectedFiles([]);
     } else {
-      // Add TikTok data to all files
-      const enhancedFiles = driveFiles.map(file => {
-        const tikTokFileData = tikTokFeatureEnabled ? tikTokData.getTikTokDataForDriveFile(file.id) : null;
-        
-        return tikTokFileData ? {
-          ...file,
-          tikTokData: tikTokFileData,
-          tikTokTitle: tikTokFileData.title,
-          tikTokDescription: tikTokFileData.description,
-          tikTokHashtags: tikTokFileData.hashtags || []
-        } : file;
-      });
+      // Show loading state
+      setSelectingAll(true);
+      setProcessingProgress(0);
       
-      setSelectedFiles([...enhancedFiles]);
+      // Process files in batches to avoid UI freezing
+      const batchSize = 5;
+      const totalFiles = filteredItems.length;
+      const enhancedFiles = [];
+      
+      try {
+        for (let i = 0; i < totalFiles; i += batchSize) {
+          const batch = filteredItems.slice(i, i + batchSize);
+          
+          // Process each file in the batch
+          const batchResults = batch.map(file => {
+            // Add null check and ensure the function exists before calling it
+            const tikTokFileData = tikTokFeatureEnabled && 
+                                tikTokData && 
+                                typeof tikTokData.getTikTokDataForDriveFile === 'function' ? 
+                                tikTokData.getTikTokDataForDriveFile(file.id) : 
+                                null;
+            
+            return tikTokFileData ? {
+              ...file,
+              tikTokData: tikTokFileData,
+              tikTokTitle: tikTokFileData.title,
+              tikTokDescription: tikTokFileData.description,
+              tikTokHashtags: tikTokFileData.hashtags || []
+            } : file;
+          });
+          
+          // Add batch results to the enhanced files array
+          enhancedFiles.push(...batchResults);
+          
+          // Update progress
+          const progress = Math.min(100, Math.round((i + batch.length) / totalFiles * 100));
+          setProcessingProgress(progress);
+          
+          // Allow UI to update by yielding execution
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        
+        // Set all files at once
+        setSelectedFiles(enhancedFiles);
+      } catch (error) {
+        console.error('Error processing files:', error);
+      } finally {
+        // Hide loading state
+        setSelectingAll(false);
+        setProcessingProgress(0);
+      }
     }
   };
 
@@ -1431,12 +1478,20 @@ function HomeDashboard({ session, status }) {
                   <div className="w-full mb-6">
                     <div className="flex justify-between items-center mb-3">
                       <h3 className="text-lg font-medium text-black dark:text-amber-50">Your Drive Videos</h3>
-                      {driveFiles.length > 0 && (
+                      {filteredItems.length > 0 && (
                         <button 
                           onClick={selectAllFiles}
-                          className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-black/60 dark:hover:bg-black/80 text-black dark:text-amber-200/70 rounded border border-amber-200 dark:border-amber-700/30"
+                          disabled={selectingAll}
+                          className={`text-xs px-2 py-1 ${selectingAll ? 'bg-amber-100 dark:bg-amber-900/40' : 'bg-gray-100 hover:bg-gray-200 dark:bg-black/60 dark:hover:bg-black/80'} text-black dark:text-amber-200/70 rounded border border-amber-200 dark:border-amber-700/30 flex items-center gap-1`}
                         >
-                          {selectedFiles.length === driveFiles.length ? 'Deselect All' : 'Select All'}
+                          {selectingAll ? (
+                            <>
+                              <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-amber-500"></div>
+                              <span>Processing... {processingProgress}%</span>
+                            </>
+                          ) : (
+                            selectedFiles.length === filteredItems.length ? 'Deselect All' : `Select All (${filteredItems.length})`
+                          )}
                         </button>
                       )}
                     </div>
@@ -1507,18 +1562,36 @@ function HomeDashboard({ session, status }) {
                   {/* Upload Form - full width */}
                   <div className="w-full">
                     {selectedFiles.length > 0 ? (
-                      <ScheduleUploadForm
-                        multipleFiles={selectedFiles}
-                        onScheduled={() => {
-                          setSelectedFiles([]);
-                        }}
-                        onCancel={() => {
-                          setSelectedFiles([]);
-                        }}
-                        onFileRemove={(fileId) => {
-                          setSelectedFiles(prev => prev.filter(file => file.id !== fileId));
-                        }}
-                      />
+                      <>
+                        {selectingAll ? (
+                          <div className="p-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-700/30 text-center">
+                            <div className="flex flex-col items-center justify-center gap-2">
+                              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-amber-500"></div>
+                              <p className="text-amber-700 dark:text-amber-300">Preparing {selectedFiles.length} videos for scheduling...</p>
+                              <div className="w-full max-w-md h-2 bg-amber-200 dark:bg-amber-800 rounded-full overflow-hidden">
+                                <div 
+                                  className="h-full bg-amber-500 transition-all duration-300" 
+                                  style={{ width: `${processingProgress}%` }}
+                                ></div>
+                              </div>
+                              <p className="text-xs text-amber-600 dark:text-amber-400">{processingProgress}% complete</p>
+                            </div>
+                          </div>
+                        ) : (
+                          <ScheduleUploadForm
+                            multipleFiles={selectedFiles}
+                            onScheduled={() => {
+                              setSelectedFiles([]);
+                            }}
+                            onCancel={() => {
+                              setSelectedFiles([]);
+                            }}
+                            onFileRemove={(fileId) => {
+                              setSelectedFiles(prev => prev.filter(file => file.id !== fileId));
+                            }}
+                          />
+                        )}
+                      </>
                     ) : (
                       <>
                         <h3 className="text-lg font-medium text-black dark:text-amber-50 mb-3">Schedule Selected Videos</h3>

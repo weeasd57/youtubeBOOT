@@ -77,8 +77,8 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
             <div className="backdrop-blur-md bg-white/75 dark:bg-black/80 rounded-lg shadow-lg border border-white/20 dark:border-amber-600/30 p-3 w-full">
               <div className="flex items-center justify-between min-w-0">
                 {/* Logo and App Name */}
-                <div className="flex items-center space-x-3 min-w-0 flex-shrink-0">
-                  <div className="rounded-full overflow-hidden flex items-center justify-center w-10 h-10 shadow-sm">
+                <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-shrink-0">
+                  <div className="rounded-full overflow-hidden flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 shadow-sm">
                     <Image
                       src="/android-chrome-192x192.png"
                       alt="App Logo"
@@ -87,33 +87,66 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
                       className="object-cover"
                     />
                   </div>
-                  <h1 className="text-lg font-bold tracking-tight dark:text-amber-50 bg-gradient-to-r from-amber-600 to-amber-400 bg-clip-text text-transparent whitespace-nowrap">
-                    YouTube Drive Uploader
+                  <h1 className="text-sm sm:text-base md:text-lg font-bold tracking-tight dark:text-amber-50 bg-gradient-to-r from-amber-600 to-amber-400 bg-clip-text text-transparent whitespace-nowrap truncate">
+                    <span className="hidden md:inline">YouTube Drive Uploader</span>
+                    <span className="hidden sm:inline md:hidden">YouTube Uploader</span>
+                    <span className="sm:hidden">YT Boot</span>
                   </h1>
                 </div>
                 
                 {/* Right side with theme toggle and sign in button */}
-                <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-2 sm:space-x-4">
                   {/* Theme toggle button */}
                   <button 
                     onClick={themeToggle}
-                    className="p-2 rounded-full text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-all duration-300 hover:scale-110"
+                    className="p-1.5 sm:p-2 rounded-full text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-all duration-300 hover:scale-110"
                     title="Toggle dark/light mode"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 sm:w-5 sm:h-5">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
                     </svg>
                   </button>
                   
-                  {/* Sign In Button */}
+                  {/* Mobile Menu Button - only shown on small screens */}
+                  <button
+                    onClick={() => setIsMenuOpen(!isMenuOpen)}
+                    className="sm:hidden p-1.5 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-md transition-all"
+                    aria-label={isMenuOpen ? 'Close menu' : 'Open menu'}
+                    aria-expanded={isMenuOpen}
+                  >
+                    {isMenuOpen ? (
+                      <FaTimes className="w-4 h-4" />
+                    ) : (
+                      <FaBars className="w-4 h-4" />
+                    )}
+                  </button>
+                  
+                  {/* Sign In Button - hidden on mobile when menu is closed */}
                   <button
                     onClick={() => signIn('google')}
-                    className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-md font-medium transition-all duration-300 hover:scale-105 shadow-md"
+                    className="hidden sm:flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-md text-xs sm:text-sm font-medium transition-all duration-300 hover:scale-105 shadow-md"
                   >
-                    <FaGoogle /> Sign In
+                    <FaGoogle className="w-3 h-3 sm:w-4 sm:h-4" /> <span>Sign In</span>
                   </button>
                 </div>
               </div>
+              
+              {/* Mobile Menu - Landing Page */}
+              {isMenuOpen && (
+                <div className="sm:hidden mt-3 transform transition-all duration-300 ease-out animate-fade-in">
+                  <div className="flex flex-col space-y-2 py-3 border-t border-gray-200/50 dark:border-gray-700/50">
+                    <button
+                      onClick={() => {
+                        signIn('google');
+                        setIsMenuOpen(false);
+                      }}
+                      className="w-full text-left px-3 py-2 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 flex items-center gap-2 transition-colors rounded-md"
+                    >
+                      <FaGoogle className="w-4 h-4" /> <span>Sign In with Google</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
