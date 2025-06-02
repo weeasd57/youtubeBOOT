@@ -46,8 +46,8 @@ export default function Header({ user, onSignOut }) {
           <Link href="/schedule" className="text-gray-600 hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400">
             الجدول
           </Link>
-          <Link href="/tiktok-downloader" className="text-gray-600 hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400">
-            تنزيل TikTok
+          <Link href="/uploader" className="text-gray-600 hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400">
+            رفع TikTok
           </Link>
           <Link href="/dashboard" className="text-gray-600 hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400">
             لوحة التحكم
@@ -121,11 +121,11 @@ export default function Header({ user, onSignOut }) {
               الجدول
             </Link>
             <Link 
-              href="/tiktok-downloader" 
+              href="/uploader" 
               className="text-gray-600 hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400 py-2"
               onClick={() => setMenuOpen(false)}
             >
-              تنزيل TikTok
+              رفع TikTok
             </Link>
             <Link 
               href="/dashboard" 

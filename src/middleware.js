@@ -38,7 +38,7 @@ export const config = {
     '/home', // Protect the home page
     '/accounts/:path*', // Protect accounts pages
     '/uploads/:path*', // Protect uploads pages
-    '/tiktok-downloader/:path*', // Protect tiktok downloader page
+    '/uploader/:path*', // Protect uploader page
     '/admin/:path*', // Protect admin pages
     // Add other protected routes here
   ],

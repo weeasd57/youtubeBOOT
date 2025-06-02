@@ -206,15 +206,15 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
               </Link>
               
               <Link
-                href="/tiktok-downloader"
+                href="/uploader"
                 className={`px-2 lg:px-3 xl:px-4 py-2 rounded-md font-medium text-xs lg:text-sm xl:text-base flex items-center gap-1 lg:gap-1.5 transition-all duration-300 hover:scale-105 ${
-                  isActive('/tiktok-downloader')
+                  isActive('/uploader')
                     ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-white shadow-md dark:from-amber-700 dark:to-amber-600'
                     : 'text-gray-700 dark:text-amber-50 hover:bg-gray-100/80 dark:hover:bg-black/50'
                 }`}
               >
-                <FaDownload className={`${isActive('/tiktok-downloader') ? "text-white" : "text-amber-500"} transition-all text-xs lg:text-sm xl:text-base`} />
-                <span className="whitespace-nowrap hidden xl:inline">TikTok Downloader</span>
+                <FaDownload className={`${isActive('/uploader') ? "text-white" : "text-amber-500"} transition-all text-xs lg:text-sm xl:text-base`} />
+                <span className="whitespace-nowrap hidden xl:inline">TikTok Uploader</span>
                 <span className="whitespace-nowrap hidden lg:inline xl:hidden">TikTok</span>
               </Link>
               
@@ -421,12 +421,12 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
               </NavLink>
               
               <NavLink 
-                href="/tiktok-downloader" 
+                href="/uploader" 
                 icon={FaDownload} 
-                isActive={isActive('/tiktok-downloader')}
+                isActive={isActive('/uploader')}
                 onClick={() => setIsMenuOpen(false)}
               >
-                TikTok Downloader
+                Uploader
               </NavLink>
               
               <NavLink 
