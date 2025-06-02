@@ -214,8 +214,8 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
                 }`}
               >
                 <FaDownload className={`${isActive('/uploader') ? "text-white" : "text-amber-500"} transition-all text-xs lg:text-sm xl:text-base`} />
-                <span className="whitespace-nowrap hidden xl:inline">TikTok Uploader</span>
-                <span className="whitespace-nowrap hidden lg:inline xl:hidden">TikTok</span>
+                <span className="whitespace-nowrap hidden xl:inline">Uploader</span>
+                <span className="whitespace-nowrap hidden lg:inline xl:hidden">Uploader</span>
               </Link>
               
               <Link
