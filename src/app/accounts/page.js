@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSession, signIn } from 'next-auth/react';
 import { useAccounts } from '@/contexts/AccountContext';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -9,23 +9,9 @@ import Link from 'next/link';
 import Image from 'next/image';
 import ThemeToggle from '@/components/ThemeToggle';
 
-export default function AccountsPage() {
-  const router = useRouter();
+// Component that safely uses search params
+function AccountSwitcher({ accounts, switchAccount, router }) {
   const searchParams = useSearchParams();
-  const { data: session, status } = useSession();
-  const [refreshing, setRefreshing] = useState(false);
-  const {
-    accounts,
-    activeAccount,
-    loading,
-    switchAccount,
-    setPrimaryAccount,
-    removeAccount,
-    error
-  } = useAccounts();
-  
-  const [confirmingRemove, setConfirmingRemove] = useState(null);
-  const [fixingData, setFixingData] = useState(false);
   const [processingSwitch, setProcessingSwitch] = useState(false);
 
   // معالجة معلمة switchTo في URL
@@ -76,6 +62,26 @@ export default function AccountsPage() {
       return () => clearTimeout(timer);
     }
   }, [searchParams, accounts, switchAccount, router, processingSwitch]);
+
+  return null; // This component just handles the effect, no UI
+}
+
+export default function AccountsPage() {
+  const router = useRouter();
+  const { data: session, status } = useSession();
+  const [refreshing, setRefreshing] = useState(false);
+  const {
+    accounts,
+    activeAccount,
+    loading,
+    switchAccount,
+    setPrimaryAccount,
+    removeAccount,
+    error
+  } = useAccounts();
+  
+  const [confirmingRemove, setConfirmingRemove] = useState(null);
+  const [fixingData, setFixingData] = useState(false);
 
   const handleRefreshAuth = async () => {
     setRefreshing(true);
@@ -156,6 +162,15 @@ export default function AccountsPage() {
 
   return (
     <>
+      {/* Wrap the search params usage in a suspense boundary */}
+      <Suspense fallback={null}>
+        <AccountSwitcher 
+          accounts={accounts} 
+          switchAccount={switchAccount} 
+          router={router} 
+        />
+      </Suspense>
+      
       <div className="container mx-auto px-4 py-8 max-w-5xl">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
