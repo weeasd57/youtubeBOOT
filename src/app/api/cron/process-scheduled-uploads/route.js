@@ -141,7 +141,9 @@ export async function GET(request) {
               // Get a valid access token for this user, refreshing if necessary
               // Check if we have the new authentication fields
               if (upload.auth_user_id && upload.account_id) {
-                accessToken = await getValidAccessToken(upload.auth_user_id, upload.account_id);
+                        const result = await getValidAccessToken(upload.auth_user_id, upload.account_id);
+        accessToken = result?.accessToken;
+        const tokenError = result?.error;
               } else if (upload.user_email) {
                 // Fallback to old system for backward compatibility
                 console.warn(`Cron job: Using fallback email-based auth for upload ${upload.id}`);
@@ -173,7 +175,7 @@ export async function GET(request) {
           }
           
           // إذا فشلت جميع المحاولات
-          if (!accessToken) {
+          if (!result || tokenError || !accessToken) {
             throw new Error(tokenError ? 
               `Authentication failed after multiple attempts: ${tokenError.message}` : 
               'Failed to get valid access token for user after multiple attempts');
@@ -436,4 +438,4 @@ export async function GET(request) {
       { status: 500 }
     );
   }
-} 
+}

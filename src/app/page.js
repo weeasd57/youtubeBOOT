@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useSession, signIn } from 'next-auth/react';
 import { FaGoogle, FaYoutube, FaFileVideo, FaCode, FaTimes, FaUserFriends, FaExchangeAlt, FaCalendarAlt, FaArrowsAlt, FaCloudUploadAlt } from 'react-icons/fa';
 import { useRouter } from 'next/navigation';
@@ -40,6 +40,9 @@ function LandingPageContent() {
   const [showJsonSample, setShowJsonSample] = useState(false);
   const { refreshConnection, connectionStatus, error: channelError } = useYouTubeChannel();
 
+  // Ref to track if the initial YouTube connection attempt has been made
+  const initialConnectionAttempted = useRef(false);
+
   // Redirect to home page if authenticated
   useEffect(() => {
     if (status === 'authenticated') {
@@ -49,10 +52,14 @@ function LandingPageContent() {
 
   // Initialize YouTube channel connection if authenticated
   useEffect(() => {
-    if (status === 'authenticated' && connectionStatus === 'unknown') {
+    if (status === 'authenticated' && connectionStatus === 'unknown' && !initialConnectionAttempted.current) {
+      initialConnectionAttempted.current = true; // Mark as attempted
       refreshConnection(true).catch(err => {
         console.error('Failed to refresh YouTube connection:', err);
       });
+    } else if (status === 'unauthenticated') {
+      // Reset the flag if the user logs out
+      initialConnectionAttempted.current = false;
     }
   }, [status, connectionStatus, refreshConnection]);
 
@@ -78,7 +85,7 @@ function LandingPageContent() {
               <div className="w-20 h-20 relative">
                 <Image 
                   src="/android-chrome-192x192.png" 
-                  alt="YouTube Boot"
+                  alt="Uploader"
                   width={80}
                   height={80}
                   className="rounded-lg shadow-lg"
@@ -86,7 +93,7 @@ function LandingPageContent() {
               </div>
             </div>
             <h1 className="text-5xl font-bold text-gray-900 dark:text-amber-50 mb-4">
-              YouTube Boot
+              Uploader
             </h1>
             <h2 className="text-3xl font-bold text-gray-800 dark:text-amber-100 mb-4">
               Manage Multiple Accounts, One Dashboard
@@ -262,10 +269,10 @@ function LandingPageContent() {
         <section className="py-16 px-4 bg-amber-50 dark:bg-amber-900/10 border-t border-amber-100 dark:border-amber-900/20">
           <div className="max-w-4xl mx-auto text-center">
             <h2 className="text-3xl font-bold text-gray-900 dark:text-amber-50 mb-4">
-              Ready to Streamline Your YouTube Workflow?
+              Ready to Streamline Your Workflow?
             </h2>
             <p className="text-xl text-gray-600 dark:text-amber-200/70 mb-8">
-              Manage multiple accounts, schedule uploads, and grow your YouTube presence with ease
+              Manage multiple accounts, schedule uploads, and grow your online presence with ease
             </p>
             <button
               onClick={() => signIn('google')}
@@ -283,13 +290,13 @@ function LandingPageContent() {
             <div className="w-10 h-10 relative mr-3">
               <Image 
                 src="/android-chrome-192x192.png" 
-                alt="YouTube Boot"
+                alt="Uploader"
                 width={40}
                 height={40}
                 className="rounded-md"
               />
             </div>
-            <span className="text-gray-700 dark:text-gray-300 font-medium">YouTube Boot</span>
+            <span className="text-gray-700 dark:text-gray-300 font-medium">Uploader</span>
           </div>
           
           <div className="flex flex-wrap gap-4 justify-center items-center">

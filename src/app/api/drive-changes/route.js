@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { authOptions } from '../auth/[...nextauth]/options';
 import { getValidAccessToken } from '@/utils/refreshToken';
 import { supabaseAdmin } from '@/utils/supabase';
+import { isAuthError } from '@/utils/apiHelpers';
 
 // Helper function for executing Google Drive API calls with retry logic
 async function executeGoogleDriveAPIWithRetry(apiCall, options = {}) {
@@ -37,10 +38,8 @@ async function executeGoogleDriveAPIWithRetry(apiCall, options = {}) {
         (error.response?.status >= 500 && error.response?.status < 600) ||
         error.response?.status === 429;
       
-      // Don't retry on authentication or permission errors
-      const isAuthError = 
-        error.response?.status === 401 || 
-        error.response?.status === 403;
+
+
       
       if (!isTransientError || isAuthError || attempt === maxRetries) {
         throw error;
@@ -115,9 +114,11 @@ export async function GET() {
     }
 
     // Try to get a valid access token, refreshing if necessary
-    const accessToken = await getValidAccessToken(authUserId, activeAccountId);
+        const result = await getValidAccessToken(authUserId, activeAccountId);
+    const accessToken = result?.accessToken;
+    const tokenError = result?.error;
     
-    if (!accessToken) {
+    if (!result || tokenError || !accessToken) {
       console.error("Failed to get valid access token");
       return NextResponse.json({ error: 'Invalid access token' }, { status: 401 });
     }
@@ -334,4 +335,4 @@ export async function GET() {
       { status }
     );
   }
-} 
+}

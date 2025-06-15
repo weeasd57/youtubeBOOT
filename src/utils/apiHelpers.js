@@ -145,7 +145,7 @@ if (typeof window !== 'undefined') {
  * @param {Function} options.onRetry - Callback function when a retry occurs
  * @returns {Promise} - Result of the function execution
  */
-export async function withRetry(fn, options = {}) {
+export async function withRetryFunction(fn, options = {}) {
   const {
     maxRetries = RETRY_CONFIG.MAX_RETRIES,
     initialDelay = RETRY_CONFIG.BASE_DELAY,
@@ -204,7 +204,7 @@ export async function withRetry(fn, options = {}) {
  * @returns {Promise} - Result of the function execution
  */
 export function withAuthRetry(fn, options = {}) {
-  return withRetry(fn, {
+  return withRetryFunction(fn, {
     maxRetries: -1, // Infinite retries for auth issues
     initialDelay: 5000, // Start with a 5 second delay
     maxDelay: 30000, // Cap at 30 seconds
@@ -222,6 +222,11 @@ export function withAuthRetry(fn, options = {}) {
  * @param {Error} error - The error to check
  * @returns {Boolean} - True if it's a quota error
  */
+export function isAuthError(error) {
+  return error.response?.status === 401 || 
+         error.response?.status === 403;
+}
+
 export function isQuotaError(error) {
   // Check various error formats that could indicate a quota issue
   if (!error) return false;
@@ -255,115 +260,18 @@ export function isQuotaError(error) {
 }
 
 /**
- * Determine if an error is due to authentication issues
- * @param {Error} error - The error to check
- * @returns {Boolean} - True if it's an authentication error
+ * Executes a fetch request with exponential backoff retry logic
+ * @param {string} url - The URL to fetch
+ * @param {Object} options - Fetch options
+ * @param {Object} retryOptions - Configuration options for retry
+ * @param {Number} retryOptions.maxRetries - Maximum number of retry attempts (default: 5)
+ * @param {Number} retryOptions.initialDelay - Initial delay in ms (default: 1000)
+ * @param {Number} retryOptions.maxDelay - Maximum delay in ms (default: 30000)
+ * @param {Number} retryOptions.factor - Backoff factor (default: 2)
+ * @param {Array} retryOptions.retryOnStatus - HTTP status codes to retry on (default: [429, 500, 502, 503, 504])
+ * @param {Boolean} retryOptions.retryOnNetworkError - Whether to retry on network errors (default: true)
+ * @returns {Promise<Response>} - The fetch response
  */
-export function isAuthError(error) {
-  if (!error) return false;
-  
-  // Check for common auth error status codes
-  const statusCode = error.status || error.code || error.response?.status || 0;
-  const hasAuthStatusCode = statusCode === 401 || statusCode === 403;
-  
-  // Check for auth error messages
-  const errorMessage = (error.message || '').toLowerCase();
-  const hasAuthInMessage = errorMessage.includes('auth') || 
-                          errorMessage.includes('unauthorized') ||
-                          errorMessage.includes('unauthenticated') ||
-                          errorMessage.includes('invalid_grant') ||
-                          errorMessage.includes('invalid credentials');
-  
-  // Check for auth error in Google API error details
-  const errors = error.errors || (error.response?.data?.error?.errors) || [];
-  const hasAuthError = errors.some(err => 
-    err.reason === 'authError' || 
-    (err.message && (
-      err.message.toLowerCase().includes('auth') ||
-      err.message.toLowerCase().includes('credentials')
-    ))
-  );
-  
-  return hasAuthStatusCode || hasAuthInMessage || hasAuthError;
-}
-
-/**
- * Creates a retry loop that runs until successful or explicitly stopped
- * @param {Function} fn - The async function to execute on each retry
- * @param {Object} options - Configuration options
- * @returns {Object} - Control methods: start(), stop(), isRunning()
- */
-export function createPersistentRetry(fn, options = {}) {
-  const {
-    initialDelay = 5000,
-    maxDelay = 60000,
-    onSuccess = () => {},
-    onError = () => {},
-    onRetry = () => {},
-    getDelayMultiplier = () => 1,
-  } = options;
-  
-  let isRunning = false;
-  let retryCount = 0;
-  let timeoutId = null;
-  
-  const stop = () => {
-    isRunning = false;
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-      timeoutId = null;
-    }
-  };
-  
-  const retry = async () => {
-    if (!isRunning) return;
-    
-    try {
-      const result = await fn();
-      onSuccess(result);
-      stop(); // Stop retrying on success
-      return result;
-    } catch (error) {
-      retryCount++;
-      onError(error, retryCount);
-      
-      if (isRunning) {
-        // Calculate next delay with exponential backoff and jitter
-        const multiplier = getDelayMultiplier(error) || 1;
-        const baseDelay = Math.min(
-          maxDelay,
-          initialDelay * Math.pow(1.5, Math.min(retryCount, 12)) * multiplier
-        );
-        const delay = baseDelay * (0.75 + Math.random() * 0.5); // Add jitter (±25%)
-        
-        onRetry({
-          error,
-          retryCount,
-          delay,
-          nextAttemptTime: new Date(Date.now() + delay)
-        });
-        
-        // Schedule next retry
-        timeoutId = setTimeout(retry, delay);
-      }
-    }
-  };
-  
-  const start = () => {
-    if (isRunning) return;
-    isRunning = true;
-    retryCount = 0;
-    retry();
-  };
-  
-  return {
-    start,
-    stop,
-    isRunning: () => isRunning
-  };
-}
-
-// Generic API call function with retry logic
 export async function fetchWithRetry(url, options = {}, retryOptions = {}) {
   const {
     maxRetries = RETRY_CONFIG.MAX_RETRIES,
@@ -382,7 +290,7 @@ export async function fetchWithRetry(url, options = {}, retryOptions = {}) {
     try {
       const controller = new AbortController();
       const timeoutId = options.timeout 
-        ? setTimeout(() => controller.abort(), options.timeout) 
+        ? setTimeout(() => controller.abort(new Error('Request timeout')), options.timeout) 
         : null;
 
       // Add the abort signal to our fetch options if not already present
@@ -476,4 +384,4 @@ export async function postWithRetry(url, data, options = {}, retryOptions = {}) 
     timeout: options.timeout || API_TIMEOUTS.DEFAULT,
     ...options
   }, retryOptions);
-} 
+}

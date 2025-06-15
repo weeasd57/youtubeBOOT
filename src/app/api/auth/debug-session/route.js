@@ -15,10 +15,11 @@ export async function GET() {
       user: session?.user ? {
         email: session.user.email,
         name: session.user.name,
-        id: session.user.id
+        id: session.user.id,
+        auth_user_id: session.user.auth_user_id
       } : null,
-      authUserId: session?.authUserId,
-      activeAccountId: session?.activeAccountId,
+      authUserId: session?.user?.auth_user_id,
+      activeAccountId: session?.active_account_id,
       hasAccessToken: !!session?.accessToken,
       hasRefreshToken: !!session?.refreshToken,
       provider: session?.provider,
@@ -26,7 +27,7 @@ export async function GET() {
     };
     
     // If we have a user email but missing auth data, try to fetch from database
-    if (session?.user?.email && (!session.authUserId || !session.activeAccountId)) {
+    if (session?.user?.email && (!session.user?.auth_user_id || !session.active_account_id)) {
       try {
         // Get the user's auth ID from Supabase
         const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.getUserByEmail(session.user.email);

@@ -55,7 +55,7 @@ export async function GET(request) {
     }
     
     // Check if the account belongs to the logged-in user
-    if (account.owner_id !== session.authUserId) {
+    if (account.owner_id !== session.user?.auth_user_id) {
       return NextResponse.json(
         { error: 'Forbidden', message: 'You do not have access to this account' }, 
         { status: 403 }
@@ -63,75 +63,12 @@ export async function GET(request) {
     }
     
     try {
-      // Get token for this specific account's email (bypassing getValidAccessToken)
-      const { data: tokenData, error: tokenError } = await supabaseAdmin
-        .from('user_tokens')
-        .select('access_token, refresh_token, expires_at')
-        .eq('user_email', account.email)
-        .single();
+      console.log(`Getting a valid access token for accountId: ${accountId}`);
+          const result = await getValidAccessToken(session.user.auth_user_id, accountId);
+    const accessToken = result?.accessToken;
+    const tokenError = result?.error;
       
-      console.log(`Looking for tokens with email: ${account.email}`);
-      
-      let accessToken;
-      
-      if (tokenError || !tokenData || !tokenData.access_token) {
-        console.log('No token found for account email, using getValidAccessToken as fallback');
-        // Fall back to getValidAccessToken if no direct token found
-        accessToken = await getValidAccessToken(session.authUserId, accountId);
-      } else {
-        console.log('Found token for account email');
-        
-        // Check if token is expired
-        const expiryTime = new Date(tokenData.expires_at * 1000);
-        const safeExpiryTime = new Date(expiryTime.getTime() - 5 * 60 * 1000);
-        
-        if (safeExpiryTime > new Date()) {
-          console.log('Token is still valid');
-          accessToken = tokenData.access_token;
-        } else {
-          console.log('Token is expired, refreshing');
-          // Token expired, refresh it
-          // Initialize OAuth2 client
-          const oauth2Client = new google.auth.OAuth2(
-            process.env.GOOGLE_CLIENT_ID,
-            process.env.GOOGLE_CLIENT_SECRET,
-            process.env.GOOGLE_REDIRECT_URI
-          );
-          
-          // Set the refresh token
-          oauth2Client.setCredentials({
-            refresh_token: tokenData.refresh_token,
-          });
-          
-          try {
-            // Refresh the token
-            const { credentials } = await oauth2Client.refreshAccessToken();
-            
-            console.log('Token refreshed successfully');
-            
-            accessToken = credentials.access_token;
-            const refreshToken = credentials.refresh_token || tokenData.refresh_token;
-            const expiresAt = Math.floor(Date.now() / 1000 + credentials.expires_in);
-            
-            // Update token in database
-            await supabaseAdmin
-              .from('user_tokens')
-              .update({
-                access_token: accessToken,
-                refresh_token: refreshToken,
-                expires_at: expiresAt,
-                updated_at: new Date().toISOString()
-              })
-              .eq('user_email', account.email);
-          } catch (refreshError) {
-            console.error('Error refreshing token:', refreshError);
-            // Fall back to getValidAccessToken
-            accessToken = await getValidAccessToken(session.authUserId, accountId);
-          }
-        }
-      }
-      
-      if (!accessToken) {
+      if (!result || tokenError || !accessToken) {
         return NextResponse.json({
           success: false,
           status: 'disconnected',
@@ -214,4 +151,4 @@ export async function GET(request) {
       { status: 500 }
     );
   }
-} 
+}

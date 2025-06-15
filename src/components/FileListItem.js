@@ -149,12 +149,14 @@ export default function FileListItem({
             </span>
           ) : videoData && !hasDescription && !loading ? (
             <span>No description available.</span>
-          ) : !loading && !videoData && !extractVideoId(file.name) ? ( // If no videoId could be extracted
-            <span>Invalid filename (no ID)</span>
-          ) : !loading && !videoData ? ( 
-            <span>{extractVideoId(file.name) || file.id.substring(0,12)}... (No metadata)</span>
-          ) : (
-             <span>{extractVideoId(file.name) || file.id.substring(0, 12)}...</span>
+          ) : !loading && !extractVideoId(file.name) ? (
+             <span className="truncate" title={file.name}>
+               {file.name.length > 50 ? `${file.name.substring(0, 47)}...` : file.name}
+             </span>
+           ) : !loading && !videoData ? ( 
+             <span>{extractVideoId(file.name) || file.id.substring(0,12)}... (No metadata)</span>
+           ) : (
+              <span>{extractVideoId(file.name) || file.id.substring(0, 12)}...</span>
           )}
         </div>
         {hasHashtags && (

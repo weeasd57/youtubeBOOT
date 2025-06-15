@@ -19,6 +19,9 @@ export function useDataFetching() {
   const [errorAny, setErrorAny] = useState(null);
   const [lastRefresh, setLastRefresh] = useState(null);
   
+  // Ref to track if initial data fetch has occurred
+  const hasFetchedInitialData = useRef(false);
+  
   // Get context values
   const { 
     loading: driveLoading, 
@@ -89,52 +92,49 @@ export function useDataFetching() {
       // If user is not authenticated, initial loading is done (no data to load)
       console.log('User is unauthenticated, setting initialLoading to false');
       setInitialLoading(false);
+      // Reset hasFetchedInitialData when unauthenticated to allow re-fetch on re-login
+      hasFetchedInitialData.current = false;
       return;
     }
 
     // If status === 'authenticated'
-    if (initialLoading) {
+    if (status === 'authenticated' && !hasFetchedInitialData.current) {
       console.log('Initial loading phase, activeAccount:', activeAccount);
       
-      // Set a timeout to ensure we don't get stuck in loading state
-      const loadingTimeout = setTimeout(() => {
-        console.log('Loading timeout reached, forcing initialLoading to false');
-        setInitialLoading(false);
-      }, 5000); // 5 seconds timeout
-      
       if (activeAccount) {
-        // If there's an active account, start fetching data
-        console.log('useDataFetching: Active account present, refreshing all data.');
+        // If there's an active account, start fetching data for the first time
+        console.log('useDataFetching: Active account present and initial fetch not done, refreshing all data.');
         refreshAll(false); // Use cache if available for the first load
+        hasFetchedInitialData.current = true; // Mark initial fetch as done
       } else {
-        // If no active account, but session is authenticated, initial loading is done
+        // If no active account, but session is authenticated, initial loading is considered done for now.
         console.log('useDataFetching: No active account, initial loading considered done for now.');
+        setInitialLoading(false);
+        hasFetchedInitialData.current = true; // Mark as done even if no account, to prevent re-running this block
       }
-      
-      // Clear the timeout and set initialLoading to false
-      clearTimeout(loadingTimeout);
+      // No need for timeout here, as we're controlling `hasFetchedInitialData`
       setInitialLoading(false);
-      
-      return () => clearTimeout(loadingTimeout);
+      return;
     }
     
-    // Handle activeAccount changes after initial load
-    const activeAccountChanged = prevActiveAccountRef.current !== activeAccount;
-    if (activeAccountChanged && activeAccount) {
+    // Handle activeAccount changes after initial load is definitively done
+    const activeAccountChanged = prevActiveAccountRef.current?.id !== activeAccount?.id;
+    if (status === 'authenticated' && activeAccountChanged && activeAccount) {
       console.log('Active account changed to:', activeAccount.id, 'refreshing data...');
       refreshAll(true); // Force refresh on account change
     }
     
-    // Update the previous activeAccount ref
+    // Update the previous activeAccount ref only after all checks
     prevActiveAccountRef.current = activeAccount;
     
 
-  }, [status, activeAccount, initialLoading, refreshAll]);
+  }, [status, activeAccount, refreshAll]); // Removed initialLoading from dependencies
   
   // When the session changes (user logs out), reset the loading state
   useEffect(() => {
     if (status === 'unauthenticated') {
       setInitialLoading(true); // Reset for potential re-login
+      hasFetchedInitialData.current = false; // Allow re-fetch on re-login
       // Optionally, clear any fetched data here if needed
       // e.g., by calling clear functions from contexts if they exist
     }

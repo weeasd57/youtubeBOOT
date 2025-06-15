@@ -88,9 +88,9 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
                     />
                   </div>
                   <h1 className="text-sm sm:text-base md:text-lg font-bold tracking-tight dark:text-amber-50 bg-gradient-to-r from-amber-600 to-amber-400 bg-clip-text text-transparent whitespace-nowrap truncate">
-                    <span className="hidden md:inline">YouTube Drive Uploader</span>
-                    <span className="hidden sm:inline md:hidden">YouTube Uploader</span>
-                    <span className="sm:hidden">YT Boot</span>
+                    <span className="hidden md:inline">Uploader</span>
+                    <span className="hidden sm:inline md:hidden">Uploader</span>
+                    <span className="sm:hidden">Uploader</span>
                   </h1>
                 </div>
                 
@@ -173,9 +173,9 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
                 />
               </div>
               <h1 className="text-sm lg:text-base xl:text-lg font-bold tracking-tight dark:text-amber-50 bg-gradient-to-r from-amber-600 to-amber-400 bg-clip-text text-transparent whitespace-nowrap">
-                <span className="hidden xl:inline">YouTube Drive Uploader</span>
-                <span className="hidden lg:inline xl:hidden">YouTube Uploader</span>
-                <span className="lg:hidden">YT Upload</span>
+                <span className="hidden xl:inline">Uploader</span>
+                <span className="hidden lg:inline xl:hidden">Uploader</span>
+                <span className="lg:hidden">Uploader</span>
               </h1>
             </div>
             
@@ -349,7 +349,7 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
                 />
               </div>
               <span className="font-semibold text-sm text-transparent bg-clip-text bg-gradient-to-r from-amber-600 to-amber-400 dark:from-amber-400 dark:to-amber-300">
-                YouTube Upload
+                Uploader
               </span>
             </Link>
 

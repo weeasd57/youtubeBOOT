@@ -8,18 +8,24 @@ export async function GET(request) {
     // Get the user session
     const session = await getServerSession(authOptions);
 
-    if (!session || !session.activeAccountId) {
-      return NextResponse.json({ error: 'Not authenticated or active account not set' }, { status: 401 });
+    if (!session || !session.user?.auth_user_id || !session.active_account_id) {
+      console.log('Session missing required fields:', {
+        hasSession: !!session,
+        hasUser: !!session?.user,
+        hasAuthUserId: !!session?.user?.auth_user_id,
+        hasActiveAccountId: !!session?.active_account_id
+      });
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    const activeAccountId = session.activeAccountId;
+    const activeAccountId = session.active_account_id;
     console.log(`API route: Fetching TikTok videos for account ID: ${activeAccountId}`);
 
     // First get the user's email associated with the account
     const { data: user, error: userError } = await supabaseAdmin
       .from('users')
       .select('email')
-      .eq('id', session.authUserId)
+      .eq('id', session.user.auth_user_id)
       .single();
       
     if (userError || !user || !user.email) {

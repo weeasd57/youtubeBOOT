@@ -16,8 +16,10 @@ export function UserProvider({ children }) {
   // Fetch user data from our API endpoint
   const fetchUserData = useCallback(async () => {
     if (status !== 'authenticated' || !session?.user?.email) {
+      console.log('User not authenticated or email missing');
       setUser(null);
       setLoading(false);
+      setError(null);
       return;
     }
 
@@ -26,16 +28,20 @@ export function UserProvider({ children }) {
       setError(null);
       
       const response = await fetch('/api/user');
-      const data = await response.json();
-      
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to fetch user data');
+        const data = await response.json();
+        console.log('User API response not ok:', data);
+        setUser(null);
+        setError(data.error || 'Failed to fetch user data');
+        return;
       }
       
+      const data = await response.json();
       setUser(data.user);
     } catch (error) {
       console.error('Error fetching user data:', error);
-      setError(error.message || 'Error fetching user data');
+      setUser(null);
+      setError('Error fetching user data');
     } finally {
       setLoading(false);
     }
@@ -74,6 +80,10 @@ export function UserProvider({ children }) {
 
   // Effect for initial data load and session changes
   useEffect(() => {
+    if (status === 'loading') {
+      setLoading(true);
+      return;
+    }
     fetchUserData();
   }, [session?.user?.email, status]); // Use stable dependencies instead of fetchUserData
 

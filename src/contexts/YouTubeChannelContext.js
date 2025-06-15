@@ -1,7 +1,8 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { isQuotaError } from '@/utils/apiHelpers';
+import { useAccounts } from '@/contexts/AccountContext'; // Import useAccounts
 
 // Create context
 const YouTubeChannelContext = createContext(null);
@@ -36,73 +37,16 @@ export function YouTubeChannelProvider({ children }) {
     connectionHistory: []
   });
   
-  // مراجع لتتبع وقت آخر تحديث - moved inside component
+  // مراجع لتتبع وقت آخر تحديث
   const lastRefreshTimeRef = useRef(0);
-  // مرجع لتتبع ما إذا تم تجاوز الحصة - moved inside component
+  // مرجع لتتبع ما إذا تم تجاوز الحصة
   const quotaExceededTimeRef = useRef(0);
   
-  // Add a reference for the current active account
-  const activeAccountRef = useRef(null);
+  // Use activeAccount directly from useAccounts
+  const { activeAccount } = useAccounts();
 
-  // Check for account changes and refresh connection when the active account changes
-  useEffect(() => {
-    // Listen for storage events to detect account changes across tabs
-    const handleStorageChange = (e) => {
-      if (e.key === 'accountSwitched' && e.newValue === 'true') {
-        debugLog('Account switched detected, refreshing connection');
-        // Clear local storage flag
-        localStorage.removeItem('accountSwitched');
-        
-        // Reset connection status and channel info
-        setConnectionStatus('unknown');
-        setChannelInfo(null);
-        
-        // Force a refresh of the connection
-        refreshConnection(true).catch(err => {
-          debugLog('Error refreshing connection after account switch', err);
-        });
-      }
-    };
-    
-    // Add event listener
-    if (typeof window !== 'undefined') {
-      window.addEventListener('storage', handleStorageChange);
-      
-      // Also check on mount if there was a recent account switch
-      const accountSwitchedTimestamp = localStorage.getItem('accountSwitchedTimestamp');
-      if (accountSwitchedTimestamp) {
-        const timestamp = parseInt(accountSwitchedTimestamp, 10);
-        const now = Date.now();
-        // If the account was switched in the last 5 seconds
-        if (now - timestamp < 5000) {
-          debugLog('Recent account switch detected, refreshing connection');
-          localStorage.removeItem('accountSwitchedTimestamp');
-          localStorage.removeItem('accountSwitched');
-          
-          // Reset connection status and channel info
-          setConnectionStatus('unknown');
-          setChannelInfo(null);
-          
-          // Force a refresh of the connection after a short delay
-          setTimeout(() => {
-            refreshConnection(true).catch(err => {
-              debugLog('Error refreshing connection after recent account switch', err);
-            });
-          }, 500);
-        }
-      }
-    }
-    
-    // Cleanup
-    return () => {
-      if (typeof window !== 'undefined') {
-        window.removeEventListener('storage', handleStorageChange);
-      }
-    };
-  }, []);
-
-  // التحقق مما إذا كان التحديث مسموحًا بناءً على حدود المعدل - moved inside component
-  const canRefresh = (forceRefresh = false) => {
+  // التحقق مما إذا كان التحديث مسموحًا بناءً على حدود المعدل
+  const canRefresh = useCallback((forceRefresh = false) => {
     const now = Date.now();
     
     // إذا تم تجاوز الحصة، فرض فترة انتظار أطول
@@ -123,7 +67,7 @@ export function YouTubeChannelProvider({ children }) {
     }
     
     return true;
-  };
+  }, []); // canRefresh doesn't depend on external state that changes
 
   // Log state changes for debugging
   useEffect(() => {
@@ -149,9 +93,18 @@ export function YouTubeChannelProvider({ children }) {
   };
 
   // دالة تحديث الاتصال الحقيقية
-  const refreshConnection = async (forceRefresh = false) => {
-    // التحقق مما إذا كان مسموحًا لنا بالتحديث بناءً على حدود المعدل
+  const refreshConnection = useCallback(async (forceRefresh = false) => {
+    const currentActiveAccountId = activeAccount?.id; // Use activeAccount directly
+    if (!currentActiveAccountId) {
+      debugLog('refreshConnection: No active account ID to refresh.', null, 'warn');
+      setConnectionStatus('disconnected');
+      setChannelInfo(null);
+      setLoading(false);
+      return { success: false, error: 'No active account to refresh.' };
+    }
+
     if (!canRefresh(forceRefresh)) {
+      debugLog('refreshConnection: Rate limited or not forcing refresh.', null, 'info');
       return { 
         success: false, 
         error: 'تم تحديد المعدل. يرجى المحاولة مرة أخرى لاحقًا.',
@@ -159,29 +112,23 @@ export function YouTubeChannelProvider({ children }) {
       };
     }
     
-    // تحديث وقت آخر تحديث
     lastRefreshTimeRef.current = Date.now();
-    
     const startTime = Date.now();
     const attemptId = `attempt-${Date.now()}`;
     
     try {
-      // تعيين حالة التحميل
       setLoading(true);
       setError(null);
       
-      // تسجيل بدء المحاولة
-      debugLog('بدأت محاولة الاتصال', { attemptId, forceRefresh });
+      debugLog('بدأت محاولة الاتصال', { attemptId, forceRefresh, accountId: currentActiveAccountId });
       
-      // استدعاء نقطة النهاية الحقيقية
-      const response = await fetch('/api/youtube/connection-status', {
+      // Pass accountId as a query parameter to the API route
+      const response = await fetch(`/api/youtube/connection-status?accountId=${currentActiveAccountId}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-          // إضافة عناوين التحكم في التخزين المؤقت إذا كان forceRefresh صحيحًا
           ...(forceRefresh ? { 'Cache-Control': 'no-cache, no-store, must-revalidate' } : {})
         },
-        // منع التخزين المؤقت إذا كان forceRefresh صحيحًا
         cache: forceRefresh ? 'no-store' : 'default'
       });
       
@@ -313,7 +260,54 @@ export function YouTubeChannelProvider({ children }) {
         duration: Date.now() - startTime 
       });
     }
-  };
+  }, [activeAccount, canRefresh]); // Dependencies for useCallback
+
+  // Effect to trigger refreshConnection when activeAccount changes
+  useEffect(() => {
+    if (activeAccount) {
+      debugLog('Active account changed, triggering connection refresh.', activeAccount.id);
+      setConnectionStatus('unknown');
+      setChannelInfo(null);
+      setError(null); 
+      
+      refreshConnection(true).catch(err => {
+        debugLog('Error refreshing connection after active account change', err);
+      });
+    } else {
+      debugLog('No active account, setting connection status to disconnected.');
+      setConnectionStatus('disconnected');
+      setChannelInfo(null);
+      setError(null);
+      setLoading(false);
+    }
+  }, [activeAccount, refreshConnection]); // Dependencies
+
+  // Keep the localStorage listener for cross-tab communication
+  useEffect(() => {
+    const handleStorageChange = (e) => {
+      if (e.key === 'accountSwitched' && e.newValue === 'true') {
+        debugLog('Account switched detected via storage event, confirming refresh.');
+        localStorage.removeItem('accountSwitched'); 
+
+        // Simplified logic: just trigger refresh if a switch event is detected
+        // The timestamp check and lastActiveAccountId check are removed as AccountContext
+        // does not store lastActiveAccountId and the primary useEffect handles same-tab changes.
+        refreshConnection(true).catch(err => {
+            debugLog('Error refreshing connection after storage account switch', err);
+        });
+      }
+    };
+    
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', handleStorageChange);
+    }
+    
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('storage', handleStorageChange);
+      }
+    };
+  }, [refreshConnection]); // Dependency changed from [activeAccount, refreshConnection] to [refreshConnection]
 
   // Mock reset cache function
   const resetCache = () => {

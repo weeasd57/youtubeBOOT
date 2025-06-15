@@ -62,7 +62,7 @@ export function useAuth() {
           const { data: userData, error: supabaseError } = await supabase
             .from('users')
             .select('*')
-            .eq('email', session.user.email)
+            .eq('id', session.user.id)
             .single();
 
           if (supabaseError) throw supabaseError;
@@ -75,31 +75,15 @@ export function useAuth() {
               setLoading(false);
             }
           } else {
-            // إذا لم يكن المستخدم موجودًا، قم بإنشائه
-            const { error: insertError } = await supabase
-              .from('users')
-              .insert([{
-                email: session.user.email,
-                name: session.user.name || session.user.email.split('@')[0],
-                role: 'user',
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-              }])
-              .select('*')
-              .single();
-
-            if (insertError) throw insertError;
-
+            console.warn('useAuth: User not found by ID on client; falling back to server-provided session data. No client-side insert performed.');
             if (isMounted) {
               setUserData({
+                id: session.user.id,
                 email: session.user.email,
-                name: session.user.name || session.user.email.split('@')[0],
-                role: 'user',
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
+                name: session.user.name || session.user.email?.split('@')[0] || 'User',
+                role: 'user'
               });
               setIsAdmin(false);
-              setError(null);
               setLoading(false);
             }
           }

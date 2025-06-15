@@ -12,8 +12,14 @@ export async function GET(request) {
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session || !session.authUserId || !session.activeAccountId) {
-      return NextResponse.json({ error: 'Not authenticated or active account not set' }, { status: 401 });
+    if (!session || !session.user?.auth_user_id || !session.active_account_id) {
+      console.log('Session missing required fields:', {
+        hasSession: !!session,
+        hasUser: !!session?.user,
+        hasAuthUserId: !!session?.user?.auth_user_id,
+        hasActiveAccountId: !!session?.active_account_id
+      });
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
     // Get folder ID from query parameters
@@ -24,15 +30,17 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Folder ID is required' }, { status: 400 });
     }
 
-    const authUserId = session.authUserId;
-    const activeAccountId = session.activeAccountId;
+    const authUserId = session.user.auth_user_id;
+    const activeAccountId = session.active_account_id;
     console.log(`Drive check-folder: Checking folder for Auth User ID: ${authUserId}, Account ID: ${activeAccountId}`);
 
     try {
       // Get a valid access token for the active account
-      const accessToken = await getValidAccessToken(authUserId, activeAccountId);
+          const result = await getValidAccessToken(authUserId, activeAccountId);
+    const accessToken = result?.accessToken;
+    const tokenError = result?.error;
       
-      if (!accessToken) {
+      if (!result || tokenError || !accessToken) {
         console.error(`Drive check-folder: Invalid access token for user ${authUserId}, account ${activeAccountId}`);
         return NextResponse.json({ error: 'Invalid access token. Please re-authenticate Google Drive for this account.' }, { status: 401 });
       }

@@ -10,6 +10,9 @@ const supabase = createClient(
 const LOG_TIMESTAMPS = new Map();
 const MIN_LOG_INTERVAL = 30000; // 30 seconds between similar logs
 
+// In-memory store for pending token refresh promises to deduplicate requests
+const pendingTokenRefreshes = new Map(); // Key: `${authUserId}-${accountId}`, Value: Promise
+
 /**
  * Controlled logging function that limits repeated logs
  * @param {string} message - Log message
@@ -61,11 +64,19 @@ export async function refreshAccessToken(email) {
         .from('user_tokens')
         .select('*')
         .eq('user_email', email)
-        .single();
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
       
       if (error || !userTokens) {
         throttledLog('Failed to get user tokens from database:', error, 'error');
-        throw new Error('User tokens not found in database');
+        // If maybeSingle returns null because no records match, userTokens will be null.
+        // We should treat this as an error as we expect a token.
+        if (!userTokens) {
+          throw new Error('User tokens not found in database for email: ' + email);
+        } else {
+          throw new Error(`Error fetching user tokens: ${error.message}`);
+        }
       }
       
       if (!userTokens.refresh_token) {
@@ -106,7 +117,7 @@ export async function refreshAccessToken(email) {
         const accessToken = credentials.access_token;
         const refreshToken = credentials.refresh_token || userTokens.refresh_token;
         const expiryDate = credentials.expiry_date;
-        const expiresAt = Math.floor(Date.now() / 1000 + expiryDate / 1000);
+        const expiresAt = Math.floor(credentials.expiry_date / 1000);
         const scopes = credentials.scope;
         
         // Update the tokens in the database
@@ -277,39 +288,41 @@ export async function refreshAccessToken(email) {
  * @returns {Promise<string|null>} Valid access token or null if unavailable
  */
 export async function getValidAccessToken(authUserId, accountId) {
+  const effectiveAccountId = accountId || authUserId;
+  const requestKey = `token-refresh-${effectiveAccountId}`;
+
   try {
-    if (!authUserId) {
-      console.error('getValidAccessToken: Missing required parameter (authUserId)');
-      return null;
+    if (!effectiveAccountId) {
+      console.error('getValidAccessToken: Missing required parameter (authUserId or accountId)');
+      return { success: false, error: 'Missing required parameter (authUserId or accountId)' };
     }
 
-    console.log(`getValidAccessToken: Fetching token for Auth User ID: ${authUserId}, Account ID: ${accountId || 'N/A'}`);
-
-    // Get user tokens from the session or, if available (but we're not counting on it), from the token store
-    const { data: user, error: userError } = await supabase
-      .from('users')
-      .select('email')
-      .eq('id', authUserId)
-      .single();
-
-    if (userError || !user || !user.email) {
-      console.error('getValidAccessToken: Error fetching user email:', userError?.message || 'User not found');
-      return null;
+    // If there's an ongoing refresh for this key, await it
+    if (pendingTokenRefreshes.has(requestKey)) {
+      console.log(`getValidAccessToken: Awaiting ongoing token refresh for ${effectiveAccountId}`);
+      return await pendingTokenRefreshes.get(requestKey);
     }
 
-    const userEmail = user.email;
-    console.log(`getValidAccessToken: Found user email: ${userEmail}`);
+    console.log(`getValidAccessToken: Fetching token for Account ID: ${effectiveAccountId}`);
 
-    // Fetch token data from the database based on user_email
+    // Fetch token data from the database. First try by `account_id`, then fallback to primary `id`
     const { data: tokenData, error } = await supabase
       .from('user_tokens')
-      .select('id, access_token, refresh_token, expires_at') // Select id as well for update
-      .eq('user_email', userEmail)
-      .single();
+      .select('id, account_id, access_token, refresh_token, expires_at')
+      // Supabase `or` filter lets us try multiple columns in a single query
+      .or(`account_id.eq.${effectiveAccountId},id.eq.${effectiveAccountId}`)
+      .maybeSingle(); // Expect one or zero tokens for a given account ID
 
     if (error || !tokenData) {
       console.error('getValidAccessToken: Error fetching user tokens:', error?.message || 'User tokens not found for this account');
-      return null;
+      // If maybeSingle returns null because no records match, tokenData will be null.
+      // We should return null in this case as no token was found.
+      if (!tokenData) {
+        console.error('getValidAccessToken: No user token found for account: ', effectiveAccountId);
+        return { success: false, error: 'No user token found for this account' };
+      } else {
+        return { success: false, error: error?.message || 'Failed to fetch user token' };
+      }
     }
 
     // Check if the current access token is still valid
@@ -318,9 +331,15 @@ export async function getValidAccessToken(authUserId, accountId) {
       // Add a safety margin of 5 minutes
       const safeExpiryTime = new Date(expiryTime.getTime() - 5 * 60 * 1000);
 
+      console.log(`Debug: Token expires_at (raw): ${tokenData.expires_at}`);
+      console.log(`Debug: expiryTime: ${expiryTime.toISOString()}`);
+      console.log(`Debug: safeExpiryTime (5min margin): ${safeExpiryTime.toISOString()}`);
+      console.log(`Debug: currentTime: ${new Date().toISOString()}`);
+      console.log(`Debug: Time remaining till safe expiry (seconds): ${Math.floor((safeExpiryTime.getTime() - new Date().getTime()) / 1000)}`);
+
       if (safeExpiryTime > new Date()) {
         console.log(`getValidAccessToken: Existing access token is valid for account ${accountId}`);
-        return tokenData.access_token;
+        return { success: true, accessToken: tokenData.access_token };
       }
     }
 
@@ -328,72 +347,84 @@ export async function getValidAccessToken(authUserId, accountId) {
     if (!tokenData.refresh_token) {
       console.error('getValidAccessToken: Refresh token not available for account:', accountId);
       // TODO: Handle this case - maybe prompt user to re-authenticate Google Drive for this account
-      return null;
+      return { success: false, error: 'Refresh token not available. Please re-authenticate.' };
     }
 
     console.log(`getValidAccessToken: Access token expired, attempting refresh for account ${accountId}`);
 
-    // Initialize OAuth2 client
-    const oauth2Client = new google.auth.OAuth2(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET,
-      process.env.GOOGLE_REDIRECT_URI // Or your redirect URI
-    );
+    // Create a new promise for the refresh operation and store it
+    const refreshPromise = (async () => {
+      // Initialize OAuth2 client
+      const oauth2Client = new google.auth.OAuth2(
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET,
+        process.env.GOOGLE_REDIRECT_URI // Or your redirect URI
+      );
 
-    // Check if client ID and secret are available
-    if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-      console.error('getValidAccessToken: Missing Google OAuth credentials in environment variables');
-      return null;
-    }
-
-    // Set the refresh token
-    oauth2Client.setCredentials({
-      refresh_token: tokenData.refresh_token,
-    });
-
-    try {
-      // Refresh the token
-      const { credentials } = await oauth2Client.refreshAccessToken();
-
-      console.log(`getValidAccessToken: Token refreshed successfully for account ${accountId}`);
-
-      const accessToken = credentials.access_token;
-      const refreshToken = credentials.refresh_token || tokenData.refresh_token; // Use new refresh token if provided
-      const expiresAt = Math.floor(Date.now() / 1000 + credentials.expires_in); // Store as Unix timestamp
-
-      // Update the tokens in the database using the token record ID
-      const { error: updateError } = await supabase
-        .from('user_tokens')
-        .update({
-          access_token: accessToken,
-          refresh_token: refreshToken,
-          expires_at: expiresAt,
-          updated_at: new Date().toISOString(),
-          // Reset retry count or error flags if you have them
-        })
-        .eq('id', tokenData.id); // Update using the fetched record ID
-
-      if (updateError) {
-        console.error('getValidAccessToken: Error updating tokens in database:', updateError.message);
-        // Decide how to handle this error - maybe log and continue, or return null
-        return null; // Return null if database update fails
+      // Check if client ID and secret are available
+      if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+        console.error('getValidAccessToken: Missing Google OAuth credentials in environment variables');
+        return { success: false, error: 'Missing Google OAuth credentials' };
       }
 
-      console.log(`getValidAccessToken: Database updated with new token for account ${accountId}`);
-      return accessToken; // Return the new valid access token
+      // Set the refresh token
+      oauth2Client.setCredentials({
+        refresh_token: tokenData.refresh_token,
+      });
 
-    } catch (refreshError) {
-      console.error('getValidAccessToken: Error refreshing token with Google OAuth:', refreshError);
+      try {
+        // Refresh the token
+        const { credentials } = await oauth2Client.refreshAccessToken();
 
-      // TODO: Implement more specific error handling for refresh errors
-      // e.g., revoked access (invalid_grant), network errors, etc.
-      // Based on the error, you might need to prompt the user to re-authenticate.
+        console.log(`getValidAccessToken: Token refreshed successfully for account ${accountId}`);
 
-      return null; // Return null if token refresh fails
-    }
+        const accessToken = credentials.access_token;
+        const refreshToken = credentials.refresh_token || tokenData.refresh_token; // Use new refresh token if provided
+        const expiresAt = Math.floor(credentials.expiry_date / 1000);
+
+        // Update the tokens in the database using the token record ID
+        const { error: updateError } = await supabase
+          .from('user_tokens')
+          .update({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+            expires_at: expiresAt,
+            updated_at: new Date().toISOString(),
+            // Reset retry count or error flags if you have them
+          })
+          .eq('id', tokenData.id); // Update using the fetched record ID
+
+        if (updateError) {
+          console.error('getValidAccessToken: Error updating tokens in database:', updateError.message);
+          // Decide how to handle this error - maybe log and continue, or return null
+          return { success: false, error: `Failed to update token in DB: ${updateError.message}` }; // Return null if database update fails
+        }
+
+        console.log(`getValidAccessToken: Database updated with new token for account ${accountId}`);
+        return { success: true, accessToken }; // Return the new valid access token
+
+      } catch (refreshError) {
+        console.error('getValidAccessToken: Error refreshing token with Google OAuth:', refreshError);
+        return { success: false, error: refreshError.message || 'Failed to refresh token' }; // Return null if token refresh fails
+      } finally {
+        // Ensure the promise is removed from the map after completion (success or failure)
+        pendingTokenRefreshes.delete(requestKey);
+      }
+    })();
+
+    pendingTokenRefreshes.set(requestKey, refreshPromise);
+    const result = await refreshPromise;
+    return result;
+
   } catch (error) {
     console.error('getValidAccessToken: Unexpected error:', error);
-    return null;
+    // Ensure the promise is removed from the map if an unexpected error occurs outside the refreshPromise
+    // This might require re-thinking if `requestKey` is defined here in the outer catch.
+    // For now, it's generally safer to remove it within the refreshPromise's finally block.
+    if (pendingTokenRefreshes.has(requestKey)) {
+        pendingTokenRefreshes.delete(requestKey);
+    }
+    return { success: false, error: error.message || 'An unexpected error occurred' };
   }
 }
 

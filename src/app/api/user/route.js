@@ -8,18 +8,20 @@ export async function GET() {
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session || !session.authUserId) {
+    if (!session?.user?.auth_user_id) {
+      console.log('Session or auth_user_id missing:', session?.user);
       return NextResponse.json({ error: 'Not authenticated or user ID missing' }, { status: 401 });
     }
 
-    // Get user data from Supabase using authUserId
+    // Get user data from Supabase using auth_user_id
     const { data, error } = await supabaseAdmin
       .from('users')
       .select('*')
-      .eq('id', session.authUserId)
+      .eq('id', session.user.auth_user_id)
       .single();
     
     if (error) {
+      console.error('Supabase error:', error);
       throw error;
     }
     
@@ -38,7 +40,8 @@ export async function PATCH(request) {
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session || !session.authUserId) {
+    if (!session?.user?.auth_user_id) {
+      console.log('Session or auth_user_id missing:', session?.user);
       return NextResponse.json({ error: 'Not authenticated or user ID missing' }, { status: 401 });
     }
 
@@ -59,10 +62,11 @@ export async function PATCH(request) {
     const { data, error } = await supabaseAdmin
       .from('users')
       .update(updateData)
-      .eq('id', session.authUserId)
+      .eq('id', session.user.auth_user_id)
       .select();
     
     if (error) {
+      console.error('Supabase error:', error);
       throw error;
     }
     

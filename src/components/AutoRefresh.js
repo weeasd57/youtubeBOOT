@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { signOut, useSession } from 'next-auth/react';
 import { isAuthError } from '@/utils/apiHelpers';
 import { FaSync } from 'react-icons/fa';
@@ -14,13 +14,27 @@ export default function AutoRefresh({ onSuccess, onError }) {
     message: 'Preparing to refresh authentication...'
   });
   
+  // Track if component is mounted to prevent state updates after unmount
+  const isMounted = useRef(true);
+  // Track last successful refresh to prevent too frequent refreshes
+  const lastSuccessfulRefresh = useRef(0);
+  
   // Use a simple retry approach instead of persistent retry
   useEffect(() => {
-    let mounted = true;
     let timeoutId = null;
     
     const attemptRefresh = async () => {
-      if (!mounted) return;
+      if (!isMounted.current) return;
+      
+      // Check if we've refreshed recently (within last 2 minutes)
+      const now = Date.now();
+      const minRefreshInterval = 2 * 60 * 1000; // 2 minutes
+      
+      if (now - lastSuccessfulRefresh.current < minRefreshInterval) {
+        console.log('Skipping refresh - last successful refresh was too recent');
+        if (onSuccess) onSuccess();
+        return;
+      }
       
       setRefreshState(prev => ({
         ...prev,
@@ -40,7 +54,10 @@ export default function AutoRefresh({ onSuccess, onError }) {
         // Update the session with the new tokens
         await updateSession();
         
-        if (mounted) {
+        if (isMounted.current) {
+          // Update last successful refresh timestamp
+          lastSuccessfulRefresh.current = Date.now();
+          
           setRefreshState({
             isAttempting: false,
             errorCount: 0,
@@ -53,7 +70,7 @@ export default function AutoRefresh({ onSuccess, onError }) {
       } catch (error) {
         console.error(`Failed to refresh session:`, error);
         
-        if (!mounted) return;
+        if (!isMounted.current) return;
         
         // Increment error count
         const newErrorCount = refreshState.errorCount + 1;
@@ -80,7 +97,7 @@ export default function AutoRefresh({ onSuccess, onError }) {
           return;
         }
         
-        // Schedule next retry with increasing delay
+        // Schedule next retry with increasing delay but cap at 30 seconds
         const delay = Math.min(5000 * Math.pow(2, newErrorCount - 1), 30000);
         
         setRefreshState(prev => ({
@@ -99,10 +116,18 @@ export default function AutoRefresh({ onSuccess, onError }) {
     
     // Cleanup function
     return () => {
-      mounted = false;
+      isMounted.current = false;
       if (timeoutId) clearTimeout(timeoutId);
     };
   }, [updateSession, onSuccess, onError, refreshState.errorCount]);
+  
+  // Reset isMounted on component mount
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
   
   const handleManualSignOut = () => {
     console.log('AutoRefresh: User initiated sign out');
@@ -138,4 +163,4 @@ export default function AutoRefresh({ onSuccess, onError }) {
       </div>
     </div>
   );
-} 
+}

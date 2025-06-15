@@ -8,6 +8,7 @@ import ThemeToggle from './ThemeToggle';
 import ClientOnly from './ClientOnly';
 import AuthErrorBanner from './AuthErrorBanner';
 import { toastHelper } from './ToastHelper';
+import { isQuotaError } from '@/utils/apiHelpers';
 
 export default function PageContainer({ user, children, onRefresh = null, error = null }) {
   const [refreshing, setRefreshing] = useState(false);
@@ -24,12 +25,13 @@ export default function PageContainer({ user, children, onRefresh = null, error 
 
     // Only validate for authentication errors
     const errorMessage = typeof error === 'string' ? error : error.message || '';
-    const isAuthError = errorMessage.includes('Authentication') || 
-                         errorMessage.includes('auth') ||
-                         errorMessage.includes('token') ||
-                         errorMessage.includes('Invalid Credentials');
     
-    if (!isAuthError) {
+     const isAuthError = errorMessage.includes('Authentication') || 
+                          errorMessage.includes('auth') ||
+                          errorMessage.includes('token') ||
+                          errorMessage.includes('Invalid Credentials');
+     
+     if (!isAuthError) {
       setShowAuthError(false);
       return;
     }
@@ -124,4 +126,4 @@ export default function PageContainer({ user, children, onRefresh = null, error 
       </div>
     </div>
   );
-} 
+}

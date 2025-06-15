@@ -8,11 +8,16 @@ export async function POST(request) {
   try {
     const session = await getServerSession(authOptions);
 
-    if (!session || !session.authUserId) {
+    if (!session || !session.user?.auth_user_id) {
+      console.log('Session missing required fields:', {
+        hasSession: !!session,
+        hasUser: !!session?.user,
+        hasAuthUserId: !!session?.user?.auth_user_id,
+      });
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    const authUserId = session.authUserId;
+    const authUserId = session.user.auth_user_id;
     console.log(`Fixing missing data for user: ${authUserId}`);
 
     // Get user data

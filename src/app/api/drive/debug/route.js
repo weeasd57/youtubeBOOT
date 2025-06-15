@@ -15,17 +15,22 @@ export async function GET(req) {
       return NextResponse.json({ error: 'Not authenticated or active account not set' }, { status: 401 });
     }
 
-    if (!session.user?.email) {
-      return NextResponse.json({ error: 'User email not found' }, { status: 401 });
+    if (!session.user?.auth_user_id || !session.active_account_id) {
+      return NextResponse.json({ error: 'User session is incomplete' }, { status: 401 });
     }
+
+    const authUserId = session.user.auth_user_id;
+    const activeAccountId = session.active_account_id;
     
     try {
       // Get a valid access token, refreshing if necessary
-      const accessToken = await getValidAccessToken(authUserId, activeAccountId);
+      const result = await getValidAccessToken(authUserId, activeAccountId);
       
-      if (!accessToken) {
-        return NextResponse.json({ error: 'Invalid access token' }, { status: 401 });
+      if (!result.success) {
+        return NextResponse.json({ error: result.error || 'Invalid access token' }, { status: 401 });
       }
+
+      const accessToken = result.accessToken;
       
       // Initialize the Drive API client
       const oauth2Client = new google.auth.OAuth2();

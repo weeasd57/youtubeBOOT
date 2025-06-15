@@ -15,8 +15,8 @@ export async function getSession() {
     }
     
     return {
-      authUserId: session.authUserId,
-      activeAccountId: session.activeAccountId,
+      authUserId: session.user?.auth_user_id,
+      activeAccountId: session.active_account_id,
       user: session.user,
       provider: session.provider,
       accessToken: session.accessToken

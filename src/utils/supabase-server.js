@@ -135,68 +135,49 @@ export async function saveUserTokens({ authUserId, accountId, email, accessToken
       return null;
     }
 
-    console.log(`saveUserTokens: Starting token save for User ID: ${authUserId}, Account ID: ${accountId}`);
+    console.log(`saveUserTokens: Upserting token for User ID: ${authUserId}, Account ID: ${accountId}`);
 
-    // Calculate expiration time
-    let calculatedExpiresAt;
-    if (typeof expiresAt === 'number') {
-      calculatedExpiresAt = expiresAt;
-    } else if (typeof expiresAt === 'string' && !isNaN(Number(expiresAt))) {
-      calculatedExpiresAt = Number(expiresAt);
-    } else if (expiresAt instanceof Date) {
-      calculatedExpiresAt = Math.floor(expiresAt.getTime() / 1000);
-    } else {
-      // Default expiration (e.g., 1 hour from now) if not provided or invalid
-      calculatedExpiresAt = Math.floor(Date.now() / 1000) + 3600;
-      console.warn('saveUserTokens: Using default expiration time for token.');
-    }
+    // Calculate expiration time as a Unix timestamp (seconds)
+    const calculatedExpiresAt = expiresAt && typeof expiresAt === 'number'
+      ? Math.floor(expiresAt)
+      : Math.floor(Date.now() / 1000) + 3600; // Default to 1 hour
 
-    // Prepare token data
+    // Prepare token data for upsert
     const tokenData = {
-      user_email: email, // Use email as identifier since that's what the table has
+      auth_user_id: authUserId,
+      account_id: accountId,
+      user_email: email, // Keep for reference
       access_token: accessToken,
       refresh_token: refreshToken,
       expires_at: calculatedExpiresAt,
-      last_network_error: null
+      is_valid: true, // Assume token is valid on save
+      error_message: null,
+      last_network_error: null,
     };
 
-    // Try to update existing tokens for this user email
-    const { data: updatedToken, error: updateError } = await supabaseAdmin
+    // Use `upsert` to either insert a new token or update an existing one.
+    // We define the conflict constraint on `auth_user_id` and `account_id`.
+    // This means a unique token record exists for each combination of a user and their linked account.
+    const { data: upsertedToken, error: upsertError } = await supabaseAdmin
       .from('user_tokens')
-      .update(tokenData)
-      .eq('user_email', email)
+      .upsert(tokenData, {
+        onConflict: 'auth_user_id,account_id', // IMPORTANT: Specify the columns that define a unique token
+        ignoreDuplicates: false, // Ensure it updates on conflict
+      })
       .select()
       .single();
 
-    // Check if the update was successful (PGRST116 means no rows matched the update condition)
-    if (!updateError || updateError.code === 'PGRST116') {
-      if (updateError && updateError.code === 'PGRST116') {
-          console.log(`saveUserTokens: No existing token found for email ${email}. Creating new token.`);
-      } else {
-          console.log(`saveUserTokens: Tokens updated successfully for email ${email}.`);
-          return updatedToken; // Return the successfully updated token
+    if (upsertError) {
+      console.error('saveUserTokens: Error upserting tokens:', upsertError);
+      // Check if the error is due to a missing unique constraint
+      if (upsertError.message.includes('constraint')) {
+         console.error('DATABASE SETUP ERROR: Please ensure a UNIQUE constraint exists on (auth_user_id, account_id) in the user_tokens table.');
       }
-
-      // If update failed because tokens don't exist, create new ones
-      const { data: newToken, error: insertError } = await supabaseAdmin
-        .from('user_tokens')
-        .insert(tokenData)
-        .select()
-        .single();
-
-      if (insertError) {
-        console.error('saveUserTokens: Error creating tokens:', insertError);
-        throw insertError; // Throw error to be caught by caller
-      }
-
-      console.log(`saveUserTokens: New tokens created successfully for email ${email}.`);
-      return newToken; // Return the newly created token
-
-    } else {
-      // If we got here, something unexpected happened during the update attempt
-      console.error('saveUserTokens: Unexpected error during update attempt:', updateError);
-      throw updateError; // Throw the unexpected update error
+      throw upsertError; // Throw error to be caught by the caller
     }
+
+    console.log(`saveUserTokens: Token upserted successfully for Account ID ${accountId}.`);
+    return upsertedToken;
 
   } catch (error) {
     console.error('Error saving user tokens to Supabase:', error);

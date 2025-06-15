@@ -14,7 +14,7 @@ const inter = Inter({
 });
 
 export const metadata = {
-  title: "YouTube Drive Uploader",
+  title: "Uploader",
   description: "A tool to manage YouTube uploads, TikTok downloads, and Drive files",
   icons: {
     icon: [

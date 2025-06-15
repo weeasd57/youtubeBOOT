@@ -8,12 +8,17 @@ export async function DELETE(request, { params }) {
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session?.authUserId) {
+    if (!session || !session.user?.auth_user_id) {
+      console.log('Session missing required fields:', {
+        hasSession: !!session,
+        hasUser: !!session?.user,
+        hasAuthUserId: !!session?.user?.auth_user_id,
+      });
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
     const { id } = await params;
-    const authUserId = session.authUserId;
+    const authUserId = session.user.auth_user_id;
     
     // Check if account exists and belongs to user
     const { data: account, error: fetchError } = await supabaseAdmin

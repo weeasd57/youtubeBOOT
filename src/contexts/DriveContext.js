@@ -6,6 +6,52 @@ import { useSession } from 'next-auth/react';
 import { useAccounts } from '@/contexts/AccountContext';
 import { supabase } from '@/utils/supabase';
 
+// Constants
+const FOLDER_FETCH_DEBOUNCE = 10000; // 10 seconds
+const FOLDER_CACHE_TTL = 60000; // 1 minute
+const FORCE_REFRESH_INTERVAL = 300000; // 5 minutes
+const TOKEN_CACHE_TTL = 300000; // 5 minutes (increased from 1 minute)
+const CHANNEL_INFO_CACHE_TTL = 600000; // 10 minutes (increased from 5 minutes)
+
+// Cache management with TTL
+const tokenCache = {
+  data: new Map(),
+  get: (accountId) => {
+    const cached = tokenCache.data.get(accountId);
+    if (!cached) return null;
+    if (Date.now() - cached.timestamp > TOKEN_CACHE_TTL) {
+      tokenCache.data.delete(accountId);
+      return null;
+    }
+    return cached.token;
+  },
+  set: (accountId, token) => {
+    tokenCache.data.set(accountId, {
+      token,
+      timestamp: Date.now()
+    });
+  }
+};
+
+const channelInfoCache = {
+  data: new Map(),
+  get: (accountId) => {
+    const cached = channelInfoCache.data.get(accountId);
+    if (!cached) return null;
+    if (Date.now() - cached.timestamp > CHANNEL_INFO_CACHE_TTL) {
+      channelInfoCache.data.delete(accountId);
+      return null;
+    }
+    return cached.info;
+  },
+  set: (accountId, info) => {
+    channelInfoCache.data.set(accountId, {
+      info,
+      timestamp: Date.now()
+    });
+  }
+};
+
 // Create context
 const DriveContext = createContext(null);
 
@@ -20,84 +66,159 @@ export function DriveProvider({ children }) {
   const [selectedFile, setSelectedFile] = useState(null);
   const [selectedFolder, setSelectedFolder] = useState(null);
   const { data: session } = useSession();
-  const { activeAccount } = useAccounts(); // Consume activeAccount from AccountContext
+  const { activeAccount } = useAccounts();
 
-  // Real implementation for fetchDriveFiles
+  // Add a ref for pending API calls (general, not specific to folders)
+  const pendingApiCalls = useRef(new Map());
+
+  // Helper function to make API calls with deduplication
+  const makeApiCall = useCallback(async (key, apiCall) => {
+    if (pendingApiCalls.current.has(key)) {
+      return pendingApiCalls.current.get(key);
+    }
+
+    const promise = apiCall();
+    pendingApiCalls.current.set(key, promise);
+
+    try {
+      const result = await promise;
+      return result;
+    } finally {
+      pendingApiCalls.current.delete(key);
+    }
+  }, []);
+
+  // getValidToken function removed as it is now server-side only
+
+  // Enhanced channel info fetch
+  const getChannelInfo = useCallback(async (accountId) => {
+    if (!accountId) {
+      console.warn("getChannelInfo: No account ID provided");
+      return null;
+    }
+
+    // Check cache first
+    const cachedInfo = channelInfoCache.data.get(accountId);
+    if (cachedInfo) {
+      console.log(`Using cached channel info for account ${accountId}`);
+      return cachedInfo;
+    }
+
+    // Create new request
+    const channelPromiseKey = `channel_${accountId}`;
+    const channelPromise = makeApiCall(channelPromiseKey, async () => {
+      try {
+        console.log(`Fetching fresh channel info for account ${accountId}`);
+        const response = await fetch(`/api/youtube/account-channel-info?accountId=${accountId}`);
+        if (!response.ok) throw new Error('Failed to get channel info');
+        const data = await response.json();
+        channelInfoCache.data.set(accountId, data);
+        return data;
+      } finally {
+        // makeApiCall handles removal from its pending requests map
+      }
+    });
+
+    // makeApiCall handles storing the pending request
+    return channelPromise;
+  }, [makeApiCall]);
+
+  // Enhanced fetchDriveFiles implementation with debouncing
   const fetchDriveFiles = useCallback(async () => {
     try {
-      // Check for activeAccount instead of session properties
-      if (!activeAccount || !activeAccount.id) {
+      const accountId = activeAccount?.id;
+      if (!accountId) {
         console.warn("fetchDriveFiles: No active account available.");
-        setDriveFiles([]); // Clear files if no active account
+        setDriveFiles([]);
         setError("Please ensure you're logged in and have an active account selected.");
         return;
+      }
+
+      // Static reference to track pending file fetches
+      if (!fetchDriveFiles.pendingFetches) {
+        fetchDriveFiles.pendingFetches = new Map();
+      }
+      
+      // Check if we already have a pending fetch for this account
+      if (fetchDriveFiles.pendingFetches.has(accountId)) {
+        console.log(`Using pending files fetch for account ${accountId}`);
+        return fetchDriveFiles.pendingFetches.get(accountId);
       }
 
       setLoading(true);
       setError(null);
 
-      // Direct API call using fetch instead of relying on driveService
-      try {
-        const response = await fetch('/api/drive-files');
-        
-        if (!response.ok) {
-          if (response.status === 401) {
-            throw new Error("Authentication required. Please sign in again.");
-          }
-          throw new Error(`Failed to fetch drive files: ${response.statusText}`);
+      // Create the fetch promise
+      const fetchPromise = (async () => {
+        try {
+          // Make the API call without client-side token handling
+          const apiKey = `files_${accountId}`;
+          const filesPromise = makeApiCall(apiKey, async () => {
+            console.log(`Fetching drive files for account ${accountId}`);
+            const response = await fetch(`/api/drive/list-files?accountId=${accountId}`); // Pass accountId as query param
+            
+            if (!response.ok) {
+              // Handle 401 specifically, clear cache if necessary
+              if (response.status === 401) {
+                tokenCache.data.delete(accountId); // Clear cache if unauthorized
+                throw new Error("Authentication expired or invalid. Please re-authenticate.");
+              }
+              throw new Error(`Failed to fetch drive files: ${response.statusText}`);
+            }
+            
+            return response.json();
+          });
+
+          const data = await filesPromise;
+          setDriveFiles(data.files || []);
+          setLastChecked(new Date());
+          return data.files || [];
+        } catch (error) {
+          console.error("Error in fetchDriveFiles:", error);
+          setError(getUserFriendlyErrorMessage(error));
+          setDriveFiles([]);
+          throw error;
+        } finally {
+          setLoading(false);
+          // Remove from pending fetches
+          fetchDriveFiles.pendingFetches.delete(accountId);
         }
-        
-        const data = await response.json();
-        setDriveFiles(data.files || []);
-        setLastChecked(new Date());
-      } catch (apiError) {
-        console.error("API Error fetching files:", apiError);
-        setError(getUserFriendlyErrorMessage(apiError));
-        setDriveFiles([]);
-      }
+      })();
+
+      // Store the pending fetch
+      fetchDriveFiles.pendingFetches.set(accountId, fetchPromise);
+      return fetchPromise;
     } catch (error) {
-      console.error("Error in fetchDriveFiles:", error);
+      console.error("Unexpected error in fetchDriveFiles:", error);
+      setLoading(false);
       setError(getUserFriendlyErrorMessage(error));
       setDriveFiles([]);
-    } finally {
-      setLoading(false);
     }
-  }, [activeAccount]); // Depend on activeAccount
+  }, [activeAccount?.id, makeApiCall]);
 
-  // Fetch drive folders
+  // Simplified fetchDriveFolders to use fetchDriveFoldersWithCache directly
   const fetchDriveFolders = useCallback(async (forceRefresh = false) => {
-    // Early check for active account
-    if (!activeAccount) {
+    const accountId = activeAccount?.id;
+
+    if (!accountId) {
       console.log('No active account, skipping Drive folders fetch');
-      // Clear folders to avoid showing stale data
       setDriveFolders([]);
       setFoldersLoading(false);
       setError('No active account available, please connect an account first');
       return { success: false, error: 'No active account' };
     }
-    
-    // Check if account has necessary properties
-    if (!activeAccount.id) {
-      console.log('Invalid active account (missing ID), skipping Drive folders fetch');
-      setDriveFolders([]);
-      setFoldersLoading(false);
-      setError('Invalid account information. Please reconnect your account.');
-      return { success: false, error: 'Invalid account' };
-    }
-    
+
     setFoldersLoading(true);
     setError(null);
-    
+
     try {
-      console.log(`Fetching Drive folders for account ${activeAccount.id}${forceRefresh ? ' (force refresh)' : ''}`);
-      
+      console.log(`Fetching drive folders for account ${accountId}, forceRefresh: ${forceRefresh}`);
       const result = await fetchDriveFoldersWithCache({
         forceRefresh,
-        accountId: activeAccount.id, // Make sure accountId is passed
-        setLoadingState: setFoldersLoading,
-        setFoldersState: setDriveFolders,
+        accountId,
+        setLoadingState: setFoldersLoading, // Pass state setters
+        setFoldersState: setDriveFolders,   // Pass state setters
         onFolderCheck: (folders) => {
-          // Check if the currently selected folder still exists
           if (selectedFolder) {
             const folderStillExists = folders.some(folder => folder.id === selectedFolder.id);
             if (!folderStillExists) {
@@ -107,190 +228,121 @@ export function DriveProvider({ children }) {
           }
         }
       });
-      
-      if (!result.success) {
-        console.warn('Failed to fetch folders:', result.error);
-        setError(getUserFriendlyErrorMessage(result.error));
-      } else {
-        console.log(`Retrieved ${result.folders?.length || 0} folders from ${result.fromCache ? 'cache' : 'API'}`);
-        // Clear error if successful
-        setError(null);
-      }
-      
-      // If we got empty folders and it wasn't a forced refresh, try again with force refresh
-      // Only if not throttled to avoid spamming the API
-      if (Array.isArray(result.folders) && result.folders.length === 0 && !forceRefresh && !result.throttled) {
-        console.log('Got empty folders list, trying force refresh...');
-        return fetchDriveFolders(true);
-      }
-      
+
       return result;
     } catch (error) {
       console.error('Error fetching Drive folders:', error);
       setError(getUserFriendlyErrorMessage(error));
-      setFoldersLoading(false);
       return { success: false, error: error.message };
+    } finally {
+      setFoldersLoading(false);
     }
-  }, [activeAccount, selectedFolder]); // Depend on activeAccount and selectedFolder
-
-  // Track previous active account to prevent unnecessary re-fetches
-  const prevActiveAccount = useRef(activeAccount);
+  }, [activeAccount?.id, selectedFolder?.id]);
 
   // Listen for account switching events
   useEffect(() => {
     const handleAccountSwitch = (e) => {
       if (e.key === 'accountSwitched' && e.newValue === 'true') {
-        console.log('Account switch detected in DriveContext, refreshing data');
+        console.log('Account switch detected in DriveContext');
         
-        // Clear current data
+        // Clear current data and caches
         setDriveFiles([]);
         setDriveFolders([]);
         setSelectedFolder(null);
         setSelectedFile(null);
         
+        // Clear caches
+        tokenCache.data.clear();
+        channelInfoCache.data.clear();
+        
         // Clear localStorage flag
         localStorage.removeItem('accountSwitched');
         
-        // Refresh data after a short delay to allow account context to update
+        // Cleanup any pending API calls
+        pendingApiCalls.current.clear();
+        
+        // Refresh data after a short delay
         setTimeout(() => {
           fetchDriveFiles();
-          fetchDriveFolders(true);
+          fetchDriveFolders(true); // Force refresh on account switch
         }, 500);
       }
     };
-    
-    // Add event listener
+
     if (typeof window !== 'undefined') {
       window.addEventListener('storage', handleAccountSwitch);
-      
-      // Also check on mount if there was a recent account switch
-      const accountSwitchedTimestamp = localStorage.getItem('accountSwitchedTimestamp');
-      if (accountSwitchedTimestamp) {
-        const timestamp = parseInt(accountSwitchedTimestamp, 10);
-        const now = Date.now();
-        // If the account was switched in the last 5 seconds
-        if (now - timestamp < 5000) {
-          console.log('Recent account switch detected in DriveContext');
-          
-          // Clear current data
-          setDriveFiles([]);
-          setDriveFolders([]);
-          setSelectedFolder(null);
-          setSelectedFile(null);
-          
-          // Refresh data after a short delay
-          setTimeout(() => {
-            fetchDriveFiles();
-            fetchDriveFolders(true);
-          }, 500);
-        }
-      }
-    }
-    
-    // Cleanup
-    return () => {
-      if (typeof window !== 'undefined') {
+      return () => {
         window.removeEventListener('storage', handleAccountSwitch);
-      }
-    };
+        pendingApiCalls.current.clear();
+      };
+    }
   }, [fetchDriveFiles, fetchDriveFolders]);
 
-  // Fetch files when activeAccount changes
+  // Handle account changes
   useEffect(() => {
-    // Skip if activeAccount hasn't changed
-    if (activeAccount?.id === prevActiveAccount.current?.id) {
+    const accountId = activeAccount?.id;
+    if (!accountId) {
+      // Clear data and caches when no active account
+      setDriveFiles([]);
+      setDriveFolders([]);
+      setSelectedFolder(null);
+      setSelectedFile(null);
+      setError('No active account available');
+      tokenCache.data.clear();
+      channelInfoCache.data.clear();
+      pendingApiCalls.current.clear();
       return;
     }
 
-    // Update the ref to current activeAccount
-    prevActiveAccount.current = activeAccount;
+    console.log('Active account changed, initializing data fetch');
+    
+    // Reset timing refs and clear caches (done implicitly by fetchDriveFoldersWithCache)
+    tokenCache.data.clear();
+    channelInfoCache.data.clear();
+    
+    // Cleanup any pending API calls
+    pendingApiCalls.current.clear();
+    
+    // Clear previous data
+    setDriveFiles([]);
+    setDriveFolders([]);
+    setError(null);
+    
+    // Start fresh fetch cycle
+    fetchDriveFiles();
+    fetchDriveFolders(true); // Force refresh on account change
+  }, [activeAccount?.id, fetchDriveFiles, fetchDriveFolders]);
 
-    if (activeAccount) {
-      console.log('Active account changed, fetching Drive data for account:', activeAccount.id);
-      
-      // Clear previous data
-      setDriveFiles([]);
-      setDriveFolders([]);
-      setError(null);
-      
-      // Fetch fresh data
-      const fetchData = async () => {
-        try {
-          // Try to verify the account in Supabase (optional check)
-          let accountValid = true;
-          try {
-            const { data: accountData, error: accountError } = await supabase
-              .from('accounts')
-              .select('id, last_used_at')
-              .eq('id', activeAccount.id)
-              .single();
-              
-            if (accountError) {
-              console.warn('Could not verify account in Supabase (continuing anyway):', accountError);
-              // Don't fail completely, just log the warning
-            }
-          } catch (supabaseError) {
-            console.warn('Supabase verification failed (continuing anyway):', supabaseError);
-            // Continue without Supabase verification
-          }
-          
-          // If account seems valid or we can't verify, proceed with fetching drive data
-          if (accountValid) {
-            // Use a small delay to avoid rate limiting
-            setTimeout(async () => {
-              await fetchDriveFiles();
-              // Add a small delay between requests
-              setTimeout(async () => {
-                await fetchDriveFolders();
-              }, 1000);
-            }, 500);
-          }
-          
-        } catch (error) {
-          console.error('Error initializing Drive data:', error);
-          setError('Failed to initialize Drive data. Please try again.');
-        }
-      };
-      
-      fetchData();
-    }
-  }, [activeAccount]); // Remove fetchDriveFiles and fetchDriveFolders from dependencies
-  
   // Periodically check if selected folder still exists - similar to TikTokContext
   useEffect(() => {
     if (!activeAccount || !selectedFolder) return;
     
-    // Add a timestamp check to avoid excessive API calls
-    const lastFolderCheck = localStorage.getItem('lastDriveFolderCheck');
-    const currentTime = Date.now();
-    
-    // زيادة المدة إلى 60 دقيقة بدلاً من 30 دقيقة
-    const checkInterval = 60 * 60 * 1000; // 60 دقيقة
-    
-    // Only fetch folders if we haven't checked in the last 60 minutes
-    const shouldFetch = !lastFolderCheck || (currentTime - parseInt(lastFolderCheck)) > checkInterval;
-    
-    if (shouldFetch) {
-      // Set timestamp before fetching to avoid race conditions
-      localStorage.setItem('lastDriveFolderCheck', currentTime.toString());
-      // استدعاء بشكل متأخر بدلاً من استدعاء فوري
-      setTimeout(() => {
-        console.log('Scheduled folder check after delay');
-        fetchDriveFolders();
-      }, 3000);
-    }
-    
-    // فحص كل 60 دقيقة بدلاً من 30 دقيقة
-    const intervalId = setInterval(() => {
-      if (selectedFolder) {
-        console.log('Periodic folder check running (60 minute interval)');
-        localStorage.setItem('lastDriveFolderCheck', Date.now().toString());
-        fetchDriveFolders();
+    const checkInterval = 120 * 60 * 1000; // 120 دقيقة (2 ساعات)
+    let intervalId;
+
+    const checkFolderPeriodically = () => {
+      const lastFolderCheck = localStorage.getItem('lastDriveFolderCheck');
+      const currentTime = Date.now();
+      const shouldFetch = !lastFolderCheck || (currentTime - parseInt(lastFolderCheck)) > checkInterval;
+
+      if (shouldFetch) {
+        console.log('Scheduled folder check after delay (from useEffect)');
+        localStorage.setItem('lastDriveFolderCheck', currentTime.toString());
+        fetchDriveFolders(false); // Do not force refresh, rely on cache in driveHelpers
       }
-    }, checkInterval);
+    };
+
+    // Initial check after a delay to allow other components to mount
+    const initialCheckTimeout = setTimeout(checkFolderPeriodically, 5000); // 5 seconds delay
+
+    // Set up periodic check
+    intervalId = setInterval(checkFolderPeriodically, checkInterval);
     
-    return () => clearInterval(intervalId);
-  }, [activeAccount?.id, selectedFolder?.id]); // Use stable IDs instead of function references
+    return () => {
+      clearTimeout(initialCheckTimeout);
+      clearInterval(intervalId);
+    };
+  }, [activeAccount?.id, selectedFolder?.id, fetchDriveFolders]);
 
   // Function to select a file
   const selectFile = (file) => {
@@ -310,6 +362,12 @@ export function DriveProvider({ children }) {
       return;
     }
     
+    // Store the previous folder ID for logging
+    const prevFolderId = selectedFolder?.id;
+    const newFolderId = folder?.id;
+    
+    console.log(`Changing selected folder from ${prevFolderId || 'none'} to ${newFolderId || 'none'}`);
+    
     setSelectedFolder(folder);
     
     // Clear selected file when changing folders
@@ -318,9 +376,11 @@ export function DriveProvider({ children }) {
     // Clear files to indicate loading
     setDriveFiles([]);
     
-    // Fetch files for the selected folder
-    // This logic would be moved to the fetchDriveFiles function
+    // Fetch files for the selected folder with a small delay to avoid rapid consecutive calls
     if (folder) {
+      // Use a debounced fetch to avoid multiple rapid calls
+      // Removed selectFolder.timeout logic, rely on fetchDriveFoldersWithCache for debouncing
+      console.log(`Fetching files for folder ${folder.id} after selection`);
       fetchDriveFiles();
     }
   };
@@ -336,11 +396,27 @@ export function DriveProvider({ children }) {
     
     // Handle string error messages
     if (typeof error === 'string') {
+      if (error.includes('User not authenticated')) {
+        return 'You are not authenticated with Google Drive. Please sign in to connect your account.';
+      }
+      if (error.includes('Missing or insufficient permissions')) {
+        return 'Insufficient permissions for Google Drive. Please review the granted permissions or reconnect your account.';
+      }
       return error;
     }
 
     // Handle error objects
-    return error.message || 'Unknown error occurred';
+    if (error instanceof Error) {
+      if (error.message.includes('User not authenticated')) {
+        return 'You are not authenticated with Google Drive. Please sign in to connect your account.';
+      }
+      if (error.message.includes('Missing or insufficient permissions')) {
+        return 'Insufficient permissions for Google Drive. Please review the granted permissions or reconnect your account.';
+      }
+      return error.message;
+    }
+
+    return 'An unknown error occurred while fetching Drive data.';
   };
 
   const value = {
@@ -354,10 +430,11 @@ export function DriveProvider({ children }) {
     selectedFolder,
     fetchDriveFiles,
     fetchDriveFolders,
-    selectFile,
-    clearSelectedFile,
-    selectFolder,
-    clearSelectedFolder,
+    getChannelInfo,
+    selectFile: (file) => setSelectedFile(file),
+    clearSelectedFile: () => setSelectedFile(null),
+    selectFolder: (folder) => setSelectedFolder(folder),
+    clearSelectedFolder: () => setSelectedFolder(null),
     getUserFriendlyErrorMessage
   };
 

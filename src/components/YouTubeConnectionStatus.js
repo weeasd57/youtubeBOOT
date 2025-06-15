@@ -7,7 +7,7 @@ import Image from "next/image";
 import RefreshButton from './RefreshButton';
 import { useYouTubeChannel } from '@/contexts/YouTubeChannelContext';
 import DriveThumbnail from '@/components/DriveThumbnail';
-import { signIn, signOut, useSession } from 'next-auth/react';
+import { signIn, signOut, useSession, updateSession } from 'next-auth/react';
 import { toastHelper } from './ToastHelper';
 import { useAccounts } from '@/contexts/AccountContext';
 import { useMultiChannel } from '@/contexts/MultiChannelContext';
@@ -176,8 +176,10 @@ export default function YouTubeConnectionStatus({ onRefreshSuccess, showAuthRefr
       
       if (response.ok && data.success) {
         toastHelper.success('Authentication refreshed successfully!');
-        // Force a reload to ensure session has updated tokens
-        window.location.reload();
+        // Update the NextAuth session explicitly
+        await updateSession();
+        // Force a refresh of the YouTube connection status with the new tokens
+        refreshConnection(true);
       } else {
         // Check if we need to re-authenticate completely
         if (data.needsReauth) {

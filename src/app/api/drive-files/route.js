@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { authOptions } from '../auth/[...nextauth]/options';
 import { getValidAccessToken } from '@/utils/refreshToken';
 import { supabaseAdmin } from '@/utils/supabase';
+import { isAuthError } from '@/utils/apiHelpers';
 
 // Helper function for executing Google Drive API calls with retry logic
 async function executeGoogleDriveAPIWithRetry(apiCall, options = {}) {
@@ -37,10 +38,7 @@ async function executeGoogleDriveAPIWithRetry(apiCall, options = {}) {
         (error.response?.status >= 500 && error.response?.status < 600) ||
         error.response?.status === 429;
       
-      // Don't retry on authentication or permission errors
-      const isAuthError = 
-        error.response?.status === 401 || 
-        error.response?.status === 403;
+
       
       if (!isTransientError || isAuthError || attempt === maxRetries) {
         throw error;
@@ -69,18 +67,25 @@ export async function GET() {
       return NextResponse.json({ error: 'User email not found' }, { status: 401 });
     }
 
-    const authUserId = session.authUserId;
-    const activeAccountId = session.activeAccountId;
+    const authUserId = session.user?.auth_user_id;
+    const activeAccountId = session.active_account_id;
 
     if (!authUserId || !activeAccountId) {
-        console.error("authUserId or activeAccountId not found in session");
+        console.error("auth_user_id or active_account_id not found in session", { 
+          hasUser: !!session.user,
+          authUserId,
+          activeAccountId,
+          sessionKeys: Object.keys(session)
+        });
         return NextResponse.json({ error: 'Authentication information missing in session' }, { status: 401 });
     }
 
     // Try to get a valid access token, refreshing if necessary
-    const accessToken = await getValidAccessToken(authUserId, activeAccountId);
+        const result = await getValidAccessToken(authUserId, activeAccountId);
+    const accessToken = result?.accessToken;
+    const tokenError = result?.error;
     
-    if (!accessToken) {
+    if (!result || tokenError || !accessToken) {
       console.error("Failed to get valid access token");
       return NextResponse.json({ error: 'Invalid access token' }, { status: 401 });
     }
@@ -111,14 +116,22 @@ export async function GET() {
     // Log the found files for debugging
     console.log(`Found ${filesResponse.data.files?.length || 0} video files in direct Drive query`);
 
-    // جلب بيانات الفيديوهات من Supabase
-    const { data: tiktokVideos, error } = await supabaseAdmin
-      .from('tiktok_videos')
-      .select('*')
-      .eq('user_email', session.user.email);
+    // جلب بيانات الفيديوهات من Supabase - مع التعامل مع الأخطاء
+    let tiktokVideos = [];
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('tiktok_videos')
+        .select('*')
+        .eq('user_email', session.user.email);
 
-    if (error) {
-      console.error('Error fetching TikTok videos:', error);
+      if (error) {
+        console.error('Error fetching TikTok videos:', error);
+      } else {
+        tiktokVideos = data || [];
+      }
+    } catch (tiktokError) {
+      console.error('Exception fetching TikTok videos:', tiktokError);
+      // Continue without TikTok data
     }
 
     // إنشاء قاموس للبيانات المرتبطة بملفات Drive
@@ -152,4 +165,4 @@ export async function GET() {
       { status: 500 }
     );
   }
-} 
+}

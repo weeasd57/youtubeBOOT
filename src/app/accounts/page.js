@@ -237,11 +237,6 @@ export default function AccountsPage() {
                               <FaStar className="w-3 h-3" /> Primary
                             </span>
                           )}
-                          {activeAccount?.id === account.id && (
-                            <span className="ml-2 text-green-500 text-xs flex items-center gap-1">
-                              <FaCheck className="w-3 h-3" /> Active
-                            </span>
-                          )}
                         </div>
                         <div className="text-sm text-gray-500 dark:text-gray-400">
                           {account.email}

@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth/next';
 import { NextResponse } from 'next/server';
 import { authOptions } from '../auth/[...nextauth]/options';
 import { getValidAccessToken } from '@/utils/refreshToken';
+import { isAuthError } from '@/utils/apiHelpers';
 
 // Helper function for executing Google Drive API calls with retry logic
 async function executeGoogleDriveAPIWithRetry(apiCall, options = {}) {
@@ -36,10 +37,8 @@ async function executeGoogleDriveAPIWithRetry(apiCall, options = {}) {
         (error.response?.status >= 500 && error.response?.status < 600) ||
         error.response?.status === 429;
       
-      // Don't retry on authentication or permission errors
-      const isAuthError = 
-        error.response?.status === 401 || 
-        error.response?.status === 403;
+
+
       
       if (!isTransientError || isAuthError || attempt === maxRetries) {
         throw error;
@@ -57,29 +56,25 @@ export async function GET() {
     console.log("Drive Folders API route called");
     const session = await getServerSession(authOptions);
     
-    if (!session) {
-      console.error("No session found");
-      return NextResponse.json({ error: 'Not authenticated or active account not set' }, { status: 401 });
+    if (!session || !session.user?.auth_user_id || !session.active_account_id) {
+      console.log('Session missing required fields:', {
+        hasSession: !!session,
+        hasUser: !!session?.user,
+        hasAuthUserId: !!session?.user?.auth_user_id,
+        hasActiveAccountId: !!session?.active_account_id
+      });
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    if (!session.user?.email) {
-      console.error("Session exists but no user email found");
-      console.error("Session exists but no user email found");
-      return NextResponse.json({ error: 'User email not found' }, { status: 401 });
-    }
-
-    const authUserId = session.authUserId;
-    const activeAccountId = session.activeAccountId;
-
-    if (!authUserId || !activeAccountId) {
-        console.error("authUserId or activeAccountId not found in session");
-        return NextResponse.json({ error: 'Authentication information missing in session' }, { status: 401 });
-    }
+    const authUserId = session.user.auth_user_id;
+    const activeAccountId = session.active_account_id;
 
     // Try to get a valid access token, refreshing if necessary
     let accessToken;
     try {
-      accessToken = await getValidAccessToken(authUserId, activeAccountId);
+          const result = await getValidAccessToken(authUserId, activeAccountId);
+    accessToken = result?.accessToken;
+    const tokenError = result?.error;
     } catch (tokenError) {
       console.error("Error getting access token:", tokenError);
       // Check if we have a cached token in the session (from previous successful auth)
@@ -94,7 +89,7 @@ export async function GET() {
       }
     }
     
-    if (!accessToken) {
+    if (!result || tokenError || !accessToken) {
       console.error("Failed to get valid access token");
       return NextResponse.json({ error: 'Invalid access token' }, { status: 401 });
     }
@@ -199,4 +194,4 @@ export async function GET() {
       { status }
     );
   }
-} 
+}

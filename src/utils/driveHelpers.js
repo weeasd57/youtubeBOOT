@@ -20,347 +20,142 @@ export async function fetchDriveFoldersWithCache(options = {}) {
     accountId = null
   } = options;
   
-  // تحديد مفتاح التخزين المؤقت
   const cacheKeyPrefix = accountId ? `drive-folders-${accountId}` : 'driveFolders';
   
-  // Set loading state if provided
   if (setLoadingState) {
     setLoadingState(true);
   }
-  
-  // Add rate limiting to prevent excessive API calls
-  // Store last API call time in memory to avoid localStorage access on every check
-  const apiPath = accountId ? `/api/drive/list-folders-${accountId}` : '/api/drive/list-folders';
-  const currentTime = Date.now();
-  
-  // إعداد متغير عام لتخزين أوقات الاستدعاء السابقة
-  if (!window._lastDriveFoldersApiCalls) window._lastDriveFoldersApiCalls = {};
-  const lastApiCallTime = window._lastDriveFoldersApiCalls[apiPath] || 0;
-  const apiCallMinInterval = 20000; // زيادة المدة إلى 20 ثانية (بدلاً من 10)
-  
-  // If this is not a force refresh and we've called the API recently, wait
-  if (!forceRefresh && (currentTime - lastApiCallTime) < apiCallMinInterval) {
-    console.log(`API call to ${apiPath} throttled. Last call was ${currentTime - lastApiCallTime}ms ago. Using cache if available.`);
-    
-    // استخدام التخزين المؤقت في حالة التقييد
-    const cachedFoldersJson = localStorage.getItem(cacheKeyPrefix);
-    const timestamp = localStorage.getItem(`${cacheKeyPrefix}Timestamp`);
-    
-    if (cachedFoldersJson && timestamp) {
-      try {
-        const cachedFolders = JSON.parse(cachedFoldersJson);
-        if (Array.isArray(cachedFolders)) {
-          console.log(`Using cached Drive folders due to rate limiting, found ${cachedFolders.length} folders`);
-          
-          // Update state if provided
-          if (setFoldersState) {
-            setFoldersState(cachedFolders);
-          }
-          
-          // Run folder check callback if provided
-          if (onFolderCheck && typeof onFolderCheck === 'function') {
-            onFolderCheck(cachedFolders);
-          }
-          
-          if (setLoadingState) {
-            setLoadingState(false);
-          }
-          
-          return { 
-            success: true, 
-            folders: cachedFolders,
-            fromCache: true,
-            rateLimited: true
-          };
-        }
-      } catch (cacheError) {
-        console.error('Error reading from folder cache:', cacheError);
-      }
-    }
-  } else if (forceRefresh) {
-    console.log('Forcing refresh of Drive folders from API (bypassing cache)');
-    localStorage.removeItem(cacheKeyPrefix);
-    localStorage.removeItem(`${cacheKeyPrefix}Timestamp`);
-    // تحديث وقت آخر استدعاء
-    window._lastDriveFoldersApiCalls[apiPath] = currentTime;
-  } else {
-    // Normal refresh, update the last API call time
-    window._lastDriveFoldersApiCalls[apiPath] = currentTime;
+
+  // Global request tracking
+  if (typeof window !== 'undefined' && !window._driveFolderRequests) {
+    window._driveFolderRequests = {
+      inProgress: new Map(),
+      lastSuccess: new Map(),
+      retryCount: new Map(),
+      lastApiCall: new Map() // Track last API call time regardless of success
+    };
   }
-  
-  try {
-    // Check cache first if not forcing refresh
-    if (!forceRefresh) {
-      const cachedFoldersJson = localStorage.getItem(cacheKeyPrefix);
-      const timestamp = localStorage.getItem(`${cacheKeyPrefix}Timestamp`);
-      const cacheMaxAge = 20 * 60 * 1000; // زيادة المدة إلى 20 دقيقة (بدلاً من 10)
-      
-      if (cachedFoldersJson && timestamp) {
-        // Check if cache is still valid
-        const cacheAge = Date.now() - parseInt(timestamp);
-        if (cacheAge < cacheMaxAge) {
-          try {
-            const cachedFolders = JSON.parse(cachedFoldersJson);
-            if (Array.isArray(cachedFolders)) {
-              console.log(`Using cached Drive folders (${cacheAge / 1000}s old), found ${cachedFolders.length} folders`);
-              
-              // Update state if provided
-              if (setFoldersState) {
-                setFoldersState(cachedFolders);
-              }
-              
-              // Run folder check callback if provided
-              if (onFolderCheck && typeof onFolderCheck === 'function') {
-                onFolderCheck(cachedFolders);
-              }
-              
-              if (setLoadingState) {
-                setLoadingState(false);
-              }
-              
-              return { 
-                success: true, 
-                folders: cachedFolders,
-                fromCache: true,
-                cacheAge: Math.floor(cacheAge / (1000 * 60))
-              };
-            }
-          } catch (cacheError) {
-            console.error('Error reading from folder cache:', cacheError);
-            // Clear invalid cache
-            localStorage.removeItem(cacheKeyPrefix);
-            localStorage.removeItem(`${cacheKeyPrefix}Timestamp`);
-          }
-        } else {
-          console.log(`Cache expired (${cacheAge / 1000}s old), fetching fresh data`);
-        }
-      } else if (!cachedFoldersJson) {
-        console.log('No cached folders found, fetching from API');
-      }
-    } else {
-      console.log('Force refresh requested, bypassing cache');
-    }
-    
-    // Throttle API calls based on time since last call
-    if (!forceRefresh && (currentTime - lastApiCallTime) < apiCallMinInterval) {
-      // Try to use cached data instead of returning empty array
-      const cachedFoldersJson = localStorage.getItem(cacheKeyPrefix);
-      if (cachedFoldersJson) {
-        try {
-          const cachedFolders = JSON.parse(cachedFoldersJson);
-          if (Array.isArray(cachedFolders) && cachedFolders.length > 0) {
-            console.log('API call throttled, using cached folders');
-            
-            // Update state if provided
-            if (setFoldersState) {
-              setFoldersState(cachedFolders);
-            }
-            
-            // Run folder check callback if provided
-            if (onFolderCheck && typeof onFolderCheck === 'function') {
-              onFolderCheck(cachedFolders);
-            }
-            
-            if (setLoadingState) {
-              setLoadingState(false);
-            }
-            
-            return { 
-              success: true, 
-              folders: cachedFolders,
-              fromCache: true,
-              throttled: true
-            };
-          }
-        } catch (cacheError) {
-          console.error('Error reading from folder cache during throttling:', cacheError);
-        }
-      }
-      
-      // If no cache available, return empty folders but with success=true to avoid triggering error UI
-      if (setFoldersState) {
-        setFoldersState([]);
-      }
-      
-      if (setLoadingState) {
-        setLoadingState(false);
-      }
-      
-      console.log('Throttling API call, no cache available, returning empty folders array');
-      return {
-        success: true,
-        folders: [],
-        fromCache: false,
-        throttled: true
-      };
-    }
-    
-    // Fetch from API if cache is invalid or forcing refresh
-    const endpoint = accountId 
-      ? `/api/drive/list-folders?accountId=${accountId}` 
-      : '/api/drive/list-folders';
-      
-    const response = await getWithRetry(endpoint, {
-      timeout: 30000 // 30 second timeout
-    }, {
-      maxRetries: 2,
-      initialDelay: 2000,
-      retryOnNetworkError: true
-    });
-    
-    // Check if we got a valid response
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Error fetching Drive folders:', errorText);
-      
-      // Try to use cached folders as fallback
-      const cachedFoldersJson = localStorage.getItem(cacheKeyPrefix);
-      if (cachedFoldersJson) {
-        try {
-          const cachedFolders = JSON.parse(cachedFoldersJson);
-          if (Array.isArray(cachedFolders) && cachedFolders.length > 0) {
-            console.log('Using cached folders due to API error');
-            
-            // Update state if provided
-            if (setFoldersState) {
-              setFoldersState(cachedFolders);
-            }
-            
-            // Run folder check callback if provided
-            if (onFolderCheck && typeof onFolderCheck === 'function') {
-              onFolderCheck(cachedFolders);
-            }
-            
-            if (setLoadingState) {
-              setLoadingState(false);
-            }
-            
-            return { 
-              success: true, 
-              folders: cachedFolders,
-              fromCache: true,
-              apiError: true
-            };
-          }
-        } catch (cacheError) {
-          console.error('Error reading from folder cache:', cacheError);
-        }
-      }
-      
-      // Set empty folders array if cache attempt fails
-      if (setFoldersState) {
-        setFoldersState([]);
-      }
-      
-      if (setLoadingState) {
-        setLoadingState(false);
-      }
-      
-      return {
-        success: false,
-        error: `Failed to fetch Drive folders: ${response.status} ${errorText}`
-      };
-    }
-    
-    // Parse the response JSON
-    const data = await response.json();
-    const folders = data.folders || [];
-    
-    console.log(`Found ${folders.length} folders in Drive`);
-    
-    // Update state with the fetched folders
-    if (setFoldersState) {
-      setFoldersState(folders);
-    }
-    
-    // Run folder check callback if provided
-    if (onFolderCheck && typeof onFolderCheck === 'function') {
-      onFolderCheck(folders);
-    }
-    
-    // Cache the folder data for future use - even if empty to prevent repeated calls
+
+  const requests = window._driveFolderRequests;
+  const apiPath = accountId
+    ? `/api/drive/list-folders?accountId=${accountId}`
+    : '/api/drive/list-folders';
+
+  // Check if there's already a request in progress
+  if (!forceRefresh && requests.inProgress.get(apiPath)) {
+    console.log(`Request already in progress for ${apiPath}, waiting...`);
     try {
-      if (Array.isArray(folders)) {
-        console.log(`Caching ${folders.length} Drive folders to localStorage`);
-        localStorage.setItem(cacheKeyPrefix, JSON.stringify(folders));
-        localStorage.setItem(`${cacheKeyPrefix}Timestamp`, Date.now().toString());
-      }
-    } catch (cacheError) {
-      console.warn('Failed to cache folders in localStorage:', cacheError);
+      return await requests.inProgress.get(apiPath);
+    } catch (error) {
+      console.error('Error while waiting for in-progress request:', error);
     }
-    
-    if (setLoadingState) {
-      setLoadingState(false);
-    }
-    
-    return { 
-      success: true, 
-      folders: folders
-    };
-  } catch (error) {
-    console.error('Error fetching Drive folders:', error);
-    
-    // Handle AbortError (timeout) specifically
-    const isTimeout = error.name === 'AbortError' || 
-                      error.message?.includes('timeout') ||
-                      error.code === 'ETIMEDOUT';
-    
-    // Try to use cached folders if available (especially important for timeouts)
-    if (isTimeout) {
-      console.log('Timeout when fetching folders, checking cache');
-      const cachedFoldersJson = localStorage.getItem(cacheKeyPrefix);
-      if (cachedFoldersJson) {
-        try {
-          const cachedFolders = JSON.parse(cachedFoldersJson);
-          if (Array.isArray(cachedFolders) && cachedFolders.length > 0) {
-            const timestamp = localStorage.getItem(`${cacheKeyPrefix}Timestamp`);
-            const cacheAge = timestamp ? Math.floor((Date.now() - parseInt(timestamp)) / (1000 * 60)) : 'unknown';
-            console.log(`Using cached folders (${cacheAge} minutes old) due to timeout`);
-            
-            // Update state if provided
-            if (setFoldersState) {
-              setFoldersState(cachedFolders);
-            }
-            
-            // Run folder check callback if provided
-            if (onFolderCheck && typeof onFolderCheck === 'function') {
-              onFolderCheck(cachedFolders);
-            }
-            
-            if (setLoadingState) {
-              setLoadingState(false);
-            }
-            
-            return { 
-              success: true, 
-              folders: cachedFolders,
-              fromCache: true,
-              cacheAge: cacheAge
-            };
-          }
-        } catch (cacheError) {
-          console.error('Error reading from folder cache:', cacheError);
-        }
-      }
-    }
-    
-    // If we get here, we couldn't get folders from the API or cache
-    if (setFoldersState) {
-      setFoldersState([]);
-    }
-    
-    if (setLoadingState) {
-      setLoadingState(false);
-    }
-    
-    return {
-      success: false,
-      error: isTimeout 
-        ? 'Fetching Drive folders timed out' 
-        : `Error fetching Drive folders: ${error.message}`,
-      isTimeout: isTimeout
-    };
   }
+
+  // Rate limiting check - increased from 5 seconds to 30 seconds
+  const lastSuccess = requests.lastSuccess.get(apiPath) || 0;
+  const lastApiCall = requests.lastApiCall.get(apiPath) || 0;
+  const minInterval = 30000; // 30 seconds between API calls (increased from 5s)
+  const timeSinceLastSuccess = Date.now() - lastSuccess;
+  const timeSinceLastCall = Date.now() - lastApiCall;
+
+  // Check cache validity
+  const cachedData = getStorageItem(cacheKeyPrefix);
+  const cacheAge = cachedData ? Date.now() - (cachedData.timestamp || 0) : Infinity;
+  const cacheTTL = 5 * 60 * 1000; // 5 minutes cache TTL (increased from implicit short time)
+  const isCacheValid = cachedData && Array.isArray(cachedData.folders) && cacheAge < cacheTTL;
+
+  // Use cache in more scenarios to reduce API calls
+  if (!forceRefresh && (
+      (timeSinceLastCall < minInterval) || // Rate limiting
+      (isCacheValid && timeSinceLastSuccess < minInterval * 6) // Valid cache and not too old
+    )) {
+    console.log(`Using cache for ${apiPath}: rate limiting active or cache valid`);
+    
+    if (isCacheValid) {
+      if (setFoldersState) {
+        setFoldersState(cachedData.folders);
+      }
+      if (setLoadingState) {
+        setLoadingState(false);
+      }
+      return { 
+        success: true, 
+        folders: cachedData.folders,
+        fromCache: true,
+        throttled: timeSinceLastCall < minInterval
+      };
+    }
+  }
+
+  // Update last API call time
+  requests.lastApiCall.set(apiPath, Date.now());
+
+  // Create the fetch promise
+  const fetchPromise = (async () => {
+    try {
+      const response = await getWithRetry(
+        apiPath,
+        { 
+          timeout: 30000,
+        },
+        { maxRetries: 2, initialDelay: 2000, retryOnNetworkError: true }
+      );
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const folders = data.folders || [];
+
+      // Cache successful results
+      if (Array.isArray(folders)) {
+        setStorageItem(cacheKeyPrefix, {
+          folders,
+          timestamp: Date.now()
+        });
+      }
+
+      requests.lastSuccess.set(apiPath, Date.now());
+      
+      if (setFoldersState) {
+        setFoldersState(folders);
+      }
+      if (setLoadingState) {
+        setLoadingState(false);
+      }
+
+      return { success: true, folders };
+    } catch (error) {
+      console.error('Error fetching folders:', error);
+      
+      // Try to use cached data on error
+      const cachedData = getStorageItem(cacheKeyPrefix);
+      if (cachedData && Array.isArray(cachedData.folders)) {
+        if (setFoldersState) {
+          setFoldersState(cachedData.folders);
+        }
+        return {
+          success: true,
+          folders: cachedData.folders,
+          fromCache: true,
+          error: error.message
+        };
+      }
+      
+      throw error;
+    } finally {
+      requests.inProgress.delete(apiPath);
+      if (setLoadingState) {
+        setLoadingState(false);
+      }
+    }
+  })();
+
+  // Store the promise for deduplication
+  requests.inProgress.set(apiPath, fetchPromise);
+
+  return fetchPromise;
 }
 
 /**
@@ -496,7 +291,7 @@ export async function fetchAccountDriveFolders({ forceRefresh = false, accountId
       status: 'error', 
       message: error.message || 'An unexpected error occurred' 
     });
-    
+
     return { 
       success: false, 
       error: error.message || 'An unexpected error occurred'
@@ -507,30 +302,31 @@ export async function fetchAccountDriveFolders({ forceRefresh = false, accountId
 /**
  * Fetches drive files for an account with caching support
  * 
- * @param {Object} options - Configuration options
- * @param {boolean} options.forceRefresh - Whether to bypass cache and force a refresh
- * @param {string} options.accountId - Account ID to fetch files for
- * @param {string} options.folderId - Optional folder ID to filter by
+ * @param {Object} param - Configuration options
+ * @param {boolean} param.forceRefresh - Whether to bypass cache and force a refresh
+ * @param {string} param.accountId - Account ID to fetch files for
+ * @param {string} param.folderId - Optional folder ID to filter by
  * @returns {Promise<Object>} - Result object with files or error
  */
-export async function fetchDriveFilesWithCache({ forceRefresh = false, accountId, folderId = null }) {
+export async function fetchDriveFilesWithCache(param) {
+  let { forceRefresh = false, accountId, folderId = null } = param;
   if (!accountId) {
     console.error('Account ID is required to fetch drive files');
     return { success: false, error: 'Account ID is required' };
   }
   
   const cacheKey = `drive-files-${accountId}${folderId ? `-${folderId}` : ''}`;
-  const cacheTTL = 15 * 60 * 1000; // تم تعديل المدة إلى 15 دقيقة بدلاً من 5
+  const cacheTTL = 15 * 60 * 1000; // 15 minutes cache TTL
   
-  // للتحكم في معدل الاستعلامات
+  // Rate limiting control
   const apiPath = `/api/drive-files-${accountId}${folderId ? `-${folderId}` : ''}`;
-  const minIntervalBetweenCalls = 20000; // 20 ثانية على الأقل بين الاستعلامات
+  const minIntervalBetweenCalls = 20000; // 20 seconds minimum between calls
   
-  // متغير عام لتخزين آخر وقت تم فيه استدعاء كل مسار API
+  // Global variable to store the last time each API path was called
   const lastCallTime = window._lastDriveApiCalls?.[apiPath] || 0;
   const currentTime = Date.now();
   
-  // إذا لم يمض وقت كافٍ، استخدم التخزين المؤقت حتى إذا تم طلب التحديث القسري
+  // If not enough time has passed, use cache even if force refresh was requested
   if (currentTime - lastCallTime < minIntervalBetweenCalls && !window.bypassRateLimits) {
     console.log(`API call to ${apiPath} throttled. Last call was ${currentTime - lastCallTime}ms ago.`);
     const cachedData = getStorageItem(cacheKey);
@@ -545,7 +341,7 @@ export async function fetchDriveFilesWithCache({ forceRefresh = false, accountId
     }
   }
   
-  // تحديث وقت آخر استدعاء
+  // Update last call time
   if (!window._lastDriveApiCalls) window._lastDriveApiCalls = {};
   window._lastDriveApiCalls[apiPath] = currentTime;
   
@@ -569,7 +365,7 @@ export async function fetchDriveFilesWithCache({ forceRefresh = false, accountId
   try {
     console.log(`Fetching drive files for account ${accountId}${folderId ? ` in folder ${folderId}` : ''}`);
     
-    let url = `/api/drive-files?accountId=${accountId}`;
+    let url = `/api/drive/list-files?accountId=${accountId}`;
     if (folderId) {
       url += `&folderId=${folderId}`;
     }
@@ -653,3 +449,6 @@ export async function fetchDriveFilesWithCache({ forceRefresh = false, accountId
     };
   }
 }
+
+// This function was removed to fix the duplicate declaration error
+// The original fetchDriveFilesWithCache function at the top of the file is used instead

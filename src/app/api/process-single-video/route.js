@@ -65,9 +65,11 @@ export async function POST(request) {
       }, { status: 400 });
     }
     
-    const accessToken = await getValidAccessToken(video.auth_user_id, video.account_id);
+        const result = await getValidAccessToken(video.auth_user_id, video.account_id);
+    const accessToken = result?.accessToken;
+    const tokenError = result?.error;
     
-    if (!accessToken) {
+    if (!result || tokenError || !accessToken) {
       await supabase
         .from('video_queue')
         .update({
@@ -332,4 +334,4 @@ async function uploadToDrive(drive, folderId, buffer, fileName, title, descripti
     console.error('Error uploading file to Drive:', error);
     throw error;
   }
-} 
+}

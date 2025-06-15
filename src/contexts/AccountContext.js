@@ -32,11 +32,25 @@ export function AccountProvider({ children }) {
         const accountsData = data.accounts || [];
         console.log('Fetched accounts:', accountsData.length);
 
-        // Update accounts state only if data has changed
+        // Update accounts state only if data has changed significantly
         setAccounts(prevAccounts => {
-          // Simple deep comparison
-          const hasChanged = JSON.stringify(prevAccounts) !== JSON.stringify(accountsData);
-          return hasChanged ? accountsData : prevAccounts;
+          if (prevAccounts.length !== accountsData.length) {
+            return accountsData; // If length changes, it's a definite update
+          }
+
+          // Perform a deep comparison on essential properties, ignoring 'last_used_at'
+          const hasSignificantChange = accountsData.some(newAcc => {
+            const oldAcc = prevAccounts.find(p => p.id === newAcc.id);
+            // If an account is new or removed (though length check should cover removal), or core data changed
+            if (!oldAcc || oldAcc.email !== newAcc.email || oldAcc.name !== newAcc.name || oldAcc.is_primary !== newAcc.is_primary) {
+              return true;
+            }
+            return false;
+          });
+
+          // If there's a significant change in core data, update the state.
+          // Otherwise, return the previous state to prevent unnecessary re-renders.
+          return hasSignificantChange ? accountsData : prevAccounts;
         });
 
         // Handle active account
@@ -71,7 +85,7 @@ export function AccountProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  }, [session, status]); // Removed accounts and activeAccount from dependencies
+  }, [session?.user?.email, status]); // Changed dependencies to prevent unnecessary re-creation of fetchAccounts
 
   // Switch to a different account
   const switchAccount = async (accountId) => {
@@ -79,19 +93,18 @@ export function AccountProvider({ children }) {
       // Show loading state
       setLoading(true);
       
+      // If the account is already active, do nothing and return true
+      if (activeAccount && activeAccount.id === accountId) {
+        console.log('Account is already active, skipping switch operation.');
+        setLoading(false);
+        return true;
+      }
+      
       // First, find the account in current accounts list
       let account = accounts.find(acc => acc.id === accountId);
       
       if (!account) {
-        // If not found, refresh accounts first
-        await fetchAccounts();
-        // Wait a bit for state to update, then check again
-        await new Promise(resolve => setTimeout(resolve, 100));
-        account = accounts.find(acc => acc.id === accountId);
-      }
-      
-      if (!account) {
-        throw new Error('Account not found');
+        throw new Error('Account not found in current accounts list. Please refresh or try again.');
       }
       
       // Optimistically update the UI
@@ -139,13 +152,16 @@ export function AccountProvider({ children }) {
       const accountName = account.email || account.name || `Account ${account.id.substring(0, 8)}`;
       toast.success(`Switched to ${accountName}`);
       
+      // تعديل: لا نقوم بإعادة تحميل الصفحة تلقائيًا، بل ننتظر تحديث المجلدات أولًا
       // Force refresh the page data
+      /* 
       if (typeof window !== 'undefined') {
         window.location.reload();
       }
+      */
       
       // Refresh accounts to ensure everything is in sync
-      await fetchAccounts();
+      // Removed: await fetchAccounts(); // This was causing a loop
       
       return true;
     } catch (error) {
@@ -249,7 +265,7 @@ export function AccountProvider({ children }) {
       setActiveAccount(null);
       setLoading(false);
     }
-  }, [session?.user?.email, status, session?.authUserId]); // Also depend on authUserId to refresh when it changes
+  }, [session?.user?.email, status]); // Removed session?.authUserId from dependencies
 
   // Additional effect to refresh accounts when returning from adding a new account
   useEffect(() => {

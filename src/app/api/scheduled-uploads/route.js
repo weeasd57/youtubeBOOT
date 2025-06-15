@@ -8,12 +8,18 @@ export async function GET() {
   try {
     const session = await getServerSession(authOptions);
 
-    if (!session || !session.authUserId || !session.activeAccountId) {
+    if (!session || !session.user?.auth_user_id || !session.active_account_id) {
+      console.log('Session missing required fields:', {
+        hasSession: !!session,
+        hasUser: !!session?.user,
+        hasAuthUserId: !!session?.user?.auth_user_id,
+        hasActiveAccountId: !!session?.active_account_id
+      });
       return NextResponse.json({ error: 'Not authenticated or active account not set' }, { status: 401 });
     }
 
-    const authUserId = session.authUserId;
-    const activeAccountId = session.activeAccountId;
+    const authUserId = session.user.auth_user_id;
+    const activeAccountId = session.active_account_id;
     console.log(`API route /api/scheduled-uploads: Fetching scheduled uploads for Account ID: ${activeAccountId}`);
 
     let userEmail;
@@ -77,12 +83,18 @@ export async function DELETE(request) {
   try {
     const session = await getServerSession(authOptions);
 
-    if (!session || !session.authUserId || !session.activeAccountId) {
+    if (!session || !session.user?.auth_user_id || !session.active_account_id) {
+      console.log('Session missing required fields:', {
+        hasSession: !!session,
+        hasUser: !!session?.user,
+        hasAuthUserId: !!session?.user?.auth_user_id,
+        hasActiveAccountId: !!session?.active_account_id
+      });
       return NextResponse.json({ error: 'Not authenticated or active account not set' }, { status: 401 });
     }
 
-    const authUserId = session.authUserId;
-    const activeAccountId = session.activeAccountId;
+    const authUserId = session.user.auth_user_id;
+    const activeAccountId = session.active_account_id;
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
 

@@ -1,119 +1,131 @@
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/app/api/auth/[...nextauth]/options';
 import { google } from 'googleapis';
-import { getServerSession } from 'next-auth/next';
-import { NextResponse } from 'next/server';
-import { authOptions } from '../../auth/[...nextauth]/options';
 import { getValidAccessToken } from '@/utils/refreshToken';
+import { isAuthError, isQuotaError } from '@/utils/apiHelpers';
+import { API_TIMEOUTS } from '@/utils/api-config';
 
-// Increase the timeout for Drive API requests
-const TIMEOUT_MS = 45000; // 45 seconds (increased from 25s)
-
-export async function GET(req) {
+export async function GET(request) {
   try {
-    const startTime = Date.now();
-    console.log('Drive list-folders endpoint called');
-
+    // Get the user session
     const session = await getServerSession(authOptions);
-
-    if (!session || !session.authUserId || !session.activeAccountId) {
-      return NextResponse.json({ error: 'Not authenticated or active account not set' }, { status: 401 });
+    if (!session) {
+      return new Response(JSON.stringify({ message: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
-    const authUserId = session.authUserId;
-    const activeAccountId = session.activeAccountId;
-    console.log(`Drive list-folders endpoint: Fetching folders for Auth User ID: ${authUserId}, Account ID: ${activeAccountId}`);
+    // Get the active account from the request
+    const { searchParams } = new URL(request.url);
+    const accountId = searchParams.get('accountId') || session.user?.activeAccountId;
+
+    if (!accountId) {
+      return new Response(JSON.stringify({ message: 'No active account selected' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Get a valid access token
+    const result = await getValidAccessToken(session.user.auth_user_id, accountId);
+    
+    if (!result || !result.success || !result.accessToken) {
+      console.error('Error getting valid access token:', result?.error || 'Unknown token error');
+      return new Response(JSON.stringify({ message: result?.error || 'Failed to get access token' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const accessToken = result.accessToken;
+
+    // Initialize the Drive API client
+    const drive = google.drive({
+      version: 'v3',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    // Set a timeout for the API request
+    const timeout = setTimeout(() => {
+      throw new Error('Drive API request timed out after 45 seconds');
+    }, API_TIMEOUTS.DRIVE);
 
     try {
-      // Get a valid access token for the active account, refreshing if necessary
-      const accessToken = await getValidAccessToken(authUserId, activeAccountId);
-
-      if (!accessToken) {
-        console.error(`Drive list-folders endpoint: Invalid access token for user ${authUserId}, account ${activeAccountId}`);
-        return NextResponse.json({ error: 'Invalid access token. Please re-authenticate Google Drive for this account.' }, { status: 401 });
-      }
-
-      // Initialize the Drive API client
-      const oauth2Client = new google.auth.OAuth2();
-      oauth2Client.setCredentials({ access_token: accessToken });
-
-      const drive = google.drive({ version: 'v3', auth: oauth2Client });
-
-      // Set a timeout for the Drive API request
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => {
-          reject(new Error('Drive API request timed out after ' + (TIMEOUT_MS / 1000) + ' seconds'));
-        }, TIMEOUT_MS);
-      });
-
-      // Perform the actual API request with a comprehensive folder query
-      const driveRequestPromise = drive.files.list({
-        // Use the 'in parents' query to find all folders in the root of Drive
-        q: "mimeType='application/vnd.google-apps.folder' and 'root' in parents and trashed=false",
-        fields: 'files(id, name, parents, mimeType, createdTime)',
-        pageSize: 100,
-        orderBy: 'createdTime desc',
-        // Include shared folders that the user has access to
+      // Query for folders in the root directory
+      const response = await drive.files.list({
+        q: "mimeType='application/vnd.google-apps.folder' and trashed=false",
+        fields: 'files(id, name, mimeType, parents)',
+        orderBy: 'name',
+        pageSize: 100, // Increased from default 30 to reduce pagination needs
+        supportsAllDrives: true,
         includeItemsFromAllDrives: true,
-        supportsAllDrives: true
       });
 
-      // Race the API request against the timeout
-      const response = await Promise.race([driveRequestPromise, timeoutPromise]);
+      clearTimeout(timeout);
 
-      // Process successful response
-      const folders = response.data.files || [];
-      console.log(`Drive list-folders endpoint: Found ${folders.length} folders, request took ${Date.now() - startTime}ms`);
+      // Return the folders
+      return new Response(JSON.stringify({ folders: response.data.files }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'public, max-age=300', // Cache for 5 minutes
+        },
+      });
+    } catch (driveError) {
+      clearTimeout(timeout);
 
-      // Log all folders for debugging
-      if (folders.length > 0) {
-        console.log('Drive list-folders endpoint: Folders found in Drive:');
-        folders.forEach(folder => {
-          console.log(`- ${folder.name} (${folder.id}, ${folder.mimeType})`);
+      // Handle specific Drive API errors
+      if (isAuthError(driveError)) {
+        console.error('Drive API authentication error:', driveError.message);
+        return new Response(JSON.stringify({ message: 'Authentication error: ' + driveError.message }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
         });
       }
 
-      return NextResponse.json({ folders });
-    } catch (error) {
-      console.error('Drive list-folders endpoint: Error fetching Drive folders:', error);
-
-      // Handle specific error scenarios
-      if (error.message.includes('timed out')) {
-        return NextResponse.json(
-          { error: 'Drive API request timed out. Please try again or refresh your authentication.' },
-          { status: 504 } // Gateway Timeout
-        );
+      if (isQuotaError(driveError)) {
+        console.error('Drive API quota exceeded:', driveError.message);
+        return new Response(JSON.stringify({ message: 'API quota exceeded. Please try again later.' }), {
+          status: 429,
+          headers: { 
+            'Content-Type': 'application/json',
+            'Retry-After': '300' // Suggest retry after 5 minutes
+          },
+        });
       }
 
-      // Check for permission errors
-      if (error.code === 403 ||
-        (error.response && error.response.status === 403) ||
-        (error.message && error.message.includes('permission'))) {
-        return NextResponse.json(
-          { error: 'Insufficient permissions to access Drive folders. Please check your Google account permissions.' },
-          { status: 403 }
-        );
+      if (driveError.message?.includes('timeout')) {
+        console.error('Drive API request timed out');
+        return new Response(JSON.stringify({ message: 'Request timed out. Please try again later.' }), {
+          status: 504,
+          headers: { 'Content-Type': 'application/json' },
+        });
       }
 
-      // Check for authentication errors
-      if (error.code === 401 ||
-        (error.response && error.response.status === 401) ||
-        (error.message && (error.message.includes('auth') || error.message.includes('token')))) {
-        return NextResponse.json(
-          { error: 'Authentication error. Please re-authenticate Google Drive for this account.' },
-          { status: 401 }
-        );
+      // Check for permission issues
+      if (driveError.code === 403 || driveError.response?.status === 403) {
+        console.error('Drive API permission error:', driveError.message);
+        return new Response(JSON.stringify({ message: 'Permission denied: ' + driveError.message }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' },
+        });
       }
 
-      // Network or other errors
-      return NextResponse.json(
-        { error: `Error fetching Drive folders: ${error.message || 'Unknown error'}` },
-        { status: 500 }
-      );
+      // Generic error handler
+      console.error('Drive API error:', driveError);
+      return new Response(JSON.stringify({ message: 'Drive API error: ' + driveError.message }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
   } catch (error) {
-    console.error('Drive list-folders endpoint: Unhandled error:', error);
-    return NextResponse.json(
-      { error: 'Server error fetching Drive folders' },
-      { status: 500 }
-    );
+    console.error('Server error in list-folders API:', error);
+    return new Response(JSON.stringify({ message: 'Server error: ' + error.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 }

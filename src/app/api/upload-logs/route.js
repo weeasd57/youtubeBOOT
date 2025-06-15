@@ -8,11 +8,17 @@ export async function GET() {
   try {
     const session = await getServerSession(authOptions);
 
-    if (!session || !session.authUserId || !session.activeAccountId) {
+    if (!session || !session.user?.auth_user_id || !session.active_account_id) {
+      console.log('Session missing required fields:', {
+        hasSession: !!session,
+        hasUser: !!session?.user,
+        hasAuthUserId: !!session?.user?.auth_user_id,
+        hasActiveAccountId: !!session?.active_account_id
+      });
       return NextResponse.json({ error: 'Not authenticated or active account not set' }, { status: 401 });
     }
 
-    const activeAccountId = session.activeAccountId;
+    const activeAccountId = session.active_account_id;
     console.log(`API route /api/upload-logs: Fetching upload logs for Account ID: ${activeAccountId}`);
 
     // Check if we're using a mock account ID (from our authentication bypass)
@@ -32,7 +38,7 @@ export async function GET() {
       const { data: user, error: userError } = await supabaseAdmin
         .from('users')
         .select('email')
-        .eq('id', session.authUserId)
+        .eq('id', session.user.auth_user_id)
         .single();
       
       if (userError || !user || !user.email) {
@@ -99,11 +105,17 @@ export async function POST(request) {
   try {
     const session = await getServerSession(authOptions);
 
-    if (!session || !session.authUserId || !session.activeAccountId) {
+    if (!session || !session.user?.auth_user_id || !session.active_account_id) {
+      console.log('Session missing required fields:', {
+        hasSession: !!session,
+        hasUser: !!session?.user,
+        hasAuthUserId: !!session?.user?.auth_user_id,
+        hasActiveAccountId: !!session?.active_account_id
+      });
       return NextResponse.json({ error: 'Not authenticated or active account not set' }, { status: 401 });
     }
 
-    const activeAccountId = session.activeAccountId;
+    const activeAccountId = session.active_account_id;
     const requestData = await request.json();
     const {
       video_id,
@@ -145,7 +157,7 @@ export async function POST(request) {
       const { data: user, error: userError } = await supabaseAdmin
         .from('users')
         .select('email')
-        .eq('id', session.authUserId)
+        .eq('id', session.user.auth_user_id)
         .single();
       
       if (userError || !user || !user.email) {

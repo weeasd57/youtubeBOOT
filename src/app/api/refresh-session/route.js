@@ -18,16 +18,22 @@ export async function GET() {
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session || !session.authUserId || !session.activeAccountId) {
+    if (!session || !session.user?.auth_user_id || !session.active_account_id) {
+      console.log('Session missing required fields:', {
+        hasSession: !!session,
+        hasUser: !!session?.user,
+        hasAuthUserId: !!session?.user?.auth_user_id,
+        hasActiveAccountId: !!session?.active_account_id
+      });
       return NextResponse.json(
-        { success: false, message: 'Not authenticated or active account not set' },
+        { success: false, message: 'Not authenticated' },
         { status: 401 }
       );
     }
     
     // Get the user's auth ID and account ID from the session
-    const authUserId = session.authUserId;
-    const activeAccountId = session.activeAccountId;
+    const authUserId = session.user.auth_user_id;
+    const activeAccountId = session.active_account_id;
     const email = session.user?.email || 'unknown';
     console.log(`Refreshing token for Auth User ID: ${authUserId}, Account ID: ${activeAccountId}, Email: ${email}`);
     
@@ -66,7 +72,9 @@ export async function GET() {
     while (retryCount < 3) {
       try {
         // Call the token validation/refresh function
-        const accessToken = await getValidAccessToken(authUserId, activeAccountId);
+        const result = await getValidAccessToken(authUserId, activeAccountId);
+        const accessToken = result?.accessToken;
+        const tokenError = result?.error;
         
         // Handle successful token retrieval
         if (accessToken) {
@@ -87,8 +95,10 @@ export async function GET() {
           });
         }
         
-        // If no access token was returned, treat as an error
-        throw new Error('Failed to obtain valid access token');
+        if (!result || tokenError || !accessToken) {
+          // If no access token was returned, treat as an error
+          throw new Error(tokenError || 'Failed to obtain valid access token');
+        }
       } catch (error) {
         lastError = error;
         retryCount++;
@@ -138,4 +148,4 @@ export async function GET() {
       { status: 500 }
     );
   }
-} 
+}

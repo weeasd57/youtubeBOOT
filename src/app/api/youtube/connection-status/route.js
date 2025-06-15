@@ -9,21 +9,29 @@ export async function GET() {
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session || !session.authUserId || !session.activeAccountId) {
+    if (!session || !session.user?.auth_user_id || !session.active_account_id) {
+      console.log('Session missing required fields:', {
+        hasSession: !!session,
+        hasUser: !!session?.user,
+        hasAuthUserId: !!session?.user?.auth_user_id,
+        hasActiveAccountId: !!session?.active_account_id
+      });
       return NextResponse.json({
         success: false,
         message: 'Not authenticated or active account not set'
       }, { status: 401 });
     }
     
-    const authUserId = session.authUserId;
-    const activeAccountId = session.activeAccountId;
+    const authUserId = session.user.auth_user_id;
+    const activeAccountId = session.active_account_id;
     console.log(`YouTube connection status: Checking for Auth User ID: ${authUserId}, Account ID: ${activeAccountId}`);
     
     // Get valid access token using the new account-based system
-    const accessToken = await getValidAccessToken(authUserId, activeAccountId);
+        const result = await getValidAccessToken(authUserId, activeAccountId);
+    const accessToken = result?.accessToken;
+    const tokenError = result?.error;
     
-    if (!accessToken) {
+    if (!result || tokenError || !accessToken) {
       return NextResponse.json({
         success: false,
         message: 'Invalid access token',
@@ -203,4 +211,4 @@ export async function GET() {
       status: 'error'
     }, { status: 500 });
   }
-} 
+}
