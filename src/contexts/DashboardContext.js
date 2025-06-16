@@ -273,13 +273,26 @@ export function DashboardProvider({ children }) {
 
     // 3️⃣ Ensure every Drive account that appears in `drivesInfo` is represented
     // so the UI still works even if we lack DB info for that ID.
-    Object.keys(drivesInfo || {}).forEach(id => {
+    Object.entries(drivesInfo || {}).forEach(([id, driveInfo]) => {
       if (!combinedMap.has(id)) {
-        combinedMap.set(id, { id, name: `Account ${id.substring(0, 6)}`, email: 'N/A' });
+        // Use the email from driveInfo if available, otherwise fall back to the ID
+        const email = driveInfo?.email || 'N/A';
+        combinedMap.set(id, { 
+          id, 
+          name: email, // Use email as the display name
+          email: email 
+        });
+      } else {
+        // Update existing entry to ensure email is used as name if not set
+        const existing = combinedMap.get(id);
+        if (existing && existing.email && existing.email !== 'N/A' && !existing.name) {
+          existing.name = existing.email;
+        }
       }
     });
 
-    return Array.from(combinedMap.values());
+    // Exclude placeholder accounts that lack proper email data (generated with 'N/A')
+    return Array.from(combinedMap.values()).filter(acc => acc.email && acc.email !== 'N/A');
   }, [accounts, userTokens, drivesInfo]);
 
   const mergedAccounts = useMemo(() => {

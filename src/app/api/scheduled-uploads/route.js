@@ -1,7 +1,7 @@
 import { getServerSession } from 'next-auth/next';
 import { NextResponse } from 'next/server';
 import { authOptions } from '../auth/[...nextauth]/options';
-import { supabaseAdmin } from '@/utils/supabase-server';
+import { supabaseAdmin } from '@/lib/supabase-server';
 
 // Get scheduled uploads for the current active account
 export async function GET() {

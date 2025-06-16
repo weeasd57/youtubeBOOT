@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth/next';
 import { NextResponse } from 'next/server';
 import { authOptions } from '../../auth/[...nextauth]/options';
 import { getValidAccessToken } from '@/utils/refreshToken';
-import { saveTikTokVideoData } from '@/utils/supabase-server';
+import { saveTikTokVideoData } from '@/lib/supabase-server';
 import axios from 'axios';
 
 // Increase the timeout for Drive API requests

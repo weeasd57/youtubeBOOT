@@ -28,24 +28,25 @@ export async function GET(request) {
     }
 
     // Get a valid access token
-    const result = await getValidAccessToken(session.user.auth_user_id, accountId);
-    
-    if (!result || !result.success || !result.accessToken) {
-      console.error('Error getting valid access token:', result?.error || 'Unknown token error');
-      return new Response(JSON.stringify({ message: result?.error || 'Failed to get access token' }), {
+    const tokenResponse = await getValidAccessToken(session.user?.auth_user_id, accountId);
+
+    if (!tokenResponse || !tokenResponse.success || !tokenResponse.accessToken) {
+      console.error('Error getting valid access token:', tokenResponse?.error);
+      return new Response(JSON.stringify({ 
+        message: tokenResponse?.error || 'Failed to get access token' 
+      }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' },
       });
     }
 
-    const accessToken = result.accessToken;
-
     // Initialize the Drive API client
+    const oauth2Client = new google.auth.OAuth2();
+    oauth2Client.setCredentials({ access_token: tokenResponse.accessToken });
+    
     const drive = google.drive({
       version: 'v3',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
+      auth: oauth2Client
     });
 
     // Set a timeout for the API request

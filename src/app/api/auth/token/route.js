@@ -38,11 +38,9 @@ export async function GET(request) {
     console.log(`Getting a valid access token for accountId: ${accountId}`);
     
     // Get a valid token using the utility function
-        const result = await getValidAccessToken(authUserId, accountId);
-    const token = result?.accessToken;
-    const tokenError = result?.error;
+    const token = await getValidAccessToken(authUserId, accountId);
     
-    if (!result || tokenError || !token) {
+    if (!token) {
       console.error(`Failed to get valid token for account ${accountId}`);
       return NextResponse.json({ error: 'Failed to get valid token' }, { status: 500 });
     }
@@ -57,4 +55,4 @@ export async function GET(request) {
     console.error("Error in token endpoint:", error);
     return NextResponse.json({ error: error.message || 'Unknown error' }, { status: 500 });
   }
-}
+} 

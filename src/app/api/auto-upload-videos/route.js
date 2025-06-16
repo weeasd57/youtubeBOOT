@@ -77,11 +77,9 @@ export async function GET() {
     const activeAccountId = session.active_account_id;
     
     // Try to get a valid access token, refreshing if necessary
-        const result = await getValidAccessToken(authUserId, activeAccountId);
-    const accessToken = result?.accessToken;
-    const tokenError = result?.error;
+    const accessToken = await getValidAccessToken(authUserId, activeAccountId);
     
-    if (!result || tokenError || !accessToken) {
+    if (!accessToken) {
       console.error("Failed to get valid access token");
       return NextResponse.json({ error: 'Invalid access token' }, { status: 401 });
     }

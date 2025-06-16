@@ -1,7 +1,7 @@
 import { getServerSession } from 'next-auth';
 import { NextResponse } from 'next/server';
 import { authOptions } from '../../auth/[...nextauth]/options';
-import { supabaseAdmin } from '@/utils/supabase-server';
+import { supabaseAdmin } from '@/lib/supabase-server';
 
 // DELETE /api/accounts/[id] - Remove an account
 export async function DELETE(request, { params }) {

@@ -5,47 +5,37 @@ import { authOptions } from '../../auth/[...nextauth]/options';
 import { getValidAccessToken } from '@/utils/refreshToken';
 
 // Check YouTube connection status without consuming large API quota
-export async function GET() {
+export async function GET(req) {
   try {
-    const session = await getServerSession(authOptions);
-    
-    if (!session || !session.user?.auth_user_id || !session.active_account_id) {
-      console.log('Session missing required fields:', {
-        hasSession: !!session,
-        hasUser: !!session?.user,
-        hasAuthUserId: !!session?.user?.auth_user_id,
-        hasActiveAccountId: !!session?.active_account_id
-      });
-      return NextResponse.json({
-        success: false,
-        message: 'Not authenticated or active account not set'
-      }, { status: 401 });
-    }
-    
-    const authUserId = session.user.auth_user_id;
-    const activeAccountId = session.active_account_id;
-    console.log(`YouTube connection status: Checking for Auth User ID: ${authUserId}, Account ID: ${activeAccountId}`);
-    
-    // Get valid access token using the new account-based system
-        const result = await getValidAccessToken(authUserId, activeAccountId);
-    const accessToken = result?.accessToken;
-    const tokenError = result?.error;
-    
-    if (!result || tokenError || !accessToken) {
-      return NextResponse.json({
-        success: false,
-        message: 'Invalid access token',
-        status: 'expired'
-      }, { status: 401 });
-    }
-    
-    // Create OAuth2 client
-    const oauth2Client = new google.auth.OAuth2();
-    oauth2Client.setCredentials({
-      access_token: accessToken,
-    });
+    const { searchParams } = new URL(req.url);
+    const accountId = searchParams.get('accountId');
 
-    // Check connection with a lightweight request
+    if (!accountId) {
+      return NextResponse.json({ error: 'Account ID is required' }, { status: 400 });
+    }
+
+    console.log('Fetching account info for accountId:', accountId);
+    const tokenResponse = await getValidAccessToken(accountId);
+    
+    if (!tokenResponse || !tokenResponse.success || !tokenResponse.accessToken) {
+      console.error('Failed to get valid access token for account:', accountId);
+      return NextResponse.json({ 
+        error: tokenResponse?.error || 'Invalid or expired credentials' 
+      }, { status: 401 });
+    }
+
+    const accessToken = tokenResponse.accessToken;
+
+    // Validate token format
+    if (typeof accessToken !== 'string' || !accessToken.startsWith('ya29.')) {
+      console.error('Invalid access token format:', 
+        typeof accessToken === 'string' ? accessToken.substring(0, 10) : typeof accessToken);
+      return NextResponse.json({ error: 'Invalid token format' }, { status: 401 });
+    }
+
+    const oauth2Client = new google.auth.OAuth2();
+    oauth2Client.setCredentials({ access_token: accessToken });
+
     const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
     
     const channelResponse = await youtube.channels.list({

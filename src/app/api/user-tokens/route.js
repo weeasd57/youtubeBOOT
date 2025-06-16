@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getSession } from '@/utils/session';
-import { supabaseAdmin } from '@/utils/supabase-server';
+import { supabaseAdmin } from '@/lib/supabase-server';
 
 /**
  * API endpoint to fetch user tokens from the user_tokens table

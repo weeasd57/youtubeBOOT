@@ -64,24 +64,17 @@ export async function GET(request) {
     
     try {
       console.log(`Getting a valid access token for accountId: ${accountId}`);
-          const result = await getValidAccessToken(session.user.auth_user_id, accountId);
-    const accessToken = result?.accessToken;
-    const tokenError = result?.error;
+      const tokenResponse = await getValidAccessToken(session.user.auth_user_id, accountId);
       
-      if (!result || tokenError || !accessToken) {
-        return NextResponse.json({
-          success: false,
-          status: 'disconnected',
-          message: 'No valid access token available. Please reconnect your YouTube account.',
-          channelInfo: null
-        });
+      if (!tokenResponse || !tokenResponse.success || !tokenResponse.accessToken) {
+        console.error('Failed to get valid access token');
+        return NextResponse.json({ 
+          error: tokenResponse?.error || 'Invalid or expired credentials' 
+        }, { status: 401 });
       }
 
-      // Initialize YouTube API with token
       const oauth2Client = new google.auth.OAuth2();
-      oauth2Client.setCredentials({
-        access_token: accessToken
-      });
+      oauth2Client.setCredentials({ access_token: tokenResponse.accessToken });
       
       const youtube = google.youtube({
         version: 'v3',

@@ -1,7 +1,7 @@
 import { getServerSession } from 'next-auth/next';
 import { NextResponse } from 'next/server';
 import { authOptions } from '../[...nextauth]/options';
-import { supabaseAdmin } from '@/utils/supabase-server';
+import { supabaseAdmin } from '@/lib/supabase-server';
 
 export async function POST() {
   try {

@@ -72,9 +72,7 @@ export async function GET() {
     // Try to get a valid access token, refreshing if necessary
     let accessToken;
     try {
-          const result = await getValidAccessToken(authUserId, activeAccountId);
-    accessToken = result?.accessToken;
-    const tokenError = result?.error;
+      accessToken = await getValidAccessToken(authUserId, activeAccountId);
     } catch (tokenError) {
       console.error("Error getting access token:", tokenError);
       // Check if we have a cached token in the session (from previous successful auth)
@@ -89,7 +87,7 @@ export async function GET() {
       }
     }
     
-    if (!result || tokenError || !accessToken) {
+    if (!accessToken) {
       console.error("Failed to get valid access token");
       return NextResponse.json({ error: 'Invalid access token' }, { status: 401 });
     }

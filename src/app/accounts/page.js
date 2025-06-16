@@ -70,6 +70,8 @@ export default function AccountsPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
   const [refreshing, setRefreshing] = useState(false);
+  const [addingAccount, setAddingAccount] = useState(false);
+  const [apiError, setApiError] = useState(null);
   const {
     accounts,
     activeAccount,
@@ -101,12 +103,51 @@ export default function AccountsPage() {
     return null;
   }
 
-  const handleAddAccount = () => {
-    // Use URL parameter to indicate we're adding an additional account
-    const callbackUrl = session?.authUserId
-      ? `/accounts?addingFor=${session.authUserId}`
-      : '/accounts';
-    signIn('google', { callbackUrl });
+  const handleAddAccount = async () => {
+    if (!session?.user?.id) {
+      toast.error("يرجى تسجيل الدخول أولاً قبل إضافة حساب جديد");
+      return;
+    }
+
+    setAddingAccount(true);
+    setApiError(null);
+    
+    try {
+      const response = await fetch('/api/auth/generate-link-token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to generate linking token');
+      }
+
+      const { token: linkToken } = await response.json();
+      
+      // Add loading toast
+      const toastId = toast.loading('جاري فتح نافذة تسجيل الدخول بجوجل...');
+      
+      // Prepare state with linking token
+      const state = JSON.stringify({ linkToken });
+      
+      // Initiate Google sign in
+      await signIn('google', { 
+        callbackUrl: '/accounts', 
+        state 
+      });
+      
+      // Clear loading toast
+      toast.dismiss(toastId);
+
+    } catch (error) {
+      console.error('Error adding account:', error);
+      setApiError(error.message);
+    } finally {
+      setAddingAccount(false);
+    }
   };
 
   const handleSwitchAccount = async (accountId) => {
@@ -176,8 +217,29 @@ export default function AccountsPage() {
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold">Manage Accounts</h1>
           </div>
+          <button
+            onClick={handleAddAccount}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
+            disabled={addingAccount}
+          >
+            {addingAccount ? (
+              <>
+                <FaSync className="animate-spin" /> Generating Link...
+              </>
+            ) : (
+              <>
+                <FaPlus /> Add New Account
+              </>
+            )}
+          </button>
         </div>
       
+      {apiError && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6 text-red-700 dark:text-red-400">
+          {apiError}
+        </div>
+      )}
+
       {error && (
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6 text-red-700 dark:text-red-400">
           {error}
@@ -274,14 +336,6 @@ export default function AccountsPage() {
           </div>
           
           <div className="flex justify-center gap-4">
-            <button
-              onClick={handleAddAccount}
-              className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 flex items-center gap-2 transition-colors"
-            >
-              <FaPlus className="w-4 h-4" />
-              Add Another Google Account
-            </button>
-            
             {accounts.some(acc => !acc.email) && (
               <button
                 onClick={handleFixMissingData}

@@ -34,18 +34,18 @@ export async function GET(req) {
 
     try {
       // Get a valid access token for the active account, refreshing if necessary
-          const result = await getValidAccessToken(authUserId, activeAccountId);
-    const accessToken = result?.accessToken;
-    const tokenError = result?.error;
+      const tokenResponse = await getValidAccessToken(authUserId, activeAccountId);
 
-      if (!result || tokenError || !accessToken) {
+      if (!tokenResponse || !tokenResponse.success || !tokenResponse.accessToken) {
         console.error(`Drive list-files endpoint: Invalid access token for user ${authUserId}, account ${activeAccountId}`);
-        return NextResponse.json({ error: 'Invalid access token. Please re-authenticate Google Drive for this account.' }, { status: 401 });
+        return NextResponse.json({ 
+          error: tokenResponse?.error || 'Invalid access token. Please re-authenticate Google Drive for this account.' 
+        }, { status: 401 });
       }
 
       // Initialize the Drive API client
       const oauth2Client = new google.auth.OAuth2();
-      oauth2Client.setCredentials({ access_token: accessToken });
+      oauth2Client.setCredentials({ access_token: tokenResponse.accessToken });
 
       const drive = google.drive({ version: 'v3', auth: oauth2Client });
 

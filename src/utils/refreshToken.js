@@ -299,11 +299,8 @@ export async function getValidAccessToken(authUserId, accountId) {
 
     // If there's an ongoing refresh for this key, await it
     if (pendingTokenRefreshes.has(requestKey)) {
-      console.log(`getValidAccessToken: Awaiting ongoing token refresh for ${effectiveAccountId}`);
       return await pendingTokenRefreshes.get(requestKey);
     }
-
-    console.log(`getValidAccessToken: Fetching token for Account ID: ${effectiveAccountId}`);
 
     // Fetch token data from the database. First try by `account_id`, then fallback to primary `id`
     const { data: tokenData, error } = await supabase
@@ -317,28 +314,19 @@ export async function getValidAccessToken(authUserId, accountId) {
       console.error('getValidAccessToken: Error fetching user tokens:', error?.message || 'User tokens not found for this account');
       // If maybeSingle returns null because no records match, tokenData will be null.
       // We should return null in this case as no token was found.
-      if (!tokenData) {
-        console.error('getValidAccessToken: No user token found for account: ', effectiveAccountId);
-        return { success: false, error: 'No user token found for this account' };
-      } else {
-        return { success: false, error: error?.message || 'Failed to fetch user token' };
-      }
+      if (!tokenData) {      return { success: false, error: 'No user token found for this account' };
+    } else {
+      return { success: false, error: error?.message || 'Failed to fetch user token' };
     }
+  }
 
-    // Check if the current access token is still valid
+  // Check if the current access token is still valid
     if (tokenData.access_token && tokenData.expires_at) {
       const expiryTime = new Date(tokenData.expires_at * 1000); // Convert timestamp to Date
       // Add a safety margin of 5 minutes
       const safeExpiryTime = new Date(expiryTime.getTime() - 5 * 60 * 1000);
 
-      console.log(`Debug: Token expires_at (raw): ${tokenData.expires_at}`);
-      console.log(`Debug: expiryTime: ${expiryTime.toISOString()}`);
-      console.log(`Debug: safeExpiryTime (5min margin): ${safeExpiryTime.toISOString()}`);
-      console.log(`Debug: currentTime: ${new Date().toISOString()}`);
-      console.log(`Debug: Time remaining till safe expiry (seconds): ${Math.floor((safeExpiryTime.getTime() - new Date().getTime()) / 1000)}`);
-
       if (safeExpiryTime > new Date()) {
-        console.log(`getValidAccessToken: Existing access token is valid for account ${accountId}`);
         return { success: true, accessToken: tokenData.access_token };
       }
     }
@@ -447,4 +435,5 @@ export async function validateToken(accessToken) {
     // خطأ يعني أن الرمز غير صالح
     return false;
   }
-} 
+}
+

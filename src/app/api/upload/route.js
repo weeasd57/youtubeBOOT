@@ -106,11 +106,9 @@ export async function POST(request) {
     console.log(`Upload: Processing for Auth User ID: ${authUserId}, Account ID: ${activeAccountId}`);
 
     // Get valid access token, refreshing if necessary
-        const result = await getValidAccessToken(authUserId, activeAccountId);
-    const accessToken = result?.accessToken;
-    const tokenError = result?.error;
+    const accessToken = await getValidAccessToken(authUserId, activeAccountId);
     
-    if (!result || tokenError || !accessToken) {
+    if (!accessToken) {
       return NextResponse.json({ error: 'Invalid access token' }, { status: 401 });
     }
 

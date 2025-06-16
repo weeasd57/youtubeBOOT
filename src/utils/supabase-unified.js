@@ -4,7 +4,7 @@
  */
 
 // Re-export everything from server implementation
-export * from './supabase-server';
+export * from '../lib/supabase-server';
 
 // Re-export client implementation with a different name to avoid conflicts
 export { supabase as supabaseClient } from './supabase'; 

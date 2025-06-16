@@ -72,33 +72,25 @@ export async function GET() {
     while (retryCount < 3) {
       try {
         // Call the token validation/refresh function
-        const result = await getValidAccessToken(authUserId, activeAccountId);
-        const accessToken = result?.accessToken;
-        const tokenError = result?.error;
+        const tokenResponse = await getValidAccessToken(authUserId, activeAccountId);
         
-        // Handle successful token retrieval
-        if (accessToken) {
-          console.log('Refresh session successful, valid token obtained');
-          
-          // Reset failure counter on success
-          failureCounters.delete(userKey);
-          
-          // Return the success information
-          return NextResponse.json({
-            success: true,
-            message: 'Tokens refreshed successfully',
-            tokenInfo: {
-              accessToken: accessToken.substring(0, 10) + '...',
-              authUserId: authUserId,
-              activeAccountId: activeAccountId
-            }
-          });
+        if (!tokenResponse || !tokenResponse.success) {
+          console.error('Failed to get valid access token');
+          return NextResponse.json({ 
+            error: tokenResponse?.error || 'Failed to refresh session' 
+          }, { status: 401 });
         }
-        
-        if (!result || tokenError || !accessToken) {
-          // If no access token was returned, treat as an error
-          throw new Error(tokenError || 'Failed to obtain valid access token');
-        }
+
+        // Successfully refreshed the session
+        return NextResponse.json({
+          success: true,
+          message: 'Tokens refreshed successfully',
+          tokenInfo: {
+            accessToken: tokenResponse.accessToken.substring(0, 10) + '...',
+            authUserId,
+            activeAccountId
+          }
+        });
       } catch (error) {
         lastError = error;
         retryCount++;

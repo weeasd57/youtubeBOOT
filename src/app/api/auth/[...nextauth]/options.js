@@ -1,7 +1,8 @@
 import GoogleProvider from 'next-auth/providers/google';
-import { saveUserToSupabase, saveUserTokens, supabaseAdmin } from '@/utils/supabase-server.js';
+import { saveUserToSupabase, saveUserTokens, supabaseAdmin } from '@/lib/supabase-server';
 import { refreshAccessToken } from '@/utils/refreshToken';
 import { createClient } from '@supabase/supabase-js';
+import { ensureUserExists } from '@/middleware/checkUser';
 
 // NextAuth configuration options
 export const authOptions = {
@@ -34,176 +35,108 @@ export const authOptions = {
     }),
   ],
   callbacks: {
+    async signIn({ user, account }) {
+      try {
+        // Always try to create/update user first
+        const { error: userError } = await supabaseAdmin
+          .from('users')
+          .upsert({
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            avatar_url: user.image,
+            google_id: user.id,
+            updated_at: new Date().toISOString()
+          }, { 
+            onConflict: 'id',
+            ignoreDuplicates: false 
+          });
+
+        if (userError) {
+          console.error('Error in signIn - creating/updating user:', userError);
+          return false;
+        }
+
+        return true;
+      } catch (error) {
+        console.error('Error in signIn callback:', error);
+        return false;
+      }
+    },
     async jwt({ token, account, user }) {
-      // This callback is called whenever a JWT is created or updated.
       if (account && user) {
-        // Handle sign-in / account linking.
-        // On the very first sign-in `token.auth_user_id` will be undefined.
-        // For subsequent account additions we should NOT create another row in `users` –
-        // we simply reuse the existing authenticated user ID stored on the token.
+        try {
+          // Ensure user exists and get their ID
+          token.auth_user_id = user.id;
 
-        const isFirstSignin = !token.auth_user_id;
-        const authUserId = isFirstSignin
-          ? (await (async () => {
-              console.log('JWT Callback: First sign-in for user:', user.email);
-              const savedUser = await saveUserToSupabase(user);
-              if (!savedUser || !savedUser.id) {
-                throw new Error('Failed to save or retrieve user data from public.users');
-              }
-              return savedUser.id;
-            })())
-          : token.auth_user_id;
-
-        // Persist the user id on the token so that future callbacks can skip user creation
-        token.auth_user_id = authUserId;
-
-        // Step 2: Create or update the specific Google account in the `accounts` table.
-        // Try to find if this account already exists for this user
-        const { data: existingAccount, error: findError } = await supabaseAdmin
-          .from('accounts')
-          .select('id')
-          .eq('owner_id', authUserId)
-          .eq('email', user.email)
-          .single();
-
-        let accountId;
-        if (!findError && existingAccount) {
-          // The account already exists, just use its ID.
-          console.log(`Account ${user.email} already exists for user ${authUserId}. Using ID: ${existingAccount.id}`);
-          accountId = existingAccount.id;
-        } else {
-          // The account doesn't exist for this user, so create it.
-          // No need to check for "primary" or "active" status.
-          const { data: newAccount, error: createError } = await supabaseAdmin
+          // Handle account creation/linking
+          const { data: accountData, error: accountError } = await supabaseAdmin
             .from('accounts')
-            .insert({
-              owner_id: authUserId,
+            .upsert({
+              owner_id: user.id,
               name: user.name,
               email: user.email,
               image: user.image,
-              account_type: 'google'
-              // No is_primary field
+              account_type: 'google',
+              updated_at: new Date().toISOString()
+            }, {
+              onConflict: 'email',
+              ignoreDuplicates: false
             })
-            .select('id')
+            .select()
             .single();
 
-          if (createError) {
-            console.error('Error creating new account:', createError);
-            throw new Error('Failed to create new account in public.accounts.');
+          if (accountError) {
+            console.error('Error creating/updating account:', accountError);
+            throw accountError;
           }
-          console.log(`New account created for ${user.email} with ID: ${newAccount.id}`);
-          accountId = newAccount.id;
-        }
 
-        // Step 3: Save the tokens to the `user_tokens` table, now with correct IDs.
-        const savedTokens = await saveUserTokens({
-          authUserId: authUserId,
-          accountId: accountId,
-          email: user.email, // Keep email for reference, even though we use IDs
-          accessToken: account.access_token,
-          refreshToken: account.refresh_token,
-          expiresAt: account.expires_at,
-        });
-
-        if (!savedTokens) {
-          throw new Error('Failed to save tokens to public.user_tokens');
-        }
-        
-        console.log('Tokens saved successfully for account_id:', accountId);
-
-        // Step 4: Populate the token with necessary info for the session.
-        token.access_token = savedTokens.access_token;
-        token.refresh_token = savedTokens.refresh_token;
-        token.expires_at = savedTokens.expires_at;
-        token.active_account_id = accountId; // Still useful for identifying which account is current
-        token.account = { // Attach account details to the token for the session callback.
-          id: accountId,
-          name: user.name,
-          email: user.email,
-          image: user.image,
-          account_type: 'google',
-        };
-
-        return token;
-      }
-
-      // Return previous token if the access token has not expired yet
-      if (token.expires_at && Date.now() < token.expires_at * 1000) {
-        return token;
-      }
-      
-      // Access token has expired, try to update it
-      console.log("Access token expired, needs refresh. (Refresh logic to be implemented if needed)");
-      
-      // Make sure the email is available on the token
-      if (!token.email) {
-        console.error("JWT callback: Token has no email, cannot refresh.");
-        return token; // Return original token if email is missing to avoid breaking session
-      }
-
-      try {
-        const refreshed = await refreshAccessToken(token.email);
-        
-        if (refreshed.success) {
-          console.log("Token refreshed successfully from JWT callback");
-          // Update the token with new values
-          return {
-            ...token,
-            accessToken: refreshed.accessToken,
-            refreshToken: refreshed.refreshToken,
-            expires_at: refreshed.expiresAt,
-            // Ensure account details persist
-            account: token.account,
+          // Save token information
+          token.active_account_id = accountData.id;
+          token.account = {
+            id: accountData.id,
+            name: user.name,
+            email: user.email,
+            image: user.image,
+            account_type: 'google'
           };
-        } else if (refreshed.needsReauth) {
-          console.warn("Token refresh failed due to revoked access, requiring re-authentication.");
-          // Invalidate the token to force a sign-out on the client side
-          return {
-            ...token,
-            error: "reauthenticate_required", // Custom error status
-            accessToken: null,
-            refreshToken: null,
-            expires_at: 0,
-          };
-        } else {
-          console.error("Failed to refresh token from JWT callback:", refreshed.error);
-          // Return original token if refresh fails to allow user to manually refresh
-          return token;
+
+          // Save tokens
+          if (account.access_token) {
+            const savedTokens = await saveUserTokens({
+              authUserId: user.id,
+              accountId: accountData.id,
+              email: user.email,
+              accessToken: account.access_token,
+              refreshToken: account.refresh_token,
+              expiresAt: account.expires_at
+            });
+
+            if (savedTokens) {
+              token.access_token = savedTokens.access_token;
+              token.refresh_token = savedTokens.refresh_token;
+              token.expires_at = savedTokens.expires_at;
+            }
+          }
+        } catch (error) {
+          console.error('Error in JWT callback:', error);
         }
-      } catch (refreshError) {
-        console.error("Error during token refresh in JWT callback:", refreshError);
-        return token; // Return original token on unexpected errors
       }
+
+      return token;
     },
 
     async session({ session, token }) {
-      // The session callback is called whenever a session is checked.
-      // We are passing the custom properties from the JWT to the session object.
-      
-      // Pass the user's primary ID and active account details to the session
-      session.user.id = token.auth_user_id; 
       session.user.auth_user_id = token.auth_user_id;
-      session.account = token.account;
       session.active_account_id = token.active_account_id;
-
-      // Pass token details to the session
-      session.access_token = token.access_token;
-      session.refresh_token = token.refresh_token;
-      session.expires_at = token.expires_at;
-
+      session.account = token.account;
       return session;
-    },
+    }
+  },
 
-    async redirect({ url, baseUrl }) {
-      // Allows relative callback URLs
-      if (url.startsWith('/')) return `${baseUrl}${url}`;
-      // Allows callback URLs on the same origin
-      else if (new URL(url).origin === baseUrl) return url;
-      return baseUrl;
-    },
-  },
   pages: {
-    signIn: '/signin', // Custom sign-in page
+    signIn: '/signin',
   },
-  secret: process.env.NEXTAUTH_SECRET,
+
+  secret: process.env.NEXTAUTH_SECRET
 };
