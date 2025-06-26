@@ -1,12 +1,16 @@
 import React from 'react';
 import { FaExclamationTriangle, FaInfoCircle, FaHistory } from 'react-icons/fa';
-import { useYouTube } from '@/contexts/YouTubeContext';
+import { useMultiChannel } from '@/contexts/MultiChannelContext';
+import { useUser } from '@/contexts/UserContext';
 
 /**
  * Component to display when YouTube API quota is exceeded
  */
 export default function QuotaErrorMessage({ message }) {
-  const { dailyQuotaExceeded, resetQuotaExceeded } = useYouTube();
+  const { activeAccount } = useUser();
+  const { getChannelStatus, refreshChannel } = useMultiChannel();
+  const channelStatus = activeAccount ? getChannelStatus(activeAccount.id) : null;
+  const dailyQuotaExceeded = channelStatus?.quotaExceeded || false;
   
   // Get when the quota will reset (midnight Pacific Time)
   const getQuotaResetTime = () => {
@@ -23,6 +27,13 @@ export default function QuotaErrorMessage({ message }) {
     
     // Format the time
     return tomorrowLocalTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+  };
+
+  // Function to try refreshing the channel
+  const handleRetry = async () => {
+    if (activeAccount) {
+      await refreshChannel(activeAccount.id);
+    }
   };
   
   return (
@@ -67,7 +78,7 @@ export default function QuotaErrorMessage({ message }) {
                   <span>Quota will reset around {getQuotaResetTime()}</span>
                 </div>
                 <button
-                  onClick={resetQuotaExceeded}
+                  onClick={handleRetry}
                   className="px-3 py-1 bg-amber-200 dark:bg-amber-700 text-amber-800 dark:text-amber-200 rounded hover:bg-amber-300 dark:hover:bg-amber-600 transition-colors"
                 >
                   Try Again Now
@@ -79,4 +90,4 @@ export default function QuotaErrorMessage({ message }) {
       </div>
     </div>
   );
-} 
+}

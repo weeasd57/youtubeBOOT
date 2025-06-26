@@ -4,17 +4,18 @@
  */
 
 // Base timeouts for different API types (in milliseconds)
+// More generous timeouts in development
 export const API_TIMEOUTS = {
-  DRIVE: 60000,        // 60 seconds for Google Drive operations
-  YOUTUBE: 60000,      // 60 seconds for YouTube operations
-  TIKTOK: 45000,       // 45 seconds for TikTok operations
-  DEFAULT: 30000,      // 30 seconds default
-  SHORT: 15000,        // 15 seconds for quick operations
+  DRIVE: process.env.NODE_ENV === 'development' ? 120000 : 60000,        // 2 min dev, 1 min prod
+  YOUTUBE: process.env.NODE_ENV === 'development' ? 120000 : 60000,      // 2 min dev, 1 min prod
+  TIKTOK: process.env.NODE_ENV === 'development' ? 90000 : 45000,        // 1.5 min dev, 45s prod
+  DEFAULT: process.env.NODE_ENV === 'development' ? 60000 : 30000,       // 1 min dev, 30s prod
+  SHORT: process.env.NODE_ENV === 'development' ? 30000 : 15000,         // 30s dev, 15s prod
 };
 
-// Retry configuration
+// Retry configuration - more lenient in development
 export const RETRY_CONFIG = {
-  MAX_RETRIES: 5,      // Maximum number of retry attempts
+  MAX_RETRIES: process.env.NODE_ENV === 'development' ? 3 : 5,      // Fewer retries in dev for faster feedback
   BASE_DELAY: 1000,    // Starting delay in milliseconds
   MAX_DELAY: 30000,    // Maximum delay between retries
   BACKOFF_FACTOR: 1.5, // Exponential backoff multiplier

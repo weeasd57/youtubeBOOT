@@ -1,149 +1,128 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
+
+// Cache configuration
+const CACHE_KEY = 'tiktokVideosCache';
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 export function useTikTokVideos() {
   const { data: session } = useSession();
-  const [videos, setVideos] = useState([]);
+  const [videos, setVideos] = useState(() => {
+    // Try to load from cache on initial mount
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem(CACHE_KEY);
+      if (cached) {
+        try {
+          const { data, timestamp } = JSON.parse(cached);
+          if (Date.now() - timestamp < CACHE_TTL) {
+            return data;
+          }
+        } catch (e) {
+          // Invalid cache, ignore
+        }
+      }
+    }
+    return [];
+  });
+  
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  
+  // Refs for tracking mount state and preventing duplicate requests
+  const mounted = useRef(false);
+  const fetchingRef = useRef(false);
+  const lastFetchRef = useRef(0);
 
-  // دالة للتحقق من صلاحية الدورة
+  // Session check with minimal logging
   const checkSession = useCallback(() => {
-    console.log("useTikTokVideos - Session check:", {
-      loggedIn: !!session,
-      email: session?.user?.email,
-    });
     return session?.user?.email;
   }, [session]);
 
-  const fetchTikTokVideos = useCallback(async () => {
+  const fetchTikTokVideos = useCallback(async (force = false) => {
     const email = checkSession();
-    if (!email) {
-      console.log("useTikTokVideos - No session email, skipping fetch");
-      return;
+    if (!email || fetchingRef.current) return;
+    
+    // Check cache/rate limit unless forced
+    if (!force) {
+      const now = Date.now();
+      if (now - lastFetchRef.current < CACHE_TTL) {
+        return;
+      }
     }
     
+    fetchingRef.current = true;
     setLoading(true);
     setError(null);
     
     try {
-      console.log(`useTikTokVideos - Fetching TikTok videos for ${email}...`);
-      
-      // طباعة معلومات الاتصال
-      console.log("useTikTokVideos - API URL:", `/api/tiktok/videos?email=${encodeURIComponent(email)}`);
-      console.log("useTikTokVideos - Environment vars:", {
-        supabaseUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
-        supabaseKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-      });
-      
-      // استخدام API route بدلاً من الاتصال المباشر بـ Supabase
       const response = await fetch(`/api/tiktok/videos?email=${encodeURIComponent(email)}`);
-      
-      console.log("useTikTokVideos - API response status:", response.status);
       
       if (!response.ok) {
         throw new Error(`Failed to fetch TikTok videos: ${response.status}`);
       }
       
       const data = await response.json();
-      console.log(`useTikTokVideos - Fetched ${data?.length || 0} TikTok videos from API`);
-      console.log("useTikTokVideos - Sample videos:", data?.slice(0, 2));
-      setVideos(data || []);
+      
+      // Only update state if component is still mounted
+      if (mounted.current) {
+        setVideos(data || []);
+        
+        // Update cache
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(CACHE_KEY, JSON.stringify({
+            data,
+            timestamp: Date.now()
+          }));
+        }
+      }
     } catch (err) {
-      console.error('useTikTokVideos - Error fetching TikTok videos:', err);
-      setError(err.message || 'Failed to fetch TikTok videos');
+      if (mounted.current) {
+        setError(err.message || 'Failed to fetch TikTok videos');
+      }
     } finally {
-      setLoading(false);
+      if (mounted.current) {
+        setLoading(false);
+      }
+      fetchingRef.current = false;
+      lastFetchRef.current = Date.now();
     }
   }, [checkSession]);
 
+  // Mount effect with cleanup
   useEffect(() => {
-    console.log("useTikTokVideos - Component mounted");
+    mounted.current = true;
+    
     const email = checkSession();
-    if (email) {
-      console.log("useTikTokVideos - Initiating fetch on mount");
+    if (email && videos.length === 0) {
       fetchTikTokVideos();
     }
-  }, [checkSession, fetchTikTokVideos]);
+    
+    return () => {
+      mounted.current = false;
+    };
+  }, [checkSession, fetchTikTokVideos, videos.length]);
 
-  // وظيفة للحصول على بيانات TikTok لملف Drive محدد
+  // Optimized lookup functions
   const getTikTokDataForDriveFile = useCallback((driveFileId) => {
     if (!driveFileId || videos.length === 0) return null;
-    
-    // التحقق من معرّف الملف
-    console.log(`useTikTokVideos - Searching for TikTok data with drive_file_id: ${driveFileId}`);
-    const match = videos.find(video => video.drive_file_id === driveFileId);
-    
-    if (match) {
-      console.log(`useTikTokVideos - Found TikTok data by drive_file_id: ${driveFileId}`, match);
-    }
-    
-    return match;
+    return videos.find(video => video.drive_file_id === driveFileId);
   }, [videos]);
 
-  // وظيفة محسنة للحصول على بيانات TikTok بواسطة معرف فيديو TikTok
   const getTikTokDataByVideoId = useCallback((videoId) => {
-    if (!videoId || videos.length === 0) {
-      console.log(`useTikTokVideos - Cannot search for video_id: ${videoId} - invalid ID or no videos loaded (${videos.length} videos)`);
-      return null;
-    }
-    
-    console.log(`useTikTokVideos - Searching for TikTok data with video_id: "${videoId}" (type: ${typeof videoId})`);
-    console.log(`useTikTokVideos - Available video_ids (${videos.length}):`);
-    // طباعة أول 5 معرفات فقط لتجنب تسجيل كمية كبيرة من البيانات
-    const sampleVideoIds = videos.slice(0, 5).map(v => v.video_id);
-    console.log("useTikTokVideos - Sample video_ids:", sampleVideoIds);
-    
-    // تنظيف المعرف للمقارنة (إزالة المسافات وضمان أنه نص)
+    if (!videoId || videos.length === 0) return null;
     const cleanVideoId = String(videoId).trim();
-    
-    // 1. البحث عن مطابقة دقيقة
-    let match = videos.find(video => {
-      const dbVideoId = video.video_id ? String(video.video_id).trim() : null;
-      const exactMatch = dbVideoId === cleanVideoId;
-      if (exactMatch) console.log(`useTikTokVideos - Exact match found: "${dbVideoId}" = "${cleanVideoId}"`);
-      return exactMatch;
-    });
-    
-    // 2. إذا لم يتم العثور على مطابقة دقيقة، نبحث عن معرّف يحتوي على videoId
-    if (!match) {
-      match = videos.find(video => {
-        if (!video.video_id) return false;
-        const dbVideoId = String(video.video_id).trim();
-        const containsMatch = dbVideoId.includes(cleanVideoId);
-        if (containsMatch) console.log(`useTikTokVideos - Partial match found: "${dbVideoId}" contains "${cleanVideoId}"`);
-        return containsMatch;
-      });
-    }
-    
-    // 3. إذا لم يتم العثور على مطابقة، نبحث عن videoId يحتوي على معرّف من البيانات
-    if (!match) {
-      match = videos.find(video => {
-        if (!video.video_id) return false;
-        const dbVideoId = String(video.video_id).trim();
-        const containedInMatch = cleanVideoId.includes(dbVideoId);
-        if (containedInMatch) console.log(`useTikTokVideos - Reverse match found: "${cleanVideoId}" contains "${dbVideoId}"`);
-        return containedInMatch;
-      });
-    }
-    
-    if (match) {
-      console.log(`useTikTokVideos - Found TikTok data by video_id: ${videoId}`, match);
-    } else {
-      console.log(`useTikTokVideos - No TikTok data found for video_id: ${videoId}`);
-    }
-    
-    return match;
+    return videos.find(video => String(video.video_id).trim() === cleanVideoId);
   }, [videos]);
 
+  // Public API
   return {
     videos,
     loading,
     error,
-    fetchTikTokVideos,
+    refresh: () => fetchTikTokVideos(true),
     getTikTokDataForDriveFile,
     getTikTokDataByVideoId
   };
-} 
+}

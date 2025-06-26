@@ -6,16 +6,41 @@ import { ToastInitializer } from '@/components/ToastHelper';
 import FooterWrapper from '@/components/FooterWrapper';
 import NavbarWrapper from '@/components/NavbarWrapper';
 import DialogBlockerWrapper from '@/components/DialogBlockerWrapper';
+import DevelopmentHelper from '@/components/DevelopmentHelper';
+import PerformanceMonitor from '@/components/PerformanceMonitor';
 
+// Optimized font loading with preload
 const inter = Inter({ 
   subsets: ['latin'],
   display: 'swap',
   variable: '--font-inter',
+  preload: true,
+  fallback: ['system-ui', 'arial'],
 });
 
+// Enhanced metadata with security headers
 export const metadata = {
-  title: "Uploader",
-  description: "A tool to manage YouTube uploads, TikTok downloads, and Drive files",
+  metadataBase: new URL(process.env.NEXTAUTH_URL || 'http://localhost:3000'),
+  title: {
+    default: "Uploader - YouTube & Drive Management Tool",
+    template: "%s | Uploader"
+  },
+  description: "Securely manage YouTube uploads, TikTok downloads, and Google Drive files with multi-account support and smart scheduling",
+  keywords: ["YouTube uploader", "Google Drive", "TikTok downloader", "video management", "content scheduling"],
+  authors: [{ name: "YouTube Boot Team" }],
+  creator: "YouTube Boot",
+  publisher: "YouTube Boot",
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-video-preview': -1,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+    },
+  },
   icons: {
     icon: [
       { url: '/favicon.ico', sizes: 'any' },
@@ -30,27 +55,102 @@ export const metadata = {
       { url: '/android-chrome-512x512.png', sizes: '512x512', type: 'image/png' }
     ]
   },
-  manifest: '/site.webmanifest'
+  manifest: '/site.webmanifest',
+  openGraph: {
+    type: 'website',
+    locale: 'en_US',
+    url: 'https://youtubeboot.com',
+    siteName: 'Uploader',
+    title: 'Uploader - YouTube & Drive Management Tool',
+    description: 'Securely manage YouTube uploads, TikTok downloads, and Google Drive files',
+    images: [
+      {
+        url: '/android-chrome-512x512.png',
+        width: 512,
+        height: 512,
+        alt: 'Uploader Logo',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Uploader - YouTube & Drive Management Tool',
+    description: 'Securely manage YouTube uploads, TikTok downloads, and Google Drive files',
+    images: ['/android-chrome-512x512.png'],
+  },
+  verification: {
+    // Add your verification tokens here
+    // google: 'your-google-verification-token',
+    // yandex: 'your-yandex-verification-token',
+  },
+};
+
+// Security headers
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
+  userScalable: true,
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#f59e0b' },
+    { media: '(prefers-color-scheme: dark)', color: '#d97706' },
+  ],
 };
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" className={`scroll-smooth ${inter.variable}`}>
+    <html 
+      lang="en" 
+      className={`scroll-smooth ${inter.variable}`}
+      suppressHydrationWarning
+    >
+      <head>
+        {/* Performance hints */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href="https://www.googleapis.com" />
+        <link rel="dns-prefetch" href="https://accounts.google.com" />
+        
+        {/* Theme color for mobile browsers */}
+        <meta name="theme-color" content="#f59e0b" media="(prefers-color-scheme: light)" />
+        <meta name="theme-color" content="#d97706" media="(prefers-color-scheme: dark)" />
+      </head>
       <body
-        className="font-sans antialiased flex flex-col min-h-screen"
+        className={`font-sans antialiased flex flex-col min-h-screen ${inter.className}`}
         suppressHydrationWarning
       >
+        {/* Noscript fallback */}
+        <noscript>
+          <div className="bg-red-600 text-white p-4 text-center">
+            This application requires JavaScript to function properly. Please enable JavaScript in your browser.
+          </div>
+        </noscript>
+
         <ToastProvider>
           <ToastInitializer />
           <DialogBlockerWrapper />
+          <DevelopmentHelper />
+          <PerformanceMonitor />
           <Providers>
             <NavbarWrapper />
-            <main className="flex-grow">
+            <main 
+              className="flex-grow"
+              role="main"
+              aria-label="Main content"
+            >
               {children}
             </main>
             <FooterWrapper />
           </Providers>
         </ToastProvider>
+
+        {/* Skip to main content for accessibility */}
+        <a 
+          href="#main-content" 
+          className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 bg-blue-600 text-white px-4 py-2 rounded-md z-50"
+        >
+          Skip to main content
+        </a>
       </body>
     </html>
   );

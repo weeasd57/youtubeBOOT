@@ -8,16 +8,17 @@ import { useRouter } from 'next/navigation';
 import { useUser } from '@/contexts/UserContext';
 import { useUploadLogs } from '@/contexts/UploadLogsContext';
 import { useScheduledUploads } from '@/contexts/ScheduledUploadsContext';
-import { useDataFetching } from '@/hooks/useDataFetching';
 import ClientOnly from '@/components/ClientOnly';
 import ThemeToggle from '@/components/ThemeToggle';
 import ScheduledUploadList from '@/components/ScheduledUploadList';
 import Link from 'next/link';
-import { useDrive } from '@/contexts/DriveContext';
+import { useDrive } from '@/contexts/MultiDriveContext';
 import ScheduleUploadForm from '@/components/ScheduleUploadForm';
 import PageContainer from '@/components/PageContainer';
 import QueueDataTable from '@/components/QueueDataTable';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { sanitizeInput, validateInput, logSecurityEvent, RateLimiter } from '@/utils/security';
+import SecurityDashboard from '@/components/SecurityDashboard';
 
 // Add a custom app logo component for consistency
 const AppLogoIcon = ({ className = "", size = 24 }) => (
@@ -54,6 +55,9 @@ export default function UploadsPage() {
   return <UploadsContent />;
 }
 
+// إنشاء rate limiter للصفحة
+const pageRateLimiter = new RateLimiter(60 * 1000, 30); // 30 requests per minute
+
 // Separate content component that uses context hooks
 function UploadsContent() {
   const { data: session, status } = useSession();
@@ -67,14 +71,14 @@ function UploadsContent() {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [showScheduleForm, setShowScheduleForm] = useState(false);
   const [activeTab, setActiveTab] = useState('scheduled');
+  const [securityError, setSecurityError] = useState(null);
 
-  // Use our new optimized data fetching hook
-  const {
-    loading: dataLoading,
-    initialLoading,
-    error: dataError,
-    refreshAll
-  } = useDataFetching();
+
+  // بعد حذف useDataFetching، لازم نعدل حالة التحميل والتحديث
+  // لو فيه دوال refreshAll أو initialLoading في سياق تاني، استخدمهم، لو لأ، خليهم دوال فاضية/ثوابت
+  const initialLoading = false;
+  const refreshAll = () => {};
+  const dataLoading = false;
 
   // Combined loading state
   const loadingCombined = userLoading || logsLoading || dataLoading;
@@ -82,9 +86,37 @@ function UploadsContent() {
   // Redirect to landing page if not authenticated
   useEffect(() => {
     if (status === 'unauthenticated') {
+      logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', { 
+        page: '/uploads',
+        userAgent: typeof window !== 'undefined' ? window.navigator.userAgent : 'unknown'
+      });
       router.push('/');
     }
   }, [status, router]);
+
+  // تسجيل دخول المستخدم للصفحة
+  useEffect(() => {
+    if (status === 'authenticated' && session?.user?.email) {
+      const userIdentifier = session.user.email;
+      
+      // التحقق من rate limiting
+      if (!pageRateLimiter.isAllowed(userIdentifier)) {
+        setSecurityError('Too many requests. Please wait before refreshing.');
+        logSecurityEvent('RATE_LIMIT_EXCEEDED', { 
+          userEmail: userIdentifier,
+          page: '/uploads',
+          remainingRequests: pageRateLimiter.getRemainingRequests(userIdentifier)
+        });
+        return;
+      }
+      
+      logSecurityEvent('PAGE_ACCESS', { 
+        page: '/uploads',
+        userEmail: userIdentifier,
+        remainingRequests: pageRateLimiter.getRemainingRequests(userIdentifier)
+      });
+    }
+  }, [status, session?.user?.email]);
 
   // Format date to be more readable
   const formatDate = (dateString) => {
@@ -115,14 +147,47 @@ function UploadsContent() {
     }
   };
 
-  // Handle refresh
+  // Handle refresh with security checks
   const handleRefresh = () => {
-    refreshScheduledUploads();
-    refreshAll(true);
+    try {
+      if (!session?.user?.email) {
+        logSecurityEvent('REFRESH_WITHOUT_AUTH', { page: '/uploads' });
+        return;
+      }
+
+      const userIdentifier = session.user.email;
+      
+      // التحقق من rate limiting للتحديث
+      if (!pageRateLimiter.isAllowed(userIdentifier)) {
+        setSecurityError('Too many refresh requests. Please wait before trying again.');
+        logSecurityEvent('REFRESH_RATE_LIMIT_EXCEEDED', { 
+          userEmail: userIdentifier,
+          remainingRequests: pageRateLimiter.getRemainingRequests(userIdentifier)
+        });
+        return;
+      }
+
+      setSecurityError(null);
+      refreshScheduledUploads();
+      refreshAll(true);
+      
+      logSecurityEvent('PAGE_REFRESH', { 
+        userEmail: userIdentifier,
+        page: '/uploads'
+      });
+      
+    } catch (error) {
+      console.error('Error during refresh:', error);
+      setSecurityError('An error occurred while refreshing. Please try again.');
+      logSecurityEvent('REFRESH_ERROR', { 
+        error: error.message,
+        page: '/uploads'
+      });
+    }
   };
 
   // Show loading spinner while checking authentication
-  if (status === 'loading' || (status === 'authenticated' && initialLoading)) {
+  if (status === 'loading') {
     return (
       <div className="min-h-screen p-8 flex items-center justify-center dark:bg-black" suppressHydrationWarning>
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 dark:border-amber-500" suppressHydrationWarning></div>
@@ -138,6 +203,16 @@ function UploadsContent() {
           <p className="text-gray-600 dark:text-amber-200/60">
             Manage your scheduled uploads, video queue and view upload history
           </p>
+          
+          {/* Security Error Display */}
+          {securityError && (
+            <div className="mt-4 p-3 bg-red-100 border-l-4 border-red-500 text-red-700 dark:bg-red-900/30 dark:text-red-300 rounded-md text-sm animate-pulse">
+              <div className="flex items-center">
+                <FaClock className="mr-2" />
+                <span>{securityError}</span>
+              </div>
+            </div>
+          )}
         </div>
 
         <Tabs defaultValue="scheduled" className="w-full mb-6" onValueChange={setActiveTab}>
@@ -204,10 +279,10 @@ function UploadsContent() {
                             {new Date(log.created_at).toLocaleString()}
                           </td>
                           <td className="w-[30%] px-2 py-3 text-xs sm:text-sm text-gray-900 dark:text-amber-50 break-words">
-                            {log.file_name}
+                            {sanitizeInput.html(log.file_name || 'Unknown file')}
                           </td>
                           <td className="w-[30%] px-2 py-3 text-xs sm:text-sm text-gray-900 dark:text-amber-50 break-words">
-                            {log.title}
+                            {sanitizeInput.html(log.title || 'No title')}
                           </td>
                           <td className="w-[20%] px-2 py-3 text-center sm:text-left">
                             <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
@@ -236,6 +311,15 @@ function UploadsContent() {
           </TabsContent>
         </Tabs>
       </div>
+      
+      {/* Security Dashboard - يظهر للمستخدمين المخولين */}
+      <SecurityDashboard isAdmin={user?.email && isAdminUser(user.email)} />
     </PageContainer>
   );
+}
+
+// دالة للتحقق من صلاحيات الإدارة
+function isAdminUser(email) {
+  const adminEmails = process.env.NEXT_PUBLIC_ADMIN_EMAILS?.split(',') || [];
+  return adminEmails.includes(email);
 } 

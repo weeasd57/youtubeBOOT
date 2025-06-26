@@ -1,6 +1,22 @@
-import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
-import { useAccounts } from './AccountContext';
+import { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useUser } from './UserContext';
+import { useSession } from 'next-auth/react';
 import { fetchDriveFoldersWithCache, fetchDriveFilesWithCache } from '@/utils/driveHelpers';
+
+// Optimized timing constants
+const DEBOUNCE_DELAY = 150; // Reduced from 300ms
+const THROTTLE_DELAY = 2000; // Reduced from 5000ms
+const GLOBAL_REFRESH_DELAY = 30000; // Reduced from 60000ms
+const BATCH_SIZE = 3; // Number of concurrent requests
+const STAGGER_DELAY = 500; // Delay between batches
+
+const debounce = (fn, delay) => {
+  let timeoutId;
+  return (...args) => {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => fn(...args), delay);
+  };
+};
 
 // Create context
 const MultiDriveContext = createContext();
@@ -9,23 +25,80 @@ export function MultiDriveProvider({ children }) {
   const [drivesInfo, setDrivesInfo] = useState({});
   const [loadingDrives, setLoadingDrives] = useState({});
   const [errors, setErrors] = useState({});
-  const { accounts } = useAccounts();
-  const prevAccountIds = useRef(null);
-
-  // Keep track of fetch requests to prevent duplicates
+  const { accounts } = useUser();
+  const { data: session } = useSession();
+  
+  const accountsRef = useRef(null);
   const pendingFetches = useRef(new Map());
+  const lastFetchTimes = useRef(new Map());
+  const mounted = useRef(true);
+  const loadingDrivesRef = useRef({});
 
-  // Fetch drive info for a specific account
+  // Component lifecycle management
+  useEffect(() => {
+    accountsRef.current = accounts;
+    return () => {
+      mounted.current = false;
+      pendingFetches.current.clear();
+      lastFetchTimes.current.clear();
+    };
+  }, [accounts]);
+
+  // Update loadingDrivesRef whenever loadingDrives state changes
+  useEffect(() => {
+    loadingDrivesRef.current = loadingDrives;
+  }, [loadingDrives]);
+
+  // Token refresh handling
+  const handleAuthError = useCallback(async () => {
+    try {
+      const response = await fetch('/api/auth/session');
+      if (!response.ok) return false;
+
+      const sessionData = await response.json();
+      if (!sessionData?.user) return false;
+
+      const accountId = accounts?.[0]?.id || session?.user?.id;
+      if (!accountId) return false;
+
+      const tokenResponse = await fetch('/api/auth/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId }),
+      });
+
+      return tokenResponse.ok;
+    } catch (error) {
+      return false;
+    }
+  }, [accounts, session]);
+
+  // Data comparison utility
+  const hasDataChanged = useCallback((oldData, newData, keys = ['id', 'name']) => {
+    if (!oldData || !newData) return true;
+    if (oldData.length !== newData.length) return true;
+    return newData.some((newItem, index) => {
+      const oldItem = oldData[index];
+      return !oldItem || keys.some(key => oldItem[key] !== newItem[key]);
+    });
+  }, []);
+
+  // Drive info fetching with optimizations
   const fetchDriveInfo = useCallback(async (accountId, forceRefresh = false) => {
-    if (!accountId || loadingDrives[accountId]) return;
-    
-    // Check if there's already a pending fetch for this account
-    if (!forceRefresh && pendingFetches.current.has(accountId)) {
-      console.log(`Existing fetch pending for account ${accountId}, waiting...`);
+    if (!accountId || !mounted.current) return;
+    if (loadingDrivesRef.current[accountId] && !forceRefresh) return;
+
+    const now = Date.now();
+    const lastFetch = lastFetchTimes.current.get(accountId);
+    if (!forceRefresh && lastFetch && (now - lastFetch < THROTTLE_DELAY)) {
+      return;
+    }
+
+    if (pendingFetches.current.has(accountId)) {
       try {
         return await pendingFetches.current.get(accountId);
-      } catch (error) {
-        console.error('Error waiting for pending fetch:', error);
+      } catch {
+        pendingFetches.current.delete(accountId);
       }
     }
 
@@ -34,36 +107,27 @@ export function MultiDriveProvider({ children }) {
 
     const fetchPromise = (async () => {
       try {
-        console.log(`Fetching drive info for account: ${accountId}${forceRefresh ? ' (force refresh)' : ''}`);
-        
         const result = await fetchDriveFoldersWithCache({
-          forceRefresh: forceRefresh,
-          accountId: accountId,
-          onFolderCheck: () => {}
+          forceRefresh,
+          accountId,
+          onFolderCheck: () => {},
         });
-        
+
+        if (!mounted.current) return;
+
         if (result.success) {
           setDrivesInfo(prev => {
-            // Ensure accountInfo is an object with folders and files initialized as arrays from the start
             const accountInfo = {
               folders: [],
               files: [],
-              ...(prev[accountId] || {}), // Merge with existing properties, handling null/undefined prev[accountId]
+              ...(prev[accountId] || {}),
             };
 
-            const oldFolders = Array.isArray(accountInfo.folders) ? accountInfo.folders : []; // Ensure oldFolders is an array
+            const oldFolders = Array.isArray(accountInfo.folders) ? accountInfo.folders : [];
             const newFolders = result.folders || [];
 
-            const foldersChanged =
-              oldFolders.length !== newFolders.length ||
-              newFolders.some((newFolder, index) => {
-                const oldFolder = oldFolders[index];
-                return !oldFolder || oldFolder.id !== newFolder.id || oldFolder.name !== newFolder.name;
-              });
-
-            if (!foldersChanged) {
-              console.log(`Folders for account ${accountId} are identical, skipping state update.`);
-              return prev; // Return previous state to prevent re-render
+            if (!hasDataChanged(oldFolders, newFolders)) {
+              return prev;
             }
 
             return {
@@ -72,23 +136,23 @@ export function MultiDriveProvider({ children }) {
                 ...accountInfo,
                 folders: newFolders,
                 status: 'connected',
-                lastUpdated: new Date().toISOString()
-              }
+                lastUpdated: new Date().toISOString(),
+              },
             };
           });
         } else {
-          // If the request was successful but returned no folders, initialize with empty arrays
+          if (!mounted.current) return;
+          
           setDrivesInfo(prev => ({
             ...prev,
             [accountId]: {
               folders: [],
-              files: [], // Initialize files as empty array too, for consistency
+              files: [],
               status: 'no_data',
-              lastUpdated: new Date().toISOString()
-            }
+              lastUpdated: new Date().toISOString(),
+            },
           }));
-          
-          // Set error if available
+
           if (result.error) {
             setErrors(prev => ({ ...prev, [accountId]: result.error }));
           }
@@ -96,63 +160,60 @@ export function MultiDriveProvider({ children }) {
 
         return result;
       } catch (error) {
-        console.error(`Error fetching drive info for account ${accountId}:`, error);
-        setErrors(prev => ({ 
-          ...prev, 
-          [accountId]: error.message || 'An unexpected error occurred' 
+        if (!mounted.current) return;
+        
+        setErrors(prev => ({
+          ...prev,
+          [accountId]: error.message || 'An unexpected error occurred',
         }));
         throw error;
       } finally {
-        setLoadingDrives(prev => ({ ...prev, [accountId]: false }));
+        if (mounted.current) {
+          setLoadingDrives(prev => ({ ...prev, [accountId]: false }));
+        }
         pendingFetches.current.delete(accountId);
+        lastFetchTimes.current.set(accountId, Date.now());
       }
     })();
 
-    // Store the promise for deduplication
     pendingFetches.current.set(accountId, fetchPromise);
-
     return fetchPromise;
-  }, [loadingDrives]);
+  }, [loadingDrivesRef, hasDataChanged]);
 
-  // Fetch files for a specific drive (account)
+  // File fetching with optimizations
   const fetchDriveFiles = useCallback(async (accountId, forceRefresh = false) => {
-    if (!accountId || loadingDrives[accountId]) return;
-    
+    if (!accountId || !mounted.current || (loadingDrives[accountId] && !forceRefresh)) return;
+
+    const now = Date.now();
+    const lastFetch = lastFetchTimes.current.get(`${accountId}_files`);
+    if (!forceRefresh && lastFetch && (now - lastFetch < THROTTLE_DELAY)) {
+      return;
+    }
+
     setLoadingDrives(prev => ({ ...prev, [accountId]: true }));
-    
+
     try {
-      console.log(`Fetching drive files for account: ${accountId}${forceRefresh ? ' (force refresh)' : ''}`);
-      
       const result = await fetchDriveFilesWithCache({
         forceRefresh,
         accountId,
-        folderId: null // Get all files from root
+        folderId: null,
       });
-      
+
+      if (!mounted.current) return;
+
       if (result.success) {
-        console.log(`Drive files response for account ${accountId}:`, result);
-        
         setDrivesInfo(prev => {
-          // Ensure accountInfo is an object with folders and files initialized as arrays from the start
           const accountInfo = {
             folders: [],
             files: [],
-            ...(prev[accountId] || {}), // Merge with existing properties, handling null/undefined prev[accountId]
+            ...(prev[accountId] || {}),
           };
 
-          const oldFiles = Array.isArray(accountInfo.files) ? accountInfo.files : []; // Ensure oldFiles is an array
+          const oldFiles = Array.isArray(accountInfo.files) ? accountInfo.files : [];
           const newFiles = result.files || [];
 
-          const filesChanged =
-            oldFiles.length !== newFiles.length ||
-            newFiles.some((newFile, index) => {
-              const oldFile = oldFiles[index];
-              return !oldFile || oldFile.id !== newFile.id || oldFile.name !== newFile.name;
-            });
-          
-          if (!filesChanged) {
-            console.log(`Files for account ${accountId} are identical, skipping state update.`);
-            return prev; // Return previous state to prevent re-render
+          if (!hasDataChanged(oldFiles, newFiles)) {
+            return prev;
           }
 
           return {
@@ -161,167 +222,278 @@ export function MultiDriveProvider({ children }) {
               ...accountInfo,
               files: newFiles,
               status: 'connected',
-              lastUpdated: new Date().toISOString()
-            }
+              lastUpdated: new Date().toISOString(),
+            },
           };
         });
       } else {
-        // If the request was not successful, or returned no files, initialize with empty arrays
+        if (!mounted.current) return;
+
         setDrivesInfo(prev => ({
           ...prev,
           [accountId]: {
-            folders: Array.isArray((prev[accountId] || {}).folders) ? (prev[accountId] || {}).folders : [],
+            ...prev[accountId],
             files: [],
             status: 'no_data',
-            lastUpdated: new Date().toISOString()
-          }
+            lastUpdated: new Date().toISOString(),
+          },
         }));
-        setErrors(prev => ({ 
-          ...prev, 
-          [accountId]: result.error || 'Failed to fetch drive files' 
+
+        setErrors(prev => ({
+          ...prev,
+          [accountId]: result.error || 'Failed to fetch drive files',
         }));
       }
     } catch (error) {
-      console.error(`Error fetching drive files for account ${accountId}:`, error);
-      setErrors(prev => ({ 
-        ...prev, 
-        [accountId]: error.message || 'An unexpected error occurred' 
+      if (!mounted.current) return;
+
+      setErrors(prev => ({
+        ...prev,
+        [accountId]: error.message || 'An unexpected error occurred',
       }));
     } finally {
-      setLoadingDrives(prev => ({ ...prev, [accountId]: false }));
-    }
-  }, [loadingDrives]);
-
-  // Optimized refreshDrive function
-  const refreshDrive = useCallback((accountId, force = false) => {
-    if (!accountId) return;
-    
-    const lastUpdate = drivesInfo[accountId]?.lastUpdated;
-    const now = Date.now();
-    const minRefreshInterval = 5000; // 5 seconds between refreshes
-    
-    if (!force && lastUpdate) {
-      const timeSinceLastUpdate = now - new Date(lastUpdate).getTime();
-      if (timeSinceLastUpdate < minRefreshInterval) {
-        console.log(`Refresh for account ${accountId} throttled. Last update was ${timeSinceLastUpdate}ms ago.`);
-        return;
+      if (mounted.current) {
+        setLoadingDrives(prev => ({ ...prev, [accountId]: false }));
       }
+      lastFetchTimes.current.set(`${accountId}_files`, Date.now());
     }
-    
-    return fetchDriveInfo(accountId, force);
-  }, [drivesInfo, fetchDriveInfo]);
+  }, [loadingDrives, hasDataChanged]);
 
-  // Fetch all drives when accounts change
-  useEffect(() => {
-    if (accounts && accounts.length > 0) {
-      // تجنب الاستدعاءات المتكررة باستخدام وقت تأخير وفحص التغييرات الفعلية
-      const currentAccountIds = accounts.map(acc => acc.id).sort().join(',');
+  // Debounced refresh
+  const debouncedRefresh = useMemo(() => 
+    debounce((accountId, force) => {
+      if (!accountId || !mounted.current) return;
       
-      // تحقق من وجود تغيير فعلي في الحسابات
-      if (prevAccountIds.current === currentAccountIds) {
-        console.log('No change in accounts list, skipping redundant drive info fetch');
-        return;
-      }
-      
-      // تحديث قائمة الحسابات السابقة
-      prevAccountIds.current = currentAccountIds;
-      
-      // تأخير استدعاء الحسابات المتعددة لتجنب العديد من الطلبات المتزامنة
-      accounts.forEach((account, index) => {
-        // Only fetch if we don't already have info for this account
-        if (!drivesInfo[account.id] && !loadingDrives[account.id]) {
-          // تأخير متزايد لكل حساب
-          setTimeout(() => {
-            console.log(`Delayed fetch for account ${account.id} (${index + 1}/${accounts.length})`);
-            fetchDriveInfo(account.id);
-          }, index * 2000); // 2 second delay between each account
-        }
-      });
-    }
-  }, [accounts, drivesInfo, loadingDrives, fetchDriveInfo]);
-  
-  // Optimized account switching: no full state reset
-  useEffect(() => {
-    const handleAccountSwitch = (e) => {
-      if (e.key === 'accountSwitched' && e.newValue === 'true') {
-        console.log('Account switch detected in MultiDriveContext - optimized refresh');
-        localStorage.removeItem('accountSwitched');
-
-        if (accounts?.[0]?.id) {
-          // تحديث مخصص للحساب الحالي فقط
-          fetchDriveInfo(accounts[0].id, true);
-          setTimeout(() => fetchDriveFiles(accounts[0].id, true), 500);
-        }
-      }
-    };
-
-    if (typeof window !== 'undefined') {
-      window.addEventListener('storage', handleAccountSwitch);
-    }
-
-    return () => {
-      if (typeof window !== 'undefined') {
-        window.removeEventListener('storage', handleAccountSwitch);
-      }
-    };
-  }, [accounts]);
-
-  // Function to refresh all drives
-  const refreshAllDrives = () => {
-    if (accounts && accounts.length > 0) {
-      // تحقق من وقت آخر تحديث شامل
-      const lastGlobalUpdate = localStorage.getItem('lastGlobalDriveUpdate');
+      const lastUpdate = drivesInfo[accountId]?.lastUpdated;
       const now = Date.now();
-      const minGlobalRefreshInterval = 60000; // دقيقة واحدة على الأقل بين التحديثات الشاملة
       
-      if (lastGlobalUpdate) {
-        const timeSinceLastUpdate = now - parseInt(lastGlobalUpdate);
-        if (timeSinceLastUpdate < minGlobalRefreshInterval) {
-          console.log(`Global refresh throttled. Last update was ${timeSinceLastUpdate}ms ago.`);
-          return; // تجاهل طلب التحديث الشامل إذا كان حديثًا جدًا
-        }
+      if (!force && lastUpdate) {
+        const timeSinceLastUpdate = now - new Date(lastUpdate).getTime();
+        if (timeSinceLastUpdate < THROTTLE_DELAY) return;
       }
       
-      // تسجيل وقت التحديث الشامل
-      localStorage.setItem('lastGlobalDriveUpdate', now.toString());
-      
-      // جدولة التحديثات بتأخير متزايد
-      accounts.forEach((account, index) => {
-        setTimeout(() => {
-          console.log(`Scheduled refresh for account ${account.id} (${index + 1}/${accounts.length})`);
-          fetchDriveInfo(account.id, true);
-          
-          // تأخير إضافي لطلب الملفات
-          setTimeout(() => {
-            fetchDriveFiles(account.id, true);
-          }, 1000);
-          
-        }, index * 3000); // 3 ثوانٍ لكل حساب
-      });
+      return fetchDriveInfo(accountId, force);
+    }, DEBOUNCE_DELAY),
+    [drivesInfo, fetchDriveInfo]
+  );
+
+  // Public refresh method
+  const refreshDrive = useCallback((accountId, force = false) => {
+    return debouncedRefresh(accountId, force);
+  }, [debouncedRefresh]);
+
+  // Account initialization
+  useEffect(() => {
+    if (!accounts?.length || !mounted.current) return;
+
+    const accountIds = accounts.map(acc => acc.id).sort().join(',');
+    if (accountsRef.current === accountIds) return;
+
+    accountsRef.current = accountIds;
+
+    const initialState = accounts.reduce((acc, account) => {
+      if (!drivesInfo[account.id]) {
+        acc.loading[account.id] = false;
+        acc.errors[account.id] = null;
+      }
+      return acc;
+    }, { loading: {}, errors: {} });
+
+    if (Object.keys(initialState.loading).length > 0) {
+      setLoadingDrives(prev => ({ ...prev, ...initialState.loading }));
+      setErrors(prev => ({ ...prev, ...initialState.errors }));
     }
-  };
+
+    accounts.forEach(account => {
+      if (!drivesInfo[account.id]) {
+        fetchDriveInfo(account.id, false);
+      }
+    });
+  }, [accounts, drivesInfo, fetchDriveInfo]);
+
+  // Account switching handler
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleAccountSwitch = debounce(async (e) => {
+      if (e.key !== 'accountSwitched' || e.newValue !== 'true') return;
+      localStorage.removeItem('accountSwitched');
+
+      const currentAccount = accountsRef.current?.[0];
+      if (!currentAccount?.id || !mounted.current) return;
+
+      await fetchDriveInfo(currentAccount.id, true);
+      if (mounted.current) {
+        setTimeout(() => {
+          if (mounted.current) {
+            fetchDriveFiles(currentAccount.id, true);
+          }
+        }, 500);
+      }
+    }, DEBOUNCE_DELAY);
+
+    window.addEventListener('storage', handleAccountSwitch);
+    return () => window.removeEventListener('storage', handleAccountSwitch);
+  }, [fetchDriveInfo, fetchDriveFiles]);
+
+  // Optimized batch refresh handler
+  const refreshAllDrives = useCallback(() => {
+    if (!accounts?.length || !mounted.current) return;
+
+    const now = Date.now();
+    const lastGlobalUpdate = localStorage.getItem('lastGlobalDriveUpdate');
+    
+    if (lastGlobalUpdate) {
+      const timeSinceLastUpdate = now - parseInt(lastGlobalUpdate);
+      if (timeSinceLastUpdate < GLOBAL_REFRESH_DELAY) return;
+    }
+
+    localStorage.setItem('lastGlobalDriveUpdate', now.toString());
+
+    // Process accounts in batches
+    const processBatch = async (accountsBatch) => {
+      const batchPromises = accountsBatch.map(account => {
+        if (!mounted.current) return Promise.resolve();
+        
+        return (async () => {
+          try {
+            await fetchDriveInfo(account.id, true);
+            if (mounted.current) {
+              await fetchDriveFiles(account.id, true);
+            }
+          } catch (error) {
+            console.error(`Error processing account ${account.id}:`, error);
+          }
+        })();
+      });
+
+      await Promise.all(batchPromises);
+    };
+
+    // Split accounts into batches and process them
+    const processBatches = async () => {
+      for (let i = 0; i < accounts.length; i += BATCH_SIZE) {
+        if (!mounted.current) break;
+        
+        const batch = accounts.slice(i, i + BATCH_SIZE);
+        await processBatch(batch);
+        
+        // Stagger the next batch
+        if (i + BATCH_SIZE < accounts.length) {
+          await new Promise(resolve => setTimeout(resolve, STAGGER_DELAY));
+        }
+      }
+    };
+
+    processBatches().catch(error => {
+      console.error('Error in batch processing:', error);
+    });
+  }, [accounts, fetchDriveInfo, fetchDriveFiles]);
+
+  // Memoized helper functions
+  const getDriveFiles = useCallback((accountId) => 
+    drivesInfo[accountId]?.files || [], [drivesInfo]);
+
+  const getDriveFolders = useCallback((accountId) => 
+    drivesInfo[accountId]?.folders || [], [drivesInfo]);
+
+  const isDriveLoading = useCallback((accountId) => 
+    loadingDrives[accountId] || false, [loadingDrives]);
+
+  const getDriveError = useCallback((accountId) => 
+    errors[accountId] || null, [errors]);
+
+  const getSelectedDriveContext = useCallback((accountId) => ({
+    files: drivesInfo[accountId]?.files || [],
+    folders: drivesInfo[accountId]?.folders || [],
+    loading: loadingDrives[accountId] || false,
+    error: errors[accountId] || null,
+  }), [drivesInfo, loadingDrives, errors]);
+
+  // Memoized context value
+  const value = useMemo(() => ({
+    drivesInfo,
+    loadingDrives,
+    errors,
+    refreshDrive,
+    refreshAllDrives,
+    fetchDriveInfo,
+    fetchDriveFiles,
+    getSelectedDriveContext,
+    handleAuthError,
+    getDriveFiles,
+    getDriveFolders,
+    isDriveLoading,
+    getDriveError,
+  }), [
+    drivesInfo,
+    loadingDrives,
+    errors,
+    refreshDrive,
+    refreshAllDrives,
+    fetchDriveInfo,
+    fetchDriveFiles,
+    getSelectedDriveContext,
+    handleAuthError,
+    getDriveFiles,
+    getDriveFolders,
+    isDriveLoading,
+    getDriveError,
+  ]);
 
   return (
-    <MultiDriveContext.Provider
-      value={{
-        drivesInfo,
-        loadingDrives,
-        errors,
-        refreshDrive,
-        refreshAllDrives,
-        fetchDriveFiles
-      }}
-    >
+    <MultiDriveContext.Provider value={value}>
       {children}
     </MultiDriveContext.Provider>
   );
 }
 
-// Custom hook to use the context
 export function useMultiDrive() {
   const context = useContext(MultiDriveContext);
   if (context === undefined) {
     throw new Error('useMultiDrive must be used within a MultiDriveProvider');
   }
   return context;
+}
+
+export function useSingleDrive(accountId) {
+  const context = useContext(MultiDriveContext);
+  if (context === undefined) {
+    throw new Error('useSingleDrive must be used within a MultiDriveProvider');
+  }
+
+  return useMemo(() => ({
+    driveFiles: context.drivesInfo[accountId]?.files || [],
+    driveFolders: context.drivesInfo[accountId]?.folders || [],
+    loading: context.loadingDrives[accountId] || false,
+    error: context.errors[accountId] || null,
+    refreshDrive: () => context.refreshDrive(accountId),
+    fetchFiles: () => context.fetchDriveFiles(accountId),
+    fetchFolders: () => context.fetchDriveInfo(accountId),
+  }), [context, accountId]);
+}
+
+export function useDrive() {
+  const context = useContext(MultiDriveContext);
+  const { accounts } = useUser();
+  
+  if (context === undefined) {
+    throw new Error('useDrive must be used within a MultiDriveProvider');
+  }
+
+  const accountId = accounts?.[0]?.id;
+
+  return useMemo(() => ({
+    driveFiles: context.drivesInfo[accountId]?.files || [],
+    driveFolders: context.drivesInfo[accountId]?.folders || [],
+    loading: context.loadingDrives[accountId] || false,
+    error: context.errors[accountId] || null,
+    selectedFile: null,
+    refreshDrive: () => context.refreshDrive(accountId),
+    fetchDriveFiles: () => context.fetchDriveFiles(accountId),
+    fetchDriveFolders: () => context.fetchDriveInfo(accountId),
+    handleAuthError: context.handleAuthError,
+    selectFile: () => {},
+    clearSelectedFile: () => {},
+  }), [context, accountId]);
 }

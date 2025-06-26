@@ -6,7 +6,7 @@ import { FaTable, FaDownload, FaBars, FaTimes, FaSync, FaHome, FaSignOutAlt, FaC
 import Image from "next/image";
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { signOut, signIn } from 'next-auth/react';
-import { UserInfoProvider } from '@/contexts/UserInfoContext';
+import { useUser } from '@/contexts/UserContext';
 
 // Reusable NavLink Component
 const NavLink = ({ href, icon: Icon, isActive, onClick, children }) => (
@@ -71,8 +71,7 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
   // If we're on the landing page, show a simplified version of the navbar
   if (isLandingPage) {
     return (
-      <UserInfoProvider user={user}>
-        <div className={`sticky top-0 z-40 transition-all duration-300 ${scrolled ? 'py-1' : 'py-2'} w-full max-w-full`}>
+      <div className={`sticky top-0 z-40 transition-all duration-300 ${scrolled ? 'py-1' : 'py-2'} w-full max-w-full`}>
           <div className="px-4 max-w-7xl mx-auto">
             <div className="backdrop-blur-md bg-white/75 dark:bg-black/80 rounded-lg shadow-lg border border-white/20 dark:border-amber-600/30 p-3 w-full">
               <div className="flex items-center justify-between min-w-0">
@@ -150,13 +149,11 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
             </div>
           </div>
         </div>
-      </UserInfoProvider>
     );
   }
 
   return (
-    <UserInfoProvider user={user}>
-      <div className={`sticky top-0 z-40 transition-all duration-300 ${scrolled ? 'py-1' : 'py-2'} w-full max-w-full`}>
+    <div className={`sticky top-0 z-40 transition-all duration-300 ${scrolled ? 'py-1' : 'py-2'} w-full max-w-full`}>
       {/* Desktop Navigation */}
       <div className="hidden md:block px-4 max-w-7xl mx-auto">
         <div className="backdrop-blur-md bg-white/75 dark:bg-black/80 rounded-lg shadow-lg border border-white/20 dark:border-amber-600/30 p-3 w-full">
@@ -346,6 +343,7 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
                   fill
                   className="object-cover"
                   sizes="32x32"
+                  priority
                 />
               </div>
               <span className="font-semibold text-sm text-transparent bg-clip-text bg-gradient-to-r from-amber-600 to-amber-400 dark:from-amber-400 dark:to-amber-300">
@@ -485,6 +483,5 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
       </div>
       
     </div>
-    </UserInfoProvider>
   );
 }

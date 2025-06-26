@@ -1366,13 +1366,10 @@ export function TikTokProvider({ children }) {
   const cancelDownloads = () => {
     console.log('[DEBUG] cancelDownloads: called');
     try {
+      // First, set the cancellation flag
       hasBeenCancelledRef.current = true;
-      setLoading(false);
-      setDownloadingAll(false);
-      setProgress(0);
-      setCurrentVideo(null);
-      setActiveDownloads(0);
-      // Abort any ongoing downloads
+      
+      // Then abort any ongoing downloads
       if (abortControllerRef.current) {
         try {
           abortControllerRef.current.abort();
@@ -1380,11 +1377,18 @@ export function TikTokProvider({ children }) {
         } catch (abortError) {
           console.error('[DEBUG] Error during abort:', abortError);
         }
+        // Immediately nullify the current controller
+        abortControllerRef.current = null;
       }
-      // Always create a new controller so new downloads can't use the old one
-      abortControllerRef.current = new AbortController();
-      setDownloadingVideoIds([]);
+
+      // Reset all state variables immediately
+      setLoading(false);
+      setDownloadingAll(false);
       setProgress(0);
+      setCurrentVideo(null);
+      setActiveDownloads(0);
+      setDownloadingVideoIds([]);
+
       // Reset individual video states that are still processing or downloading
       setVideos(prev =>
         prev.map(v => {
@@ -1399,18 +1403,35 @@ export function TikTokProvider({ children }) {
           return v;
         })
       );
+
+      // Create a new controller for future downloads
+      abortControllerRef.current = new AbortController();
+      
+      // Show success message
       toastHelper.success('Downloads cancelled successfully');
       console.log('[DEBUG] cancelDownloads: finished');
     } catch (error) {
       console.error('[DEBUG] Error in cancelDownloads:', error);
+      // Force reset everything in case of error
+      hasBeenCancelledRef.current = true;
       setLoading(false);
       setDownloadingAll(false);
       setActiveDownloads(0);
       setCurrentVideo(null);
       setDownloadingVideoIds([]);
       setProgress(0);
+      
+      // Always ensure we have a fresh controller
+      if (abortControllerRef.current) {
+        try {
+          abortControllerRef.current.abort();
+        } catch (e) {
+          // Ignore abort errors
+        }
+      }
       abortControllerRef.current = new AbortController();
-      toastHelper.warning('Error while canceling downloads. Application state has been reset.');
+      
+      toastHelper.error('Error while canceling downloads. Application state has been reset.');
     }
   };
 

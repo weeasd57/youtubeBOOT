@@ -8,28 +8,26 @@ import { FaSignOutAlt, FaPlus, FaCheck, FaStar, FaTrash, FaUser, FaSync, FaArrow
 import Link from 'next/link';
 import Image from 'next/image';
 import ThemeToggle from '@/components/ThemeToggle';
+import { toast } from 'react-hot-toast';
 
 // Component that safely uses search params
 function AccountSwitcher({ accounts, switchAccount, router }) {
   const searchParams = useSearchParams();
   const [processingSwitch, setProcessingSwitch] = useState(false);
 
-  // معالجة معلمة switchTo في URL
   useEffect(() => {
+    if (typeof window === 'undefined') return; // Ensure this runs only on client
     const switchToId = searchParams.get('switchTo');
     if (switchToId && !processingSwitch) {
       console.log(`Found switchTo parameter with account ID: ${switchToId}`);
       setProcessingSwitch(true);
       
-      // تأخير قصير لضمان تحميل الحسابات قبل التبديل
       const timer = setTimeout(async () => {
         try {
-          // البحث عن الحساب في قائمة الحسابات
           const accountExists = accounts?.some(acc => acc.id === switchToId);
           
           if (accountExists) {
             console.log(`Switching to account: ${switchToId}`);
-            // تنظيف ذاكرة التخزين المؤقت
             localStorage.removeItem('driveFolders');
             localStorage.removeItem('driveFoldersTimestamp');
             localStorage.removeItem('lastHomeFolderRefresh');
@@ -38,14 +36,11 @@ function AccountSwitcher({ accounts, switchAccount, router }) {
             localStorage.removeItem('cachedUserTokens');
             localStorage.removeItem('lastDriveRefresh');
             
-            // تعيين علامات تبديل الحساب
             localStorage.setItem('accountSwitched', 'true');
             localStorage.setItem('accountSwitchedTimestamp', Date.now().toString());
             
-            // تبديل الحساب
             await switchAccount(switchToId);
             
-            // توجيه المستخدم إلى الصفحة الرئيسية بعد التبديل
             setTimeout(() => {
               router.push('/home');
             }, 500);
@@ -57,13 +52,13 @@ function AccountSwitcher({ accounts, switchAccount, router }) {
         } finally {
           setProcessingSwitch(false);
         }
-      }, 1000); // تأخير بمقدار 1 ثانية
+      }, 1000);
       
       return () => clearTimeout(timer);
     }
   }, [searchParams, accounts, switchAccount, router, processingSwitch]);
 
-  return null; // This component just handles the effect, no UI
+  return null;
 }
 
 export default function AccountsPage() {
@@ -72,23 +67,19 @@ export default function AccountsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [addingAccount, setAddingAccount] = useState(false);
   const [apiError, setApiError] = useState(null);
-  const {
-    accounts,
-    activeAccount,
-    loading,
-    switchAccount,
-    setPrimaryAccount,
-    removeAccount,
-    error
-  } = useAccounts();
   
+  let accounts, activeAccount, loading, switchAccount, setPrimaryAccount, removeAccount, error;
+
+  if (typeof window !== 'undefined') {
+    ({ accounts, activeAccount, loading, switchAccount, setPrimaryAccount, removeAccount, error } = useAccounts());
+  }
+
   const [confirmingRemove, setConfirmingRemove] = useState(null);
   const [fixingData, setFixingData] = useState(false);
 
   const handleRefreshAuth = async () => {
     setRefreshing(true);
     try {
-      // Refresh accounts data
       window.location.reload();
     } catch (error) {
       console.error('Error refreshing:', error);
@@ -97,7 +88,6 @@ export default function AccountsPage() {
     }
   };
 
-  // Redirect if not authenticated
   if (status === 'unauthenticated') {
     router.push('/');
     return null;
@@ -105,7 +95,6 @@ export default function AccountsPage() {
 
   const handleAddAccount = async () => {
     if (!session?.user?.id) {
-      toast.error("يرجى تسجيل الدخول أولاً قبل إضافة حساب جديد");
       return;
     }
 
@@ -127,19 +116,15 @@ export default function AccountsPage() {
 
       const { token: linkToken } = await response.json();
       
-      // Add loading toast
       const toastId = toast.loading('جاري فتح نافذة تسجيل الدخول بجوجل...');
       
-      // Prepare state with linking token
       const state = JSON.stringify({ linkToken });
       
-      // Initiate Google sign in
       await signIn('google', { 
         callbackUrl: '/accounts', 
         state 
       });
       
-      // Clear loading toast
       toast.dismiss(toastId);
 
     } catch (error) {
@@ -151,20 +136,19 @@ export default function AccountsPage() {
   };
 
   const handleSwitchAccount = async (accountId) => {
-    await switchAccount(accountId);
+    if (switchAccount) await switchAccount(accountId);
   };
 
   const handleSetPrimary = async (accountId) => {
-    await setPrimaryAccount(accountId);
+    if (setPrimaryAccount) await setPrimaryAccount(accountId);
   };
 
   const handleRemoveAccount = async (accountId) => {
     if (confirmingRemove === accountId) {
-      await removeAccount(accountId);
+      if (removeAccount) await removeAccount(accountId);
       setConfirmingRemove(null);
     } else {
       setConfirmingRemove(accountId);
-      // Reset confirm state after 3 seconds
       setTimeout(() => setConfirmingRemove(null), 3000);
     }
   };
@@ -179,7 +163,6 @@ export default function AccountsPage() {
       if (response.ok) {
         const result = await response.json();
         console.log('Fix result:', result);
-        // Refresh accounts after fixing
         window.location.reload();
       } else {
         console.error('Failed to fix account data');
@@ -203,7 +186,6 @@ export default function AccountsPage() {
 
   return (
     <>
-      {/* Wrap the search params usage in a suspense boundary */}
       <Suspense fallback={null}>
         <AccountSwitcher 
           accounts={accounts} 

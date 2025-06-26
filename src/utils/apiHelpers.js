@@ -1,5 +1,5 @@
 /**
- * Utility functions for API calls
+ * Utility functions for API calls with enhanced error handling and development support
  */
 import { 
   API_TIMEOUTS, 
@@ -8,6 +8,65 @@ import {
   isRetryableError, 
   calculateRetryDelay 
 } from './api-config';
+
+/**
+ * Normalize URL to ensure correct protocol for development
+ * @param {string} url - The URL to normalize
+ * @returns {string} - Normalized URL
+ */
+function normalizeUrl(url) {
+  // If it's a relative URL, return as is
+  if (!url.startsWith('http')) {
+    return url;
+  }
+  
+  // In development, ensure we use http:// for localhost to avoid SSL errors
+  if (process.env.NODE_ENV === 'development') {
+    // Handle various localhost formats
+    const localhostPatterns = [
+      'https://localhost',
+      'https://127.0.0.1',
+      'https://0.0.0.0'
+    ];
+    
+    let normalizedUrl = url;
+    for (const pattern of localhostPatterns) {
+      if (url.includes(pattern)) {
+        normalizedUrl = url.replace(pattern, pattern.replace('https://', 'http://'));
+        break;
+      }
+    }
+    
+    if (normalizedUrl !== url) {
+      console.log(`[URL Normalization] Changed ${url} to ${normalizedUrl} for development`);
+    }
+    return normalizedUrl;
+  }
+  
+  return url;
+}
+
+/**
+ * Get the base URL for API calls
+ * @returns {string} - Base URL
+ */
+function getBaseUrl() {
+  if (typeof window !== 'undefined') {
+    // Client-side: use current origin but normalize for development
+    let origin = window.location.origin;
+    
+    // In development, force HTTP for localhost to avoid SSL errors
+    if (process.env.NODE_ENV === 'development' && origin.includes('localhost')) {
+      origin = origin.replace('https://localhost', 'http://localhost');
+      console.log(`[Base URL] Normalized origin to: ${origin}`);
+    }
+    
+    return origin;
+  }
+  
+  // Server-side: use environment variable or default
+  return process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+}
 
 /**
  * وحدة مساعدة للتحكم في معدل استعلامات API
@@ -46,7 +105,8 @@ export function canCallApi(apiPath, minInterval = 10000) {
  */
 export async function fetchWithThrottle(url, options = {}, minInterval = 10000) {
   // استخراج المسار الأساسي من URL
-  const urlObj = new URL(url, window.location.origin);
+  const normalizedUrl = normalizeUrl(url);
+  const urlObj = new URL(normalizedUrl, getBaseUrl());
   const apiPath = urlObj.pathname;
   
   // التحقق مما إذا كان يمكن استدعاء API
@@ -74,7 +134,7 @@ export async function fetchWithThrottle(url, options = {}, minInterval = 10000) 
   
   // استدعاء API
   try {
-    const response = await fetch(url, options);
+    const response = await fetch(normalizedUrl, options);
     
     // إذا كانت الاستجابة ناجحة، قم بتخزينها مؤقتًا
     if (response.ok) {
@@ -90,7 +150,7 @@ export async function fetchWithThrottle(url, options = {}, minInterval = 10000) 
     
     return response;
   } catch (error) {
-    console.error(`[API] Error fetching ${url}:`, error);
+    console.error(`[API] Error fetching ${normalizedUrl}:`, error);
     throw error;
   }
 }
@@ -218,15 +278,20 @@ export function withAuthRetry(fn, options = {}) {
 }
 
 /**
- * Determine if an error is due to a quota exceeded
+ * Determine if an error is due to authentication issues
  * @param {Error} error - The error to check
- * @returns {Boolean} - True if it's a quota error
+ * @returns {Boolean} - True if it's an auth error
  */
 export function isAuthError(error) {
   return error.response?.status === 401 || 
          error.response?.status === 403;
 }
 
+/**
+ * Determine if an error is due to a quota exceeded
+ * @param {Error} error - The error to check
+ * @returns {Boolean} - True if it's a quota error
+ */
 export function isQuotaError(error) {
   // Check various error formats that could indicate a quota issue
   if (!error) return false;
@@ -260,6 +325,78 @@ export function isQuotaError(error) {
 }
 
 /**
+ * Determine if an error is a network-related error
+ * @param {Error} error - The error to check
+ * @returns {Boolean} - True if it's a network error
+ */
+export function isNetworkError(error) {
+  if (!error) return false;
+  
+  const errorMessage = error.message || '';
+  
+  // Check for common network error patterns
+  const networkErrorPatterns = [
+    'ERR_SSL_PROTOCOL_ERROR',
+    'ERR_NETWORK',
+    'ERR_INTERNET_DISCONNECTED',
+    'ERR_CONNECTION_REFUSED',
+    'ERR_CONNECTION_RESET',
+    'ERR_CONNECTION_TIMED_OUT',
+    'ECONNREFUSED',
+    'ECONNRESET',
+    'ETIMEDOUT',
+    'ENOTFOUND',
+    'network error',
+    'fetch error'
+  ];
+  
+  return networkErrorPatterns.some(pattern => 
+    errorMessage.includes(pattern) || 
+    error.code === pattern ||
+    error.name === pattern
+  );
+}
+
+/**
+ * Get a user-friendly error message for different error types
+ * @param {Error} error - The error to get message for
+ * @returns {string} - User-friendly error message
+ */
+export function getUserFriendlyErrorMessage(error) {
+  if (!error) return 'حدث خطأ غير معروف';
+  
+  if (isNetworkError(error)) {
+    return 'مشكلة في الاتصال بالإنترنت. يرجى التحقق من اتصالك والمحاولة مرة أخرى.';
+  }
+  
+  if (isQuotaError(error)) {
+    return 'تم تجاوز حد الاستخدام المسموح. يرجى المحاولة لاحقاً.';
+  }
+  
+  if (isAuthError(error)) {
+    return 'مشكلة في ال��وثيق. يرجى تسجيل الدخول مرة أخرى.';
+  }
+  
+  const statusCode = error.status || error.response?.status;
+  if (statusCode) {
+    switch (statusCode) {
+      case 400:
+        return 'طلب غير صحيح. يرجى التحقق من البيانات المدخلة.';
+      case 404:
+        return 'المورد المطلوب غير موجود.';
+      case 500:
+        return 'خطأ في الخادم. يرجى المحاولة لاحقاً.';
+      case 503:
+        return 'الخدمة غير متاحة حالياً. يرجى المحاولة لاحقاً.';
+      default:
+        return `حدث خطأ (${statusCode}). يرجى المحاولة مرة أخرى.`;
+    }
+  }
+  
+  return error.message || 'حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى.';
+}
+
+/**
  * Executes a fetch request with exponential backoff retry logic
  * @param {string} url - The URL to fetch
  * @param {Object} options - Fetch options
@@ -282,16 +419,33 @@ export async function fetchWithRetry(url, options = {}, retryOptions = {}) {
     retryOnNetworkError = true
   } = retryOptions;
 
+  // Normalize the URL to handle development environment
+  const normalizedUrl = normalizeUrl(url);
+  // Construct the full URL using getBaseUrl for robust handling of relative paths and development protocol
+  let fullUrl;
+  
+  try {
+    fullUrl = new URL(normalizedUrl, getBaseUrl()).toString();
+    // Apply normalization again to the final URL to ensure consistency
+    fullUrl = normalizeUrl(fullUrl);
+  } catch (error) {
+    console.error('[URL Construction Error]', error);
+    // Fallback to simple concatenation if URL constructor fails
+    const baseUrl = getBaseUrl();
+    fullUrl = normalizedUrl.startsWith('/') ? `${baseUrl}${normalizedUrl}` : normalizedUrl;
+    fullUrl = normalizeUrl(fullUrl);
+  }
+
   let delay = initialDelay;
   let attempt = 0;
   let lastError = null;
 
   while (attempt <= maxRetries) {
+    let timeoutId = null; // Move timeoutId declaration to proper scope
+    
     try {
       const controller = new AbortController();
-      const timeoutId = options.timeout 
-        ? setTimeout(() => controller.abort(new Error('Request timeout')), options.timeout) 
-        : null;
+      timeoutId = createTimeoutController(options.timeout, controller);
 
       // Add the abort signal to our fetch options if not already present
       const fetchOptions = {
@@ -299,18 +453,18 @@ export async function fetchWithRetry(url, options = {}, retryOptions = {}) {
         signal: options.signal || controller.signal
       };
 
-      const response = await fetch(url, fetchOptions);
+      const response = await fetch(fullUrl, fetchOptions);
 
       // Clear the timeout if we have one
-      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = clearTimeoutSafely(timeoutId);
 
       // If we get a status code we should retry on
       if (retryOnStatus.includes(response.status) && attempt < maxRetries) {
         attempt++;
         lastError = new Error(`Received status ${response.status}`);
         
-        // Log the retry attempt
-        console.warn(`API call to ${url} failed with status ${response.status}. Retrying (${attempt}/${maxRetries})...`);
+        // Log the retry attempt with more details
+        console.warn(`[API Retry] ${normalizedUrl} failed with status ${response.status}. Attempt ${attempt}/${maxRetries}, waiting ${Math.round(delay/1000)}s...`);
         
         // Wait for the calculated delay and then continue to next iteration
         await new Promise(resolve => setTimeout(resolve, delay));
@@ -326,17 +480,13 @@ export async function fetchWithRetry(url, options = {}, retryOptions = {}) {
       lastError = error;
 
       // Clear any existing timeout
-      if (options.timeoutId) clearTimeout(options.timeoutId);
+      timeoutId = clearTimeoutSafely(timeoutId);
 
-      // Determine if it's a timeout, network error, or abort we should retry on
-      const isNetworkError = (
-        error.name === 'TypeError' || 
-        error.message?.includes('network') ||
-        error.message?.includes('fetch') ||
-        error.code === 'ETIMEDOUT' ||
-        error.code === 'ECONNRESET' ||
-        error.code === 'ECONNREFUSED'
-      );
+      // Check for SSL protocol errors specifically
+      const isSSLError = error.message?.includes('ERR_SSL_PROTOCOL_ERROR');
+      
+      // Use our improved network error detection
+      const isNetworkErr = isNetworkError(error);
       
       const isTimeout = (
         error.name === 'AbortError' || 
@@ -346,14 +496,36 @@ export async function fetchWithRetry(url, options = {}, retryOptions = {}) {
       );
 
       // If this is not a network error or timeout or we've used all our retries, throw the error
-      if ((!isNetworkError && !isTimeout) || !retryOnNetworkError || attempt >= maxRetries) {
+      if ((!isNetworkErr && !isTimeout) || !retryOnNetworkError || attempt >= maxRetries) {
+        // For SSL errors in development, try one more time with HTTP
+        if (isSSLError && process.env.NODE_ENV === 'development' && attempt === 0) {
+          console.warn('[SSL Error Recovery] Attempting to retry with HTTP protocol...');
+          // Force HTTP and retry once more
+          const httpUrl = fullUrl.replace('https://', 'http://');
+          if (httpUrl !== fullUrl) {
+            console.log(`[SSL Error Recovery] Retrying with: ${httpUrl}`);
+            try {
+              const response = await fetch(httpUrl, fetchOptions);
+              console.log('[SSL Error Recovery] Success with HTTP!');
+              return response;
+            } catch (httpError) {
+              console.error('[SSL Error Recovery] HTTP retry also failed:', httpError.message);
+            }
+          }
+        }
+        
+        // For SSL errors in development, provide a helpful message
+        if (isSSLError && process.env.NODE_ENV === 'development') {
+          console.error('SSL Protocol Error detected. This usually happens when trying to use HTTPS with localhost. The URL has been normalized to use HTTP.');
+          console.error('User-friendly message:', getUserFriendlyErrorMessage(error));
+        }
         throw error;
       }
 
       attempt++;
       
-      // Log the retry attempt
-      console.warn(`API call to ${url} failed with error: ${error.message}. Retrying (${attempt}/${maxRetries})...`);
+      // Log the retry attempt with more details
+      console.warn(`[API Retry] ${normalizedUrl} failed (${error.message}). Attempt ${attempt}/${maxRetries}, waiting ${Math.round(delay/1000)}s...`);
       
       // Wait before the next attempt
       await new Promise(resolve => setTimeout(resolve, delay));
@@ -384,4 +556,139 @@ export async function postWithRetry(url, data, options = {}, retryOptions = {}) 
     timeout: options.timeout || API_TIMEOUTS.DEFAULT,
     ...options
   }, retryOptions);
+}
+
+/**
+ * Helper to safely parse JSON response and handle HTML responses
+ * @param {Response} response - Fetch response object
+ * @returns {Promise<Object>} - Parsed JSON or error object
+ */
+export async function safeJsonParse(response) {
+  try {
+    const text = await response.text();
+    
+    // Check if response is HTML (common when redirected to login page)
+    if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
+      console.warn('[JSON Parse] Received HTML instead of JSON. This usually indicates an authentication redirect.');
+      return {
+        error: 'Authentication required',
+        message: 'Received HTML response instead of JSON. Please check your authentication.',
+        isHtmlResponse: true,
+        responseText: text.substring(0, 200) + '...' // First 200 chars for debugging
+      };
+    }
+    
+    // Try to parse as JSON
+    if (!text) {
+      return {
+        error: 'Empty response',
+        message: 'Server returned empty response'
+      };
+    }
+    
+    return JSON.parse(text);
+  } catch (error) {
+    console.error('[JSON Parse Error]', error);
+    return {
+      error: 'Invalid JSON',
+      message: 'Failed to parse server response as JSON',
+      parseError: error.message
+    };
+  }
+}
+
+/**
+ * Enhanced fetch wrapper with JSON parsing and error handling
+ * @param {string} url - URL to fetch
+ * @param {Object} options - Fetch options
+ * @param {Object} retryOptions - Retry configuration
+ * @returns {Promise<Object>} - Parsed response or error
+ */
+export async function fetchJsonWithRetry(url, options = {}, retryOptions = {}) {
+  try {
+    const response = await fetchWithRetry(url, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        ...options.headers
+      },
+      credentials: 'include', // Always include cookies for auth
+      ...options
+    }, retryOptions);
+    
+    // Check if response is ok
+    if (!response.ok) {
+      const errorData = await safeJsonParse(response);
+      
+      // Create error with status code for better handling
+      const error = new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+      error.status = response.status;
+      error.response = response;
+      
+      throw error;
+    }
+    
+    return await safeJsonParse(response);
+  } catch (error) {
+    console.error('[Fetch JSON Error]', error);
+    throw error;
+  }
+}
+
+/**
+ * Create a timeout controller with proper cleanup
+ * @param {number} timeout - Timeout in milliseconds
+ * @param {AbortController} controller - The abort controller
+ * @returns {number|null} - Timeout ID or null
+ */
+function createTimeoutController(timeout, controller) {
+  if (!timeout || timeout <= 0) return null;
+  
+  return setTimeout(() => {
+    if (controller && !controller.signal.aborted) {
+      controller.abort(new Error('Request timeout'));
+    }
+  }, timeout);
+}
+
+/**
+ * Clear timeout safely
+ * @param {number|null} timeoutId - The timeout ID to clear
+ * @returns {null} - Always returns null for easy assignment
+ */
+function clearTimeoutSafely(timeoutId) {
+  if (timeoutId) {
+    clearTimeout(timeoutId);
+  }
+  return null;
+}
+
+/**
+ * Check and warn about browser settings that might cause SSL issues
+ */
+function checkBrowserSSLSettings() {
+  if (typeof window === 'undefined' || process.env.NODE_ENV !== 'development') {
+    return;
+  }
+  
+  // Check if the current page is loaded over HTTPS when it should be HTTP
+  if (window.location.protocol === 'https:' && window.location.hostname === 'localhost') {
+    console.warn('⚠️ [Browser Warning] Your browser is forcing HTTPS for localhost.');
+    console.warn('This can cause SSL errors. Consider:');
+    console.warn('1. Typing "http://localhost:3000" directly in the address bar');
+    console.warn('2. Clearing browser data for localhost');
+    console.warn('3. Disabling "Always use secure connections" for localhost');
+    
+    // Try to redirect to HTTP if possible
+    if (window.location.href.startsWith('https://localhost')) {
+      const httpUrl = window.location.href.replace('https://', 'http://');
+      console.warn(`4. Or click here to switch to HTTP: ${httpUrl}`);
+    }
+  }
+}
+
+// Run the check when the module loads
+if (typeof window !== 'undefined') {
+  // Delay the check to ensure the page is fully loaded
+  setTimeout(checkBrowserSSLSettings, 1000);
 }

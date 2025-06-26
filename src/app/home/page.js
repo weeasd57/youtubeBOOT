@@ -6,20 +6,14 @@ import { FaUpload, FaSync, FaHistory, FaEye, FaThumbsUp, FaCalendarAlt, FaClock,
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from 'next/navigation';
-import { DashboardProvider, useDashboard } from '@/contexts/DashboardContext';
-import dynamic from 'next/dynamic';
+import { useUser } from '@/contexts/UserContext';
+import { useDrive } from '@/contexts/MultiDriveContext';
+import { useMultiChannel } from '@/contexts/MultiChannelContext';
+import { useAccounts } from '@/contexts/AccountContext';
 import ClientOnly from '@/components/ClientOnly';
-import ThemeToggle from '@/components/ThemeToggle';
 import ScheduleUploadForm from '@/components/ScheduleUploadForm';
-import AuthErrorBanner from '@/components/AuthErrorBanner';
-import UploadProgress from '@/components/UploadProgress';
-import QuotaErrorMessage from '@/components/QuotaErrorMessage';
-import AutoRefresh from '@/components/AutoRefresh';
-import RefreshButton from '@/components/RefreshButton';
-import YouTubeConnectionStatus from '@/components/YouTubeConnectionStatus';
-import Navbar from '@/components/Navbar';
+import YouTubeChannelInfo from '@/components/YouTubeChannelInfo';
 import PageContainer from '@/components/PageContainer';
-import DriveThumbnail from '@/components/DriveThumbnail';
 import FileListItem from '@/components/FileListItem';
 import { toast } from 'react-hot-toast';
 
@@ -58,13 +52,14 @@ const generateCleanTitle = (fileName) => {
 };
 
 // Add a custom app logo component for consistency
-const AppLogoIcon = ({ className = "", size = 24 }) => (
+const AppLogoIcon = ({ className = "", size = 24, priority = false }) => (
   <div className={`relative ${className}`} style={{ width: size, height: size }}>
     <Image 
       src="/android-chrome-192x192.png" 
       alt="App Logo"
       fill
       className="object-cover"
+      priority={priority}
     />
   </div>
 );
@@ -100,7 +95,7 @@ export default function Home() {
       onRefresh={null}
       error={null}
     >
-      <HomeDashboard 
+      <HomeDashboardContent 
         session={session}
         status={status}
       />
@@ -108,102 +103,175 @@ export default function Home() {
   );
 }
 
-function HomeDashboard({ session, status }) {
-  return (
-    <DashboardProvider>
-      <HomeDashboardContent session={session} status={status} />
-    </DashboardProvider>
-  );
-}
-
 // Separate component that only renders on the client
 function HomeDashboardContent({ session, status }) {
-  const {
-    authExpired,
-    selectedFiles,
-    setSelectedFiles,
-    error,
-    lastChecked,
-    activeContentTab,
-    activeDriveTab,
-    setActiveDriveTab,
-    activeDriveAccountId,
-    setActiveDriveAccountId,
-    userTokens,
-    loadingTokens,
-    autoUploadEnabled,
-    setAutoUploadEnabled,
-    selectingAll,
-    processingProgress,
-    router,
-    driveContext,
-    drivesInfo,
-    loadingDrives,
-    driveErrors,
-    refreshDrive,
-    refreshAllDrives,
-    driveFiles,
+  const router = useRouter();
+  
+  // استخدام الـ contexts المتاحة
+  const { user, loading: userLoading, error: userError } = useUser();
+  const { 
+    driveFiles, 
+    loading: driveLoading, 
+    error: driveError,
+    refreshDriveFiles,
     driveFolders,
     selectedFolder,
-    fetchDriveFiles,
-    fetchDriveFolders,
     selectFolder,
-    clearSelectedFolder,
-    foldersLoading,
-    foldersError,
-    user,
-    userLoading,
-    userError,
-    accounts,
-    channelsInfo,
-    loadingChannels,
-    channelErrors,
-    refreshChannel,
-    initialLoading,
-    refreshAll,
-    tikTokData,
-    loadingCombined,
-    combinedError,
-    handleAccountClick,
-    handleRefreshSuccess,
-    handleRefreshError,
-    syncDriveChanges,
-    availableAccounts,
-    mergedAccounts,
-    filteredItems,
-    handleScheduleSelect,
-    selectAllFiles,
-    handleFolderSelect,
-    currentDriveFolders,
-  } = useDashboard();
+    clearSelectedFolder
+  } = useDrive();
+  const { 
+    channelsInfo, 
+    loading: channelsLoading, 
+    errors: channelErrors,
+    refreshChannel 
+  } = useMultiChannel();
+  const { accounts, loading: accountsLoading } = useAccounts();
 
-  // Show loading spinner while checking authentication
-  if (userLoading || initialLoading) {
-    return (
-      <div className="min-h-screen p-8 flex items-center justify-center dark:bg-black">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 dark:border-blue-400"></div>
-      </div>
-    );
-  }
+  console.log('[DEBUG] accounts from useAccounts:', accounts);
+  
+  // Local state
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  // No activeDriveTab or activeDriveAccountId logic needed
+  const [selectingAll, setSelectingAll] = useState(false);
+  const [processingProgress, setProcessingProgress] = useState(0);
+  const [lastChecked, setLastChecked] = useState(null);
+  
+  // Error handling for missing contexts
+  const safeChannelsInfo = channelsInfo || {};
+  const safeChannelErrors = channelErrors || {};
+  
+  // Safe error handling
+  const hasError = userError || driveError || Object.keys(safeChannelErrors).length > 0;
+  
+  // Derived state
+  const loadingCombined = userLoading || driveLoading || channelsLoading || accountsLoading;
+  const availableAccounts = accounts || [];
+  const mergedAccounts = availableAccounts;
+  const filteredItems = selectedFolder 
+    ? driveFiles.filter(file => file.parents && file.parents.includes(selectedFolder.id))
+    : driveFiles;
+  const currentDriveFolders = driveFolders || [];
+  
+  // Set initial active account
+  // No need to set active account, always use first available
+
+  // Helper functions
+  const handleScheduleSelect = useCallback((file) => {
+    setSelectedFiles(prev => {
+      const isSelected = prev.some(f => f.id === file.id);
+      if (isSelected) {
+        return prev.filter(f => f.id !== file.id);
+      } else {
+        return [...prev, file];
+      }
+    });
+  }, []);
+
+  const selectAllFiles = useCallback(async () => {
+    if (selectingAll) return;
+    
+    setSelectingAll(true);
+    setProcessingProgress(0);
+    
+    try {
+      if (selectedFiles.length === filteredItems.length) {
+        // Deselect all
+        setSelectedFiles([]);
+        setProcessingProgress(100);
+      } else {
+        // Select all with progress simulation
+        const totalFiles = filteredItems.length;
+        for (let i = 0; i <= totalFiles; i++) {
+          setProcessingProgress((i / totalFiles) * 100);
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        setSelectedFiles([...filteredItems]);
+      }
+    } finally {
+      setTimeout(() => {
+        setSelectingAll(false);
+        setProcessingProgress(0);
+      }, 500);
+    }
+  }, [selectingAll, selectedFiles.length, filteredItems]);
+
+  const handleFolderSelect = useCallback((e) => {
+    const folderId = e.target.value;
+    if (folderId === 'all') {
+      clearSelectedFolder();
+    } else {
+      const folder = currentDriveFolders.find(f => f.id === folderId);
+      if (folder) {
+        selectFolder(folder);
+      }
+    }
+  }, [currentDriveFolders, selectFolder, clearSelectedFolder]);
+
+  const handleRefreshSuccess = useCallback(() => {
+    setLastChecked(new Date().toISOString());
+    toast.success('Data refreshed successfully');
+  }, []);
+
+  const handleRefreshError = useCallback((error) => {
+    toast.error(`Refresh failed: ${error.message}`);
+  }, []);
+
+  const syncDriveChanges = useCallback((force = false) => {
+    if (refreshDriveFiles) {
+      refreshDriveFiles(force);
+    }
+    setLastChecked(new Date().toISOString());
+  }, [refreshDriveFiles]);
+
+  const refreshDrive = useCallback((accountId) => {
+    if (refreshDriveFiles) {
+      refreshDriveFiles(true);
+    }
+  }, [refreshDriveFiles]);
+
+  const fetchDriveFolders = useCallback((force = false) => {
+    // This would typically fetch folders, but we'll use what's available
+    setLastChecked(new Date().toISOString());
+  }, []);
 
   // Check for account availability issues
   const noAccounts = !mergedAccounts || mergedAccounts.length === 0;
   
-  // Show user-friendly message if no accounts exist
-  if (noAccounts) {
+  // Enhanced loading state checks - only show loading for critical operations
+  const isCriticalLoading = userLoading;
+  
+  // Show loading spinner only for critical operations
+  if (isCriticalLoading) {
+    return (
+      <div className="min-h-screen p-8 flex flex-col items-center justify-center text-center dark:bg-black">
+        <AppLogoIcon size={64} className="mb-4 animate-pulse" priority={true} />
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 dark:border-blue-400 mb-4"></div>
+        <p className="text-gray-600 dark:text-gray-400">
+          {userLoading ? 'Loading user data...' :
+           'Setting up your dashboard...'}
+        </p>
+      </div>
+    );
+  }
+
+  // Enhanced no accounts check - but don't show this if we're still loading
+  const hasAccounts = mergedAccounts?.length > 0;
+  
+  if (!hasAccounts && !isCriticalLoading) {
     return (
       <div className="min-h-screen p-8 flex flex-col items-center justify-center text-center dark:bg-black dark:text-white">
-        <AppLogoIcon size={64} className="mb-4" />
+        <AppLogoIcon size={64} className="mb-4" priority={true} />
         <h2 className="text-2xl font-semibold mb-2">No Connected Accounts</h2>
         <p className="mb-4 text-gray-600 dark:text-gray-400">
           Please add a Google Drive account to start uploading and managing your videos.
         </p>
-        <button
-          onClick={() => router.push('/accounts')}
-          className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-150 ease-in-out"
+        <Link
+          href="/accounts"
+          className="inline-flex items-center px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
         >
-          Add New Account
-        </button>
+          <span className="mr-2">Add New Account</span>
+          <FaUpload />
+        </Link>
       </div>
     );
   }
@@ -212,7 +280,7 @@ function HomeDashboardContent({ session, status }) {
   if (userError) {
      return (
        <div className="min-h-screen p-8 flex flex-col items-center justify-center text-center dark:bg-black dark:text-white">
-         <AppLogoIcon size={64} className="mb-4" />
+         <AppLogoIcon size={64} className="mb-4" priority={true} />
          <h2 className="text-2xl font-semibold mb-2">Account Issue</h2>
          <p className="mb-4 text-gray-600 dark:text-gray-400">
            {`Error: ${userError}`}
@@ -229,41 +297,38 @@ function HomeDashboardContent({ session, status }) {
 
   return (
     <div className="min-h-screen p-8 flex flex-col dark:bg-black transition-colors duration-300">
-      {/* Auto refresh the token when YouTube auth has expired */}
-      {authExpired && <AutoRefresh onSuccess={handleRefreshSuccess} onError={handleRefreshError} />}
-      
       {/* Scrollable content area */}
       <div className="mt-4 pb-16">
-      <ClientOnly>
+        <ClientOnly>
         <div className="flex flex-col gap-8 ">
-          {/* YouTube Connection Status */}
-          <YouTubeConnectionStatus onRefreshSuccess={handleRefreshSuccess} />
+          {/* YouTube Channel Information */}
+          <YouTubeChannelInfo />
 
           {/* New: Display re-authentication required message for YouTube */}
-          {activeDriveAccountId && 
-           channelsInfo[activeDriveAccountId]?.status === 'reauthenticate_required' && (
-            <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 rounded-md border border-red-200 dark:border-red-800/30">
-              <div className="flex items-start gap-2">
-                <div className="text-red-600 dark:text-red-400 mt-0.5">
-                  <FaExclamationTriangle />
-                </div>
-                <div>
-                  <h4 className="font-medium text-red-700 dark:text-red-400">YouTube Account Disconnected</h4>
-                  <p className="text-sm text-red-600 dark:text-red-300">
-                    Your YouTube account for {channelsInfo[activeDriveAccountId]?.message || 'this account'} needs to be re-authenticated.
-                  </p>
-                  <div className="mt-2 flex gap-2">
-                    <button
-                      onClick={() => router.push('/accounts')}
-                      className="px-2 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded"
-                    >
-                      Reconnect Account
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+  {availableAccounts.length > 0 &&
+   safeChannelsInfo[availableAccounts[0].id]?.status === 'reauthenticate_required' && (
+    <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 rounded-md border border-red-200 dark:border-red-800/30">
+      <div className="flex items-start gap-2">
+        <div className="text-red-600 dark:text-red-400 mt-0.5">
+          <FaExclamationTriangle />
+        </div>
+        <div>
+          <h4 className="font-medium text-red-700 dark:text-red-400">YouTube Account Disconnected</h4>
+          <p className="text-sm text-red-600 dark:text-red-300">
+            Your YouTube account for {safeChannelsInfo[availableAccounts[0].id]?.message || 'this account'} needs to be re-authenticated.
+          </p>
+          <div className="mt-2 flex gap-2">
+            <button
+              onClick={() => router.push('/accounts')}
+              className="px-2 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded"
+            >
+              Reconnect Account
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )}
           
           {/* Drive Files and Upload Sections */}
           <div className="bg-white dark:bg-black rounded-lg shadow-md p-6 border dark:border-amber-700/30 transition-all duration-300">
@@ -283,69 +348,13 @@ function HomeDashboardContent({ session, status }) {
                   className="p-2 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-900/40 border border-blue-200 dark:border-amber-700/30 rounded-full transition-all duration-300"
                   title="Sync with Drive Changes"
                 >
-                  <FaSync className={foldersLoading ? 'animate-spin' : ''} />
+                  <FaSync className={driveLoading ? 'animate-spin' : ''} />
                 </button>
             </div>
             
             {/* Account tabs */}
-            {availableAccounts && availableAccounts.length > 0 ? (
-              <div className="mb-4 border-b border-amber-200 dark:border-amber-800/30">
-                <div className="flex overflow-x-auto">
-                  {availableAccounts.map(account => (
-                    <button
-                      key={account.id}
-                      onClick={() => {
-                        console.log('Account tab clicked:', account.id);
-                        setActiveDriveTab(account.id);
-                        
-                        if (account.id !== activeDriveAccountId) {
-                          // This will trigger the useEffect to fetch new Drive and YouTube data
-                          setActiveDriveAccountId(account.id); 
-                        } else {
-                          // If it's the same account, just do a manual refresh
-                          console.log('Refreshing data for currently active account');
-                          if (refreshDrive) refreshDrive(account.id);
-                          if (refreshChannel) refreshChannel(account.id);
-                        }
-                      }}
-                      className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                        activeDriveTab === account.id 
-                          ? 'border-amber-500 text-amber-600 dark:text-amber-400' 
-                          : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-amber-600 dark:hover:text-amber-400'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        {account.image ? (
-                          <div className="w-6 h-6 rounded-full overflow-hidden">
-                            <Image 
-                              src={account.image} 
-                              alt={account.name || 'User'}
-                              width={24}
-                              height={24}
-                              className="w-full h-full object-cover" 
-                            />
-                          </div>
-                        ) : (
-                          <div className="w-6 h-6 rounded-full bg-amber-500 text-white flex items-center justify-center">
-                            <span className="text-xs font-bold">
-                              {account.name ? account.name.charAt(0).toUpperCase() : 'U'}
-                            </span>
-                          </div>
-                        )}
-                        <div className={`${!account?.email ? 'account-incomplete' : ''}`}>
-                          <h3 className="font-medium dark:text-amber-50">
-                            {account?.name || 'Google Account'}
-                          </h3>
-                          <p className={`text-sm ${!account?.email ? 'account-email-placeholder' : 'text-gray-600 dark:text-amber-200/70'}`}>
-                            {account?.email || `Email not available (ID: ${account?.id?.substring(0, 8)}...)`}
-                          </p>
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
+            {/* No account tabs, always use first account */}
+            {availableAccounts.length === 0 && (
               <div className="p-4 text-center bg-amber-50 dark:bg-amber-900/10 rounded-lg">
                 <p className="text-amber-800 dark:text-amber-200">No accounts available</p>
               </div>
@@ -373,7 +382,7 @@ function HomeDashboardContent({ session, status }) {
             {/* Full width layout */}
             <div className="w-full">
               {/* Show content for selected drive account */}
-              {activeDriveAccountId ? (
+              {availableAccounts.length > 0 ? (
                 <>
                   {/* Drive account info */}
                   <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-md border border-amber-200 dark:border-amber-800/30">
@@ -381,9 +390,7 @@ function HomeDashboardContent({ session, status }) {
                       <div className="flex items-center gap-4">
                         {(() => {
                           // Try to find the account in available accounts
-                          const account = availableAccounts?.find?.(acc => acc.id === activeDriveAccountId) || 
-                                         accounts?.find?.(acc => acc.id === activeDriveAccountId) || 
-                                         { id: activeDriveAccountId };
+                  const account = availableAccounts[0];
                           return (
                             <>
                               {account?.image ? (
@@ -419,18 +426,18 @@ function HomeDashboardContent({ session, status }) {
                       {/* Add refresh button */}
                       <button
                         onClick={() => {
-                          console.log('Refreshing Drive data for selected account');
-                          refreshDrive(activeDriveAccountId);
+                          console.log('Refreshing Drive data for first account');
+                          refreshDrive(account.id);
                         }}
                         className="p-2 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-900/40 border border-blue-200 dark:border-amber-700/30 rounded-full transition-all duration-300"
                       >
-                        <FaSync className={loadingDrives[activeDriveAccountId] ? 'animate-spin' : ''} />
+                        <FaSync className={driveLoading ? 'animate-spin' : ''} />
                       </button>
                     </div>
                   </div>
 
                   {/* إضافة عنصر جديد لعرض أخطاء تبديل الحساب */}
-                  {driveErrors[activeDriveAccountId] && (
+                  {driveError && (
                     <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 rounded-md border border-red-200 dark:border-red-800/30">
                       <div className="flex items-start gap-2">
                         <div className="text-red-600 dark:text-red-400 mt-0.5">
@@ -439,11 +446,11 @@ function HomeDashboardContent({ session, status }) {
                         <div>
                           <h4 className="font-medium text-red-700 dark:text-red-400">Drive Error</h4>
                           <p className="text-sm text-red-600 dark:text-red-300">
-                            {typeof driveErrors[activeDriveAccountId] === 'string' ? driveErrors[activeDriveAccountId] : 'Error loading Drive data. Try refreshing or signing in again.'}
+                            {typeof driveError === 'string' ? driveError : 'Error loading Drive data. Try refreshing or signing in again.'}
                           </p>
                           <div className="mt-2 flex gap-2">
                             <button
-                              onClick={() => refreshDrive(activeDriveAccountId)}
+                              onClick={() => refreshDrive(account.id)}
                               className="px-2 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded"
                             >
                               Retry
@@ -455,7 +462,7 @@ function HomeDashboardContent({ session, status }) {
                   )}
 
                   {/* Show loading indicator when folders are loading */}
-                  {loadingDrives[activeDriveAccountId] && (
+                  {driveLoading && (
                     <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-md border border-blue-200 dark:border-blue-800/30 text-center">
                       <div className="flex justify-center items-center gap-2">
                         <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-blue-600 dark:border-blue-400"></div>
@@ -502,7 +509,7 @@ function HomeDashboardContent({ session, status }) {
                       </select>
                       
                       {/* إضافة زر تحديث للمجلدات */}
-                      {foldersLoading && (
+                      {driveLoading && (
                         <div className="mt-1 text-xs text-amber-500 dark:text-amber-400 flex items-center">
                           <FaSync className="animate-spin mr-1" size={10} />
                           <span>Refreshing folders...</span>

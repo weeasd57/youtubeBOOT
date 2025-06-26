@@ -1,16 +1,32 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useSession, signIn } from 'next-auth/react';
-import { FaGoogle, FaYoutube, FaFileVideo, FaCode, FaTimes, FaUserFriends, FaExchangeAlt, FaCalendarAlt, FaArrowsAlt, FaCloudUploadAlt } from 'react-icons/fa';
+import { FaGoogle, FaUserFriends, FaExchangeAlt, FaCalendarAlt, FaArrowsAlt, FaCloudUploadAlt, FaFileVideo } from 'react-icons/fa';
 import { useRouter } from 'next/navigation';
-import ClientOnly from '@/components/ClientOnly';
 import ThemeToggle from '@/components/ThemeToggle';
 import AuthErrorBanner from '@/components/AuthErrorBanner';
 import JsonSampleDialog from '@/components/JsonSampleDialog';
 import Image from "next/image";
-import { useYouTubeChannel } from '@/contexts/YouTubeChannelContext';
+import { useMultiChannel } from '@/contexts/MultiChannelContext';
+import { useUser } from '@/contexts/UserContext';
 import Link from 'next/link';
+import { toast } from 'react-hot-toast';
+
+// Loading component with better accessibility
+const LoadingSpinner = () => (
+  <div 
+    className="min-h-screen p-8 flex items-center justify-center dark:bg-black" 
+    role="status" 
+    aria-label="Loading application"
+  >
+    <div 
+      className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 dark:border-amber-500"
+      aria-hidden="true"
+    />
+    <span className="sr-only">Loading...</span>
+  </div>
+);
 
 export default function LandingPage() {
   // Handle client-side mounting to prevent hydration issues
@@ -22,11 +38,7 @@ export default function LandingPage() {
   
   // Don't render anything on the server or during initial mount
   if (!isMounted) {
-    return (
-      <div className="min-h-screen p-8 flex items-center justify-center dark:bg-black" suppressHydrationWarning>
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 dark:border-amber-500" suppressHydrationWarning></div>
-      </div>
-    );
+    return <LoadingSpinner />;
   }
   
   // Render client-side content
@@ -38,42 +50,41 @@ function LandingPageContent() {
   const { data: session, status, error: authError } = useSession();
   const router = useRouter();
   const [showJsonSample, setShowJsonSample] = useState(false);
-  const { refreshConnection, connectionStatus, error: channelError } = useYouTubeChannel();
+  const { user, loading: userLoading } = useUser();
+  const { refreshAllChannels, errors: channelErrors } = useMultiChannel();
 
-  // Ref to track if the initial YouTube connection attempt has been made
-  const initialConnectionAttempted = useRef(false);
+  // Memoized current year to avoid hydration issues
+  const currentYear = useMemo(() => new Date().getFullYear(), []);
+
+  // Secure sign-in handler with error handling
+  const handleSignIn = useCallback(async () => {
+    try {
+      const result = await signIn('google', { 
+        callbackUrl: '/home',
+        redirect: false 
+      });
+      
+      if (result?.error) {
+        toast.error('Sign in failed. Please try again.');
+        console.error('Sign in error:', result.error);
+      }
+    } catch (error) {
+      toast.error('An unexpected error occurred during sign in.');
+      console.error('Sign in error:', error);
+    }
+  }, []);
 
   // Redirect to home page if authenticated
   useEffect(() => {
-    if (status === 'authenticated') {
+    if (status === 'authenticated' && session) {
       router.push('/home');
     }
-  }, [status, router]);
-
-  // Initialize YouTube channel connection if authenticated
-  useEffect(() => {
-    if (status === 'authenticated' && connectionStatus === 'unknown' && !initialConnectionAttempted.current) {
-      initialConnectionAttempted.current = true; // Mark as attempted
-      refreshConnection(true).catch(err => {
-        console.error('Failed to refresh YouTube connection:', err);
-      });
-    } else if (status === 'unauthenticated') {
-      // Reset the flag if the user logs out
-      initialConnectionAttempted.current = false;
-    }
-  }, [status, connectionStatus, refreshConnection]);
+  }, [status, session, router]);
 
   // Show loading spinner while checking authentication
-  if (status === 'loading') {
-    return (
-      <div className="min-h-screen p-8 flex items-center justify-center dark:bg-black" suppressHydrationWarning>
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 dark:border-amber-500" suppressHydrationWarning></div>
-      </div>
-    );
+  if (status === 'loading' || userLoading) {
+    return <LoadingSpinner />;
   }
-
-  // Using static year to avoid hydration issues with Date functions
-  const currentYear = 2024;
 
   return (
     <div className="min-h-screen flex flex-col dark:bg-black transition-colors duration-300">
@@ -89,6 +100,7 @@ function LandingPageContent() {
                   width={80}
                   height={80}
                   className="rounded-lg shadow-lg"
+                  priority
                 />
               </div>
             </div>
@@ -103,14 +115,18 @@ function LandingPageContent() {
             </p>
             <div className="flex flex-wrap gap-4 justify-center">
               <button
-                onClick={() => signIn('google')}
-                className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-md text-lg font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-lg dark:border dark:border-amber-500/20"
+                onClick={handleSignIn}
+                disabled={status === 'loading'}
+                className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed text-white px-6 py-3 rounded-md text-lg font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-lg dark:border dark:border-amber-500/20 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                aria-label="Sign in with Google to get started"
               >
-                <FaGoogle /> Get Started
+                <FaGoogle aria-hidden="true" /> 
+                {status === 'loading' ? 'Signing in...' : 'Get Started'}
               </button>
               <a
                 href="#features"
-                className="inline-flex items-center gap-2 bg-transparent border-2 border-amber-500 text-amber-600 dark:text-amber-400 px-6 py-3 rounded-md text-lg font-medium transition-all duration-300 hover:bg-amber-50 dark:hover:bg-amber-900/20"
+                className="inline-flex items-center gap-2 bg-transparent border-2 border-amber-500 text-amber-600 dark:text-amber-400 px-6 py-3 rounded-md text-lg font-medium transition-all duration-300 hover:bg-amber-50 dark:hover:bg-amber-900/20 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2"
+                aria-label="Learn more about our features"
               >
                 Learn More
               </a>
@@ -275,10 +291,13 @@ function LandingPageContent() {
               Manage multiple accounts, schedule uploads, and grow your online presence with ease
             </p>
             <button
-              onClick={() => signIn('google')}
-              className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-md text-lg font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-lg dark:border dark:border-amber-500/20"
+              onClick={handleSignIn}
+              disabled={status === 'loading'}
+              className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed text-white px-6 py-3 rounded-md text-lg font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-lg dark:border dark:border-amber-500/20 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+              aria-label="Start using Uploader for free with Google sign-in"
             >
-              <FaGoogle /> Start Now - It's Free
+              <FaGoogle aria-hidden="true" /> 
+              {status === 'loading' ? 'Starting...' : 'Start Now - It\'s Free'}
             </button>
           </div>
         </section>

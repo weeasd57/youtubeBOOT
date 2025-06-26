@@ -1,26 +1,136 @@
 /** @type {import('next').NextConfig} */
 const path = require('path');
 
+// Security headers configuration - different for development and production
+const getSecurityHeaders = () => {
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  
+  const baseHeaders = [
+    {
+      key: 'X-DNS-Prefetch-Control',
+      value: 'on'
+    },
+    {
+      key: 'X-XSS-Protection',
+      value: '1; mode=block'
+    },
+    {
+      key: 'X-Frame-Options',
+      value: 'DENY'
+    },
+    {
+      key: 'X-Content-Type-Options',
+      value: 'nosniff'
+    },
+    {
+      key: 'Referrer-Policy',
+      value: 'strict-origin-when-cross-origin'
+    },
+    {
+      key: 'Permissions-Policy',
+      value: 'camera=(), microphone=(), geolocation=()'
+    }
+  ];
+
+  // Only add HTTPS-enforcing headers in production
+  if (!isDevelopment) {
+    baseHeaders.push({
+      key: 'Strict-Transport-Security',
+      value: 'max-age=63072000; includeSubDomains; preload'
+    });
+  }
+
+  // CSP with conditional upgrade-insecure-requests
+  const cspDirectives = [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://accounts.google.com https://apis.google.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "img-src 'self' data: https: blob:",
+    "font-src 'self' https://fonts.gstatic.com",
+    "media-src 'self' https: blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'"
+  ];
+
+  // Add connect-src and frame-src with HTTP support in development
+  if (isDevelopment) {
+    cspDirectives.push("connect-src 'self' http://localhost:* https://accounts.google.com https://www.googleapis.com https://oauth2.googleapis.com https://youtube.googleapis.com");
+    cspDirectives.push("frame-src 'self' http://localhost:* https://accounts.google.com");
+  } else {
+    cspDirectives.push("connect-src 'self' https://accounts.google.com https://www.googleapis.com https://oauth2.googleapis.com https://youtube.googleapis.com");
+    cspDirectives.push("frame-src 'self' https://accounts.google.com");
+  }
+
+  // Only add upgrade-insecure-requests in production
+  if (!isDevelopment) {
+    cspDirectives.push("upgrade-insecure-requests");
+  }
+
+  baseHeaders.push({
+    key: 'Content-Security-Policy',
+    value: cspDirectives.join('; ')
+  });
+
+  return baseHeaders;
+};
+
 const nextConfig = {
   reactStrictMode: true,
-  webpack: (config, { isServer }) => {
+  poweredByHeader: false, // Remove X-Powered-By header for security
+  compress: true, // Enable gzip compression
+  
+  // Security headers
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: getSecurityHeaders(),
+      },
+    ];
+  },
+
+  webpack: (config, { isServer, dev }) => {
     config.resolve.alias['@'] = path.resolve(__dirname, 'src');
+    
     // Add Supabase functions to ignored modules
     config.ignoreWarnings = [
       { module: /supabase\/functions/ },
     ];
+
+    // Production optimizations
+    if (!dev && !isServer) {
+      config.optimization = {
+        ...config.optimization,
+        splitChunks: {
+          chunks: 'all',
+          cacheGroups: {
+            vendor: {
+              test: /[\\/]node_modules[\\/]/,
+              name: 'vendors',
+              chunks: 'all',
+            },
+          },
+        },
+      };
+    }
+
     return config;
   },
-  // Increase timeouts for API routes to handle slow external services
+
+  // Performance optimizations
   experimental: {
-    // Set longer timeout for API routes to prevent timeouts with external services
     serverActions: {
       bodySizeLimit: '10mb', // Increase body size limit for file uploads
-    }
+    },
+    scrollRestoration: true, // Enable scroll restoration
   },
-  // External packages configuration (moved from experimental)
-  serverExternalPackages: [],
-  // Extended maximum response time for external API calls
+
+  // External packages configuration
+  serverExternalPackages: ['sharp'],
+  
+  // HTTP agent options for better performance
   httpAgentOptions: {
     keepAlive: true,
   },

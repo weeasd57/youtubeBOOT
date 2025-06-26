@@ -1,12 +1,12 @@
 'use client';
 
+import React, { useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useTheme } from '@/contexts/ThemeContext';
 import Navbar from './Navbar';
-import { useState } from 'react';
 import { usePathname } from 'next/navigation';
 
-export default function NavbarWrapper() {
+const NavbarWrapper: React.FC = () => {
   const { data: session } = useSession();
   const { toggleTheme } = useTheme();
   const [refreshing, setRefreshing] = useState(false);
@@ -23,7 +23,7 @@ export default function NavbarWrapper() {
     return null;
   }
 
-  const handleRefreshAuth = async () => {
+  const handleRefreshAuth = async (): Promise<void> => {
     setRefreshing(true);
     try {
       // Here you would implement any auth refresh logic
@@ -45,4 +45,6 @@ export default function NavbarWrapper() {
       isLandingPage={isLandingPage}
     />
   );
-} 
+};
+
+export default NavbarWrapper;

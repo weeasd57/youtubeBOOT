@@ -7,9 +7,14 @@ import { getValidAccessToken } from '@/utils/refreshToken';
 
 // Create a new API endpoint to get YouTube channel info for a specific account
 export async function GET(request) {
+  const startTime = Date.now();
+  const timing = {};
+  
   try {
     // Get session
+    timing.sessionStart = Date.now();
     const session = await getServerSession(authOptions);
+    timing.sessionEnd = Date.now();
     
     if (!session) {
       return NextResponse.json(
@@ -29,27 +34,25 @@ export async function GET(request) {
       );
     }
     
-    console.log(`Fetching account info for accountId: ${accountId}`);
-    
-    // Get account from Supabase using the actual schema
+    // Get account from Supabase
+    timing.supabaseStart = Date.now();
     const { data: account, error: accountError } = await supabaseAdmin
       .from('accounts')
       .select('id, email, owner_id, name, account_type, image')
       .eq('id', accountId)
-      .single();
-    
+      .maybeSingle();
+    timing.supabaseEnd = Date.now();
+      
     if (accountError) {
-      console.error('Error getting account:', accountError);
       return NextResponse.json(
-        { error: 'Not Found', message: 'Account not found', details: accountError }, 
+        { error: 'Not Found', message: 'Account not found', details: accountError, timing }, 
         { status: 404 }
       );
     }
     
     if (!account) {
-      console.error('Account not found, no error returned');
       return NextResponse.json(
-        { error: 'Not Found', message: 'Account not found, no data returned' }, 
+        { error: 'Not Found', message: 'Account not found, no data returned', timing }, 
         { status: 404 }
       );
     }
@@ -57,19 +60,19 @@ export async function GET(request) {
     // Check if the account belongs to the logged-in user
     if (account.owner_id !== session.user?.auth_user_id) {
       return NextResponse.json(
-        { error: 'Forbidden', message: 'You do not have access to this account' }, 
+        { error: 'Forbidden', message: 'You do not have access to this account', timing }, 
         { status: 403 }
       );
     }
     
     try {
-      console.log(`Getting a valid access token for accountId: ${accountId}`);
+      timing.tokenStart = Date.now();
       const tokenResponse = await getValidAccessToken(session.user.auth_user_id, accountId);
+      timing.tokenEnd = Date.now();
       
       if (!tokenResponse || !tokenResponse.success || !tokenResponse.accessToken) {
-        console.error('Failed to get valid access token');
         return NextResponse.json({ 
-          error: tokenResponse?.error || 'Invalid or expired credentials' 
+          error: tokenResponse?.error || 'Invalid or expired credentials', timing
         }, { status: 401 });
       }
 
@@ -82,18 +85,21 @@ export async function GET(request) {
       });
       
       // Get channel info
+      timing.youtubeApiStart = Date.now();
       const response = await youtube.channels.list({
         part: 'snippet,statistics,contentDetails',
         mine: true,
         maxResults: 1
       });
+      timing.youtubeApiEnd = Date.now();
       
       if (!response.data.items || response.data.items.length === 0) {
         return NextResponse.json({ 
           success: false, 
           status: 'error',
           message: 'No YouTube channel found for this account',
-          channelInfo: null
+          channelInfo: null,
+          timing
         });
       }
       
@@ -111,12 +117,17 @@ export async function GET(request) {
         lastUpdated: new Date().toISOString()
       };
       
+      timing.total = Date.now() - startTime;
+      
       return NextResponse.json({
         success: true,
         status: 'connected',
-        channelInfo
+        channelInfo,
+        timing
       });
     } catch (error) {
+      timing.errorTime = Date.now();
+      timing.total = Date.now() - startTime;
       console.error('Error fetching YouTube channel info:', error);
       
       // Check if it's a suspension error
@@ -126,7 +137,8 @@ export async function GET(request) {
           success: false, 
           status: 'suspended',
           message: 'YouTube account is suspended',
-          channelInfo: null
+          channelInfo: null,
+          timing
         });
       }
       
@@ -134,13 +146,16 @@ export async function GET(request) {
         success: false, 
         status: 'error',
         message: 'Error fetching YouTube channel info: ' + (error.message || 'Unknown error'),
-        channelInfo: null
+        channelInfo: null,
+        timing
       });
     }
   } catch (error) {
+    timing.errorTime = Date.now();
+    timing.total = Date.now() - startTime;
     console.error('Unexpected error in account-channel-info API:', error);
     return NextResponse.json(
-      { error: 'Internal Server Error', message: error.message || 'An unexpected error occurred' }, 
+      { error: 'Internal Server Error', message: error.message || 'An unexpected error occurred', timing }, 
       { status: 500 }
     );
   }

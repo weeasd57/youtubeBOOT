@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
-import { useDrive } from './DriveContext';
+import { useDrive } from './MultiDriveContext';
 
 // Create context
 const UploadContext = createContext(null);

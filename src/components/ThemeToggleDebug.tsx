@@ -1,24 +1,12 @@
 'use client';
 
-import { useContext } from 'react';
-import { ThemeContext, THEMES } from '@/contexts/ThemeContext';
+import React from 'react';
+import { useTheme, THEMES } from '@/contexts/ThemeContext';
 import { FaSun, FaMoon } from 'react-icons/fa';
 
-export default function ThemeToggleDebug() {
-  // Use a try-catch block to properly handle theme context errors
+const ThemeToggleDebug: React.FC = () => {
   try {
-    const context = useContext(ThemeContext);
-    
-    if (!context) {
-      console.error('Theme context is undefined or null!', { context });
-      return (
-        <div className="px-2 py-1 bg-red-100 border border-red-300 text-red-800 rounded text-xs">
-          Theme Error
-        </div>
-      );
-    }
-    
-    const { theme, toggleTheme } = context;
+    const { theme, toggleTheme } = useTheme();
     const isDark = theme === THEMES.DARK;
     
     console.log('Theme context loaded successfully:', { theme, isDark });
@@ -37,11 +25,15 @@ export default function ThemeToggleDebug() {
       </button>
     );
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Theme Error';
     console.error('Error in ThemeToggleDebug:', error);
+    
     return (
       <div className="px-2 py-1 bg-red-100 border border-red-300 text-red-800 rounded text-xs">
-        {error.message || 'Theme Error'}
+        {errorMessage}
       </div>
     );
   }
-} 
+};
+
+export default ThemeToggleDebug;

@@ -22,5 +22,6 @@
     "net"
   ],
   "references.preferredLocation": "view",
-  "editor.language.brackets": []
+  "editor.language.brackets": [],
+  "codium.codeCompletion.enable": false
 }

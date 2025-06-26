@@ -1,4 +1,4 @@
-import { getWithRetry } from './apiHelpers';
+import { fetchJsonWithRetry } from './apiHelpers';
 import { getStorageItem, setStorageItem } from './localStorage';
 
 /**
@@ -93,19 +93,17 @@ export async function fetchDriveFoldersWithCache(options = {}) {
   // Create the fetch promise
   const fetchPromise = (async () => {
     try {
-      const response = await getWithRetry(
+      const data = await fetchJsonWithRetry(
         apiPath,
         { 
-          timeout: 30000,
+          timeout: 120000, // 2 minutes timeout for development
         },
         { maxRetries: 2, initialDelay: 2000, retryOnNetworkError: true }
       );
 
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status} ${response.statusText}`);
+      if (data.error) {
+        throw new Error(data.error);
       }
-
-      const data = await response.json();
       const folders = data.folders || [];
 
       // Cache successful results

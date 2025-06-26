@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { FaExclamationTriangle, FaSync, FaWifi } from 'react-icons/fa';
 import { signOut } from 'next-auth/react';
-import { useDrive } from '@/contexts/DriveContext';
+import { useDrive } from '@/contexts/MultiDriveContext';
 
 export default function AuthErrorBanner({ 
   message, 

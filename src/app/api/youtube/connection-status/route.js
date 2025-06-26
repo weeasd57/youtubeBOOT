@@ -14,8 +14,15 @@ export async function GET(req) {
       return NextResponse.json({ error: 'Account ID is required' }, { status: 400 });
     }
 
+    const session = await getServerSession(authOptions);
+    if (!session || !session.user?.auth_user_id) {
+      console.error("YouTube Connection Status: No active session or auth_user_id found");
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+    const authUserId = session.user.auth_user_id;
+
     console.log('Fetching account info for accountId:', accountId);
-    const tokenResponse = await getValidAccessToken(accountId);
+    const tokenResponse = await getValidAccessToken(authUserId, accountId);
     
     if (!tokenResponse || !tokenResponse.success || !tokenResponse.accessToken) {
       console.error('Failed to get valid access token for account:', accountId);

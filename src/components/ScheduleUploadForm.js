@@ -11,6 +11,7 @@ import DriveThumbnail from '@/components/DriveThumbnail';
 import { processVideoTitle, generateCleanTitleFromFileName } from '@/utils/titleHelpers';
 import { supabase } from '@/utils/supabase-client';
 import TikTokShareButton from './TikTokShareButton';
+import { sanitizeInput, validateInput, SecurityError, logSecurityEvent } from '@/utils/security';
 
 // Add a custom app logo component for consistency
 const AppLogoIcon = ({ className = "", size = 24 }) => (
@@ -207,29 +208,97 @@ export default function ScheduleUploadForm({ file, multipleFiles = [], onSchedul
   }, []);
 
   const handleInputChange = (index, field, value) => {
-    setFilesData(prevData => {
-      const newData = [...prevData];
-      newData[index] = { ...newData[index], [field]: value, rowError: null }; // Clear row error on input change
+    try {
+      // تطبيق التأمين على المدخلات حسب نوع الحقل
+      let sanitizedValue = value;
       
-      if (field === 'title' && value.length > 100) {
-        const processedTitle = processVideoTitle(value);
-        setProcessedTitlePreviews(prev => ({
-          ...prev,
-          [index]: processedTitle
-        }));
-      } else if (field === 'title') {
-        setProcessedTitlePreviews(prev => {
-          const newPreviews = { ...prev };
-          delete newPreviews[index];
-          return newPreviews;
-        });
+      if (field === 'title' || field === 'description') {
+        // تنظيف HTML والمحتوى الخطير من العنوان والوصف
+        sanitizedValue = sanitizeInput.html(value);
+        
+        // التحقق من طول العنوان
+        if (field === 'title' && sanitizedValue.length > 500) {
+          logSecurityEvent('LONG_TITLE_INPUT', { 
+            originalLength: value.length, 
+            sanitizedLength: sanitizedValue.length,
+            fileIndex: index 
+          });
+          sanitizedValue = sanitizedValue.substring(0, 500);
+        }
+        
+        // التحقق من طول الوصف
+        if (field === 'description' && sanitizedValue.length > 5000) {
+          logSecurityEvent('LONG_DESCRIPTION_INPUT', { 
+            originalLength: value.length, 
+            sanitizedLength: sanitizedValue.length,
+            fileIndex: index 
+          });
+          sanitizedValue = sanitizedValue.substring(0, 5000);
+        }
       }
       
-      return newData;
-    });
-    // Clear global validation error when any input changes, as it will be re-evaluated
-    setValidationError(null); 
-    setGeneralError(null);
+      // التحقق من صحة التاريخ والوقت
+      if (field === 'scheduledDateTime' && sanitizedValue) {
+        const scheduledDate = new Date(sanitizedValue);
+        if (isNaN(scheduledDate.getTime())) {
+          logSecurityEvent('INVALID_DATE_INPUT', { 
+            value: sanitizedValue,
+            fileIndex: index 
+          });
+          throw new SecurityError('Invalid date format provided', 'INVALID_DATE');
+        }
+        
+        // التحقق من أن التاريخ ليس في الماضي البعيد أو المستقبل البعيد
+        const now = new Date();
+        const oneYearFromNow = new Date(now.getFullYear() + 1, now.getMonth(), now.getDate());
+        const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+        
+        if (scheduledDate < oneYearAgo || scheduledDate > oneYearFromNow) {
+          logSecurityEvent('SUSPICIOUS_DATE_RANGE', { 
+            scheduledDate: scheduledDate.toISOString(),
+            fileIndex: index 
+          });
+        }
+      }
+      
+      setFilesData(prevData => {
+        const newData = [...prevData];
+        newData[index] = { ...newData[index], [field]: sanitizedValue, rowError: null };
+        
+        if (field === 'title' && sanitizedValue.length > 100) {
+          const processedTitle = processVideoTitle(sanitizedValue);
+          setProcessedTitlePreviews(prev => ({
+            ...prev,
+            [index]: processedTitle
+          }));
+        } else if (field === 'title') {
+          setProcessedTitlePreviews(prev => {
+            const newPreviews = { ...prev };
+            delete newPreviews[index];
+            return newPreviews;
+          });
+        }
+        
+        return newData;
+      });
+      
+      // Clear global validation error when any input changes
+      setValidationError(null); 
+      setGeneralError(null);
+      
+    } catch (error) {
+      if (error instanceof SecurityError) {
+        setGeneralError(`Security validation failed: ${error.message}`);
+        logSecurityEvent('INPUT_SECURITY_ERROR', { 
+          field, 
+          error: error.message, 
+          fileIndex: index 
+        });
+      } else {
+        console.error('Unexpected error in handleInputChange:', error);
+        setGeneralError('An unexpected error occurred while processing your input.');
+      }
+    }
   };
 
   // New function to add hashtags to description
@@ -393,109 +462,333 @@ export default function ScheduleUploadForm({ file, multipleFiles = [], onSchedul
 
   // New function to apply the same title to all files
   const applyBatchTitle = () => {
-    if (!batchTitle.trim()) return;
-    
-    setFilesData(prevData => {
-      return prevData.map(file => ({
-        ...file,
-        title: batchTitle
-      }));
-    });
+    try {
+      if (!batchTitle.trim()) return;
+      
+      // تطبيق التأمين على العنوان المجمع
+      const sanitizedTitle = sanitizeInput.html(batchTitle.trim());
+      
+      if (sanitizedTitle.length > 500) {
+        logSecurityEvent('BATCH_TITLE_TOO_LONG', { 
+          originalLength: batchTitle.length, 
+          sanitizedLength: sanitizedTitle.length 
+        });
+        setGeneralError('Batch title is too long. Maximum 500 characters allowed.');
+        return;
+      }
+      
+      if (sanitizedTitle.length === 0) {
+        logSecurityEvent('BATCH_TITLE_EMPTY_AFTER_SANITIZATION', { 
+          originalTitle: batchTitle 
+        });
+        setGeneralError('Title contains only invalid characters.');
+        return;
+      }
+      
+      setFilesData(prevData => {
+        return prevData.map(file => ({
+          ...file,
+          title: sanitizedTitle
+        }));
+      });
+      
+      logSecurityEvent('BATCH_TITLE_APPLIED', { 
+        fileCount: filesData.length, 
+        titleLength: sanitizedTitle.length 
+      });
+      
+    } catch (error) {
+      console.error('Error applying batch title:', error);
+      setGeneralError('Failed to apply batch title. Please try again.');
+    }
   };
 
   // New function to apply the same description to all files
   const applyBatchDescription = () => {
-    if (!batchDescription.trim()) return;
-    
-    setFilesData(prevData => {
-      return prevData.map(file => ({
-        ...file,
-        description: batchDescription
-      }));
-    });
+    try {
+      if (!batchDescription.trim()) return;
+      
+      // تطبيق التأمين على الوصف المجمع
+      const sanitizedDescription = sanitizeInput.html(batchDescription.trim());
+      
+      if (sanitizedDescription.length > 5000) {
+        logSecurityEvent('BATCH_DESCRIPTION_TOO_LONG', { 
+          originalLength: batchDescription.length, 
+          sanitizedLength: sanitizedDescription.length 
+        });
+        setGeneralError('Batch description is too long. Maximum 5000 characters allowed.');
+        return;
+      }
+      
+      setFilesData(prevData => {
+        return prevData.map(file => ({
+          ...file,
+          description: sanitizedDescription
+        }));
+      });
+      
+      logSecurityEvent('BATCH_DESCRIPTION_APPLIED', { 
+        fileCount: filesData.length, 
+        descriptionLength: sanitizedDescription.length 
+      });
+      
+    } catch (error) {
+      console.error('Error applying batch description:', error);
+      setGeneralError('Failed to apply batch description. Please try again.');
+    }
   };
 
   const validateForm = () => {
     let isValid = true;
     let globalErrorMsg = '';
-    const updatedFilesData = filesData.map(video => {
+    let securityIssues = [];
+    
+    const updatedFilesData = filesData.map((video, index) => {
       let rowError = null;
-      if (!video.title.trim()) {
-        rowError = 'Title is required.';
-        isValid = false;
-      }
-      if (!video.scheduledDateTime) {
-        rowError = (rowError ? rowError + ' ' : '') + 'Schedule time is required.';
-        isValid = false;
-      } else {
-        const scheduledDate = new Date(video.scheduledDateTime);
-        if (scheduledDate <= new Date(Date.now() - 60000)) { // Allow 1 min buffer for submission
-          rowError = (rowError ? rowError + ' ' : '') + 'Time must be in future.';
+      
+      try {
+        // التحقق من وجود العنوان وصحته
+        if (!video.title || !video.title.trim()) {
+          rowError = 'Title is required.';
           isValid = false;
+        } else {
+          // التحقق من طول العنوان
+          if (video.title.length > 500) {
+            rowError = 'Title is too long (max 500 characters).';
+            isValid = false;
+            securityIssues.push(`Video ${index + 1}: Title exceeds maximum length`);
+          }
+          
+          // التحقق من المحتوى المشبوه في العنوان
+          const suspiciousPatterns = [
+            /<script/i,
+            /javascript:/i,
+            /on\w+\s*=/i,
+            /data:text\/html/i
+          ];
+          
+          if (suspiciousPatterns.some(pattern => pattern.test(video.title))) {
+            rowError = 'Title contains invalid content.';
+            isValid = false;
+            securityIssues.push(`Video ${index + 1}: Suspicious content in title`);
+            logSecurityEvent('SUSPICIOUS_TITLE_CONTENT', { 
+              title: video.title, 
+              fileIndex: index,
+              fileName: video.fileName 
+            });
+          }
         }
+        
+        // التحقق من الوصف
+        if (video.description && video.description.length > 5000) {
+          rowError = (rowError ? rowError + ' ' : '') + 'Description is too long (max 5000 characters).';
+          isValid = false;
+          securityIssues.push(`Video ${index + 1}: Description exceeds maximum length`);
+        }
+        
+        // التحقق من التاريخ والوقت المجدول
+        if (!video.scheduledDateTime) {
+          rowError = (rowError ? rowError + ' ' : '') + 'Schedule time is required.';
+          isValid = false;
+        } else {
+          const scheduledDate = new Date(video.scheduledDateTime);
+          
+          // التحقق من صحة التاريخ
+          if (isNaN(scheduledDate.getTime())) {
+            rowError = (rowError ? rowError + ' ' : '') + 'Invalid date format.';
+            isValid = false;
+            securityIssues.push(`Video ${index + 1}: Invalid date format`);
+          } else {
+            // التحقق من أن التاريخ في المستقبل
+            if (scheduledDate <= new Date(Date.now() - 60000)) {
+              rowError = (rowError ? rowError + ' ' : '') + 'Time must be in future.';
+              isValid = false;
+            }
+            
+            // التحقق من النطاق المعقول للتاريخ
+            const now = new Date();
+            const oneYearFromNow = new Date(now.getFullYear() + 1, now.getMonth(), now.getDate());
+            
+            if (scheduledDate > oneYearFromNow) {
+              securityIssues.push(`Video ${index + 1}: Scheduled date is more than 1 year in the future`);
+              logSecurityEvent('SUSPICIOUS_FUTURE_DATE', { 
+                scheduledDate: scheduledDate.toISOString(),
+                fileIndex: index,
+                fileName: video.fileName 
+              });
+            }
+          }
+        }
+        
+        // التحقق من معرف الملف
+        if (!video.fileId || typeof video.fileId !== 'string') {
+          rowError = (rowError ? rowError + ' ' : '') + 'Invalid file reference.';
+          isValid = false;
+          securityIssues.push(`Video ${index + 1}: Invalid file ID`);
+        } else if (!validateInput.driveFileId(video.fileId)) {
+          logSecurityEvent('INVALID_DRIVE_FILE_ID', { 
+            fileId: video.fileId,
+            fileIndex: index,
+            fileName: video.fileName 
+          });
+        }
+        
+      } catch (error) {
+        console.error(`Validation error for video ${index}:`, error);
+        rowError = 'Validation failed for this video.';
+        isValid = false;
+        securityIssues.push(`Video ${index + 1}: Validation exception`);
       }
+      
       return { ...video, rowError };
     });
 
     setFilesData(updatedFilesData);
 
+    // تسجيل المشاكل الأمنية إذا وجدت
+    if (securityIssues.length > 0) {
+      logSecurityEvent('FORM_VALIDATION_SECURITY_ISSUES', { 
+        issues: securityIssues,
+        totalVideos: filesData.length 
+      });
+    }
+
     if (!isValid) {
-        // Check if any specific row error was the first one encountered for global message
-        const firstErrorRow = updatedFilesData.find(v => v.rowError);
-        if (firstErrorRow) {
-            globalErrorMsg = `Error with ${firstErrorRow.fileName}: ${firstErrorRow.rowError} (and possibly others).`;
-        } else {
-            globalErrorMsg = 'Please correct the errors in the form.';
-        }
-        setValidationError(globalErrorMsg);
+      const firstErrorRow = updatedFilesData.find(v => v.rowError);
+      if (firstErrorRow) {
+        globalErrorMsg = `Error with ${sanitizeInput.html(firstErrorRow.fileName)}: ${firstErrorRow.rowError} (and possibly others).`;
+      } else {
+        globalErrorMsg = 'Please correct the errors in the form.';
+      }
+      setValidationError(globalErrorMsg);
+    } else {
+      setValidationError(null);
     }
-     else {
-        setValidationError(null);
-    }
+    
     return isValid;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setGeneralError(null);
-    if (!validateForm()) {
-      return;
-    }
-
-    const uploadsToAttempt = filesData.filter(f => f.selected);
-
-    if (uploadsToAttempt.length === 0) {
-        setGeneralError("No files selected for upload.");
-        return;
-    }
-
+    
     try {
+      // التحقق من صحة النموذج أولاً
+      if (!validateForm()) {
+        logSecurityEvent('FORM_SUBMISSION_VALIDATION_FAILED', { 
+          totalVideos: filesData.length 
+        });
+        return;
+      }
+
+      const uploadsToAttempt = filesData.filter(f => f.selected);
+
+      if (uploadsToAttempt.length === 0) {
+        setGeneralError("No files selected for upload.");
+        logSecurityEvent('FORM_SUBMISSION_NO_FILES_SELECTED', { 
+          totalVideos: filesData.length 
+        });
+        return;
+      }
+
+      // التحقق من الحد الأقصى لعدد الملفات المرفوعة في المرة الواحدة
+      if (uploadsToAttempt.length > 50) {
+        setGeneralError("Too many files selected. Maximum 50 files allowed per batch.");
+        logSecurityEvent('EXCESSIVE_BATCH_SIZE', { 
+          attemptedCount: uploadsToAttempt.length 
+        });
+        return;
+      }
+
+      logSecurityEvent('FORM_SUBMISSION_STARTED', { 
+        fileCount: uploadsToAttempt.length,
+        totalVideos: filesData.length 
+      });
+
       // Process uploads one by one to give better feedback or handle partial failures
       let successfulUploads = 0;
       let failedUploads = [];
 
       for (const videoData of uploadsToAttempt) {
-        const result = await scheduleUpload({
-          fileId: videoData.fileId,
-          fileName: videoData.fileName,
-          title: videoData.title,
-          description: videoData.description,
-          scheduledTime: new Date(videoData.scheduledDateTime).toISOString(),
-        });
-        if (result && result.success !== false) { // Check if scheduleUpload returns a success indicator
+        try {
+          // التحقق النهائي من البيانات قبل الإرسال
+          const sanitizedData = {
+            fileId: videoData.fileId,
+            fileName: sanitizeInput.filename(videoData.fileName),
+            title: sanitizeInput.html(videoData.title),
+            description: sanitizeInput.html(videoData.description || ''),
+            scheduledTime: new Date(videoData.scheduledDateTime).toISOString(),
+          };
+
+          // التحقق من صحة معرف الملف
+          if (!validateInput.driveFileId(sanitizedData.fileId)) {
+            throw new SecurityError('Invalid file ID format', 'INVALID_FILE_ID');
+          }
+
+          const result = await scheduleUpload(sanitizedData);
+          
+          if (result && result.success !== false) {
             successfulUploads++;
-        } else {
-            failedUploads.push({name: videoData.fileName, error: (result && result.error) || 'Unknown error'});
+            logSecurityEvent('VIDEO_SCHEDULED_SUCCESS', { 
+              fileId: sanitizedData.fileId,
+              fileName: sanitizedData.fileName 
+            });
+          } else {
+            const errorMsg = (result && result.error) || 'Unknown error';
+            failedUploads.push({
+              name: sanitizedData.fileName, 
+              error: errorMsg
+            });
+            
             // Update rowError for the specific file that failed
-            setFilesData(prev => prev.map(f => f.fileId === videoData.fileId ? {...f, rowError: `Schedule failed: ${(result && result.error) || 'Unknown'}`} : f));
+            setFilesData(prev => prev.map(f => 
+              f.fileId === videoData.fileId 
+                ? {...f, rowError: `Schedule failed: ${errorMsg}`} 
+                : f
+            ));
+            
+            logSecurityEvent('VIDEO_SCHEDULED_FAILED', { 
+              fileId: sanitizedData.fileId,
+              fileName: sanitizedData.fileName,
+              error: errorMsg 
+            });
+          }
+        } catch (videoError) {
+          const errorMsg = videoError instanceof SecurityError 
+            ? `Security error: ${videoError.message}` 
+            : 'Processing failed';
+            
+          failedUploads.push({
+            name: videoData.fileName, 
+            error: errorMsg
+          });
+          
+          setFilesData(prev => prev.map(f => 
+            f.fileId === videoData.fileId 
+              ? {...f, rowError: errorMsg} 
+              : f
+          ));
+          
+          logSecurityEvent('VIDEO_PROCESSING_ERROR', { 
+            fileId: videoData.fileId,
+            fileName: videoData.fileName,
+            error: videoError.message 
+          });
         }
       }
+
+      // تسجيل النتائج النهائية
+      logSecurityEvent('FORM_SUBMISSION_COMPLETED', { 
+        successfulUploads,
+        failedUploads: failedUploads.length,
+        totalAttempted: uploadsToAttempt.length 
+      });
 
       if (failedUploads.length > 0) {
         setGeneralError(`Scheduled ${successfulUploads} video(s). Failed to schedule ${failedUploads.length} video(s). Check errors below.`);
       } else if (successfulUploads > 0) {
         if (onScheduled) {
-          onScheduled({ count: successfulUploads }); // Pass back success count
+          onScheduled({ count: successfulUploads });
         }
       } else {
         setGeneralError('No videos were scheduled. Please try again.');
@@ -503,7 +796,16 @@ export default function ScheduleUploadForm({ file, multipleFiles = [], onSchedul
 
     } catch (error) {
       console.error('Error scheduling uploads:', error);
-      setGeneralError(error.message || 'An unexpected error occurred during scheduling.');
+      const errorMessage = error instanceof SecurityError 
+        ? `Security validation failed: ${error.message}` 
+        : 'An unexpected error occurred during scheduling.';
+      
+      setGeneralError(errorMessage);
+      
+      logSecurityEvent('FORM_SUBMISSION_ERROR', { 
+        error: error.message,
+        errorType: error.constructor.name 
+      });
     }
   };
 
