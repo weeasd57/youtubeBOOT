@@ -149,7 +149,7 @@ export async function saveUserToSupabase(user) {
 
 // Function to save user tokens for background access
 // Now accepts authUserId and accountId directly
-export async function saveUserTokens({ authUserId, accountId, email, accessToken, refreshToken, expiresAt }) {
+export async function saveUserTokens({ authUserId, accountId, email, accessToken, refreshToken, expiresAt, providerAccountId }) {
   try {
     // Check for required parameters: authUserId and accountId are now mandatory
     if (!authUserId || !accountId || !accessToken) {
@@ -158,6 +158,7 @@ export async function saveUserTokens({ authUserId, accountId, email, accessToken
     }
 
     console.log(`saveUserTokens: Upserting token for User ID: ${authUserId}, Account ID: ${accountId}`);
+    console.log(`saveUserTokens: Received tokens - Access: ${accessToken ? 'Yes' : 'No'}, Refresh: ${refreshToken ? 'Yes' : 'No'}, Expires: ${expiresAt}, Provider Account ID: ${providerAccountId}`);
 
     // Calculate expiration time as a Unix timestamp (seconds)
     const calculatedExpiresAt = expiresAt && typeof expiresAt === 'number'
@@ -175,11 +176,13 @@ export async function saveUserTokens({ authUserId, accountId, email, accessToken
       is_valid: true, // Assume token is valid on save
       error_message: null,
       last_network_error: null,
+      provider_account_id: providerAccountId, // Store provider_account_id
     };
 
     // Use `upsert` to either insert a new token or update an existing one.
     // We define the conflict constraint on `auth_user_id` and `account_id`.
     // This means a unique token record exists for each combination of a user and their linked account.
+    console.log('saveUserTokens: Token data being sent to Supabase:', tokenData);
     const { data: upsertedToken, error: upsertError } = await supabaseAdmin
       .from('user_tokens')
       .upsert(tokenData, {
@@ -198,13 +201,11 @@ export async function saveUserTokens({ authUserId, accountId, email, accessToken
       throw upsertError; // Throw error to be caught by the caller
     }
 
-    console.log(`saveUserTokens: Token upserted successfully for Account ID ${accountId}.`);
+    console.log('saveUserTokens: Tokens upserted successfully:', upsertedToken);
     return upsertedToken;
-
   } catch (error) {
-    console.error('Error saving user tokens to Supabase:', error);
-    // Re-throw the error so the caller can handle it
-    throw error;
+    console.error('saveUserTokens: Unexpected error:', error);
+    throw error; // Re-throw the error
   }
 }
 

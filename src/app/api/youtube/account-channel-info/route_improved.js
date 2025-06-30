@@ -67,21 +67,28 @@ export async function GET(request) {
     
     try {
       timing.tokenStart = Date.now();
-      console.log(`[API] Getting access token for user: ${session.user.auth_user_id}, account: ${accountId}`);
       const tokenResponse = await getValidAccessToken(session.user.auth_user_id, accountId);
       timing.tokenEnd = Date.now();
       
-      console.log(`[API] Token response:`, { 
-        success: tokenResponse?.success, 
-        hasToken: !!tokenResponse?.accessToken,
-        error: tokenResponse?.error 
-      });
-      
       if (!tokenResponse || !tokenResponse.success || !tokenResponse.accessToken) {
-        console.error(`[API] Token retrieval failed:`, tokenResponse);
+        // Check if this is a reauthentication required error
+        if (tokenResponse?.error?.includes('re-authenticate') || 
+            tokenResponse?.error?.includes('invalid_grant') ||
+            tokenResponse?.error?.includes('refresh token') ||
+            tokenResponse?.error?.includes('Refresh token not available')) {
+          return NextResponse.json({ 
+            success: false,
+            status: 'reauthenticate_required',
+            message: 'Account needs to be reconnected. Please use the reconnect button.',
+            error: tokenResponse?.error || 'Authentication required',
+            timing
+          });
+        }
+        
         return NextResponse.json({ 
+          success: false,
+          status: 'error',
           error: tokenResponse?.error || 'Invalid or expired credentials', 
-          details: 'Failed to retrieve or refresh access token',
           timing
         }, { status: 401 });
       }
@@ -139,6 +146,19 @@ export async function GET(request) {
       timing.errorTime = Date.now();
       timing.total = Date.now() - startTime;
       console.error('Error fetching YouTube channel info:', error);
+      
+      // Check if it's an authentication error
+      if (error.response?.status === 401 || 
+          error.message?.includes('invalid_grant') ||
+          error.message?.includes('unauthorized')) {
+        return NextResponse.json({ 
+          success: false, 
+          status: 'reauthenticate_required',
+          message: 'Account authentication has expired. Please reconnect your account.',
+          channelInfo: null,
+          timing
+        });
+      }
       
       // Check if it's a suspension error
       const errorResponse = error.response?.data?.error;

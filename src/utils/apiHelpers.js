@@ -205,7 +205,7 @@ if (typeof window !== 'undefined') {
  * @param {Function} options.onRetry - Callback function when a retry occurs
  * @returns {Promise} - Result of the function execution
  */
-export async function withRetryFunction(fn, options = {}) {
+export async function withRetry(fn, options = {}) {
   const {
     maxRetries = RETRY_CONFIG.MAX_RETRIES,
     initialDelay = RETRY_CONFIG.BASE_DELAY,
@@ -264,7 +264,7 @@ export async function withRetryFunction(fn, options = {}) {
  * @returns {Promise} - Result of the function execution
  */
 export function withAuthRetry(fn, options = {}) {
-  return withRetryFunction(fn, {
+  return withRetry(fn, {
     maxRetries: -1, // Infinite retries for auth issues
     initialDelay: 5000, // Start with a 5 second delay
     maxDelay: 30000, // Cap at 30 seconds
@@ -621,9 +621,21 @@ export async function fetchJsonWithRetry(url, options = {}, retryOptions = {}) {
       const errorData = await safeJsonParse(response);
       
       // Create error with status code for better handling
-      const error = new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+      let errorMessage = errorData.message || `HTTP ${response.status}: ${response.statusText}`;
+      
+      // Add more specific error messages for common status codes
+      if (response.status === 401) {
+        errorMessage = errorData.message || 'Authentication failed. Please check your credentials.';
+      } else if (response.status === 403) {
+        errorMessage = errorData.message || 'Access forbidden. You may not have permission to access this resource.';
+      } else if (response.status === 404) {
+        errorMessage = errorData.message || 'Resource not found.';
+      }
+      
+      const error = new Error(errorMessage);
       error.status = response.status;
       error.response = response;
+      error.details = errorData.details; // Include any additional details from the API
       
       throw error;
     }

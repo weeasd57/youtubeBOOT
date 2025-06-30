@@ -17,7 +17,7 @@ import { SessionProvider } from 'next-auth/react';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { UserProvider } from '@/contexts/UserContext';
 import { SecurityProvider } from '@/contexts/SecurityContext';
-import { AccountProvider } from '@/contexts/AccountContext';
+import { AccountProvider } from '@/contexts/AccountContext.tsx';
 import { Toaster } from 'react-hot-toast';
 import BrowserAlertBlocker from '@/components/BrowserAlertBlocker';
 import ErrorBoundary from '@/components/ErrorBoundary';
@@ -101,7 +101,7 @@ const createFallbackProvider = (name: string): React.FC<ProviderProps> => {
 
 // Safe lazy load providers with fallback for missing files
 const MultiDriveProvider = createLazyProvider(
-  () => import('@/contexts/MultiDriveContext').catch(() => ({
+  () => import('@/contexts/MultiDriveContext.tsx').catch(() => ({
     MultiDriveProvider: createFallbackProvider('MultiDriveProvider')
   })),
   'MultiDriveProvider',
@@ -449,21 +449,35 @@ const AuthProviders = memo(({ children }: AuthProvidersProps) => {
 AuthProviders.displayName = 'AuthProviders';
 
 // Core providers with enhanced error boundaries and loading states
-const CoreProviders = memo(({ children }: CoreProvidersProps) => (
-  <SecurityProvider>
-    <UserProvider>
-      <AccountProvider>
-        <ProviderErrorBoundary providerName="MultiDriveProvider">
-          <Suspense fallback={<ProviderLoadingFallback providerName="Drive Integration" />}>
-            <MultiDriveProvider>
-              {children}
-            </MultiDriveProvider>
-          </Suspense>
-        </ProviderErrorBoundary>
-      </AccountProvider>
-    </UserProvider>
-  </SecurityProvider>
-));
+const CoreProviders = ({ children }: CoreProvidersProps) => {
+  const { markProviderLoaded, markProviderFailed } = useProviderLoading();
+
+  // Mark critical providers as loaded immediately
+  useEffect(() => {
+    markProviderLoaded('ThemeProvider');
+    markProviderLoaded('UserProvider');
+    markProviderLoaded('SecurityProvider');
+    markProviderLoaded('AccountProvider');
+  }, [markProviderLoaded]);
+
+  return (
+    <ThemeProvider>
+      <UserProvider>
+        <SecurityProvider>
+          <AccountProvider>
+            <ProviderErrorBoundary providerName="MultiDriveProvider">
+              <Suspense fallback={<ProviderLoadingFallback providerName="Drive Integration" />}>
+                <MultiDriveProvider>
+                  {children}
+                </MultiDriveProvider>
+              </Suspense>
+            </ProviderErrorBoundary>
+          </AccountProvider>
+        </SecurityProvider>
+      </UserProvider>
+    </ThemeProvider>
+  );
+};
 
 CoreProviders.displayName = 'CoreProviders';
 

@@ -37,7 +37,6 @@ interface UserContextType {
   refreshAccounts: () => Promise<void>;
   setActiveAccount: (account: Account | null) => void;
   switchAccount: (accountId: string) => Promise<boolean>;
-  setPrimaryAccount: (accountId: string) => Promise<boolean>;
   removeAccount: (accountId: string) => Promise<boolean>;
 }
 
@@ -90,6 +89,7 @@ export function UserProvider({ children }: UserProviderProps) {
   // Fetch connected accounts
   const fetchAccounts = useCallback(async () => {
     if (status !== 'authenticated' || !session?.user?.email) {
+      console.log('[UserContext] fetchAccounts: Not authenticated or no user email.');
       setAccounts([]);
       setActiveAccount(null);
       setLoading(false);
@@ -100,15 +100,18 @@ export function UserProvider({ children }: UserProviderProps) {
       setLoading(true);
       setError(null);
       
+      console.log('[UserContext] fetchAccounts: Fetching accounts from /api/accounts...');
       const response = await fetch('/api/accounts');
       const data: { accounts: Account[]; error?: string } = await response.json();
       
       if (response.ok) {
         const accountsData = data.accounts || [];
+        console.log('[UserContext] fetchAccounts: Accounts data from API:', accountsData);
 
         // Update accounts state only if data has changed significantly
         setAccounts(prevAccounts => {
           if (prevAccounts.length !== accountsData.length) {
+            console.log('[UserContext] setAccounts: Length changed, updating.');
             return accountsData;
           }
 
@@ -118,15 +121,19 @@ export function UserProvider({ children }: UserProviderProps) {
             return !oldAcc || 
               oldAcc.email !== newAcc.email || 
               oldAcc.name !== newAcc.name || 
-              oldAcc.is_primary !== newAcc.is_primary;
+              oldAcc.is_primary !== newAcc.is_primary; // Include is_primary in comparison
           });
-
+          console.log('[UserContext] setAccounts: Significant change detected:', hasSignificantChange);
           return hasSignificantChange ? accountsData : prevAccounts;
         });
 
         // Handle active account
         setActiveAccount(prevActive => {
+          console.log('[UserContext] setActiveAccount (callback): Current prevActive:', prevActive);
+          console.log('[UserContext] setActiveAccount (callback): accountsData:', accountsData);
+
           if (accountsData.length === 0) {
+            console.log('[UserContext] setActiveAccount: No accounts data, setting to null.');
             return null;
           }
 
@@ -135,6 +142,7 @@ export function UserProvider({ children }: UserProviderProps) {
             accountsData.some(acc => acc.id === prevActive.id);
           
           if (currentAccountExists) {
+            console.log('[UserContext] setActiveAccount: Previous active account still exists.', prevActive);
             return prevActive;
           }
 
@@ -144,18 +152,21 @@ export function UserProvider({ children }: UserProviderProps) {
             return new Date(b.last_used_at || 0).getTime() - new Date(a.last_used_at || 0).getTime();
           });
           
-          return primary || sorted[0] || null;
+          const chosenAccount = primary || sorted[0] || null;
+          console.log('[UserContext] setActiveAccount: Chosen account:', chosenAccount);
+          return chosenAccount;
         });
       } else {
-        console.error('Failed to fetch accounts:', data.error);
+        console.error('[UserContext] Failed to fetch accounts API error:', data.error);
         setError(data.error || 'Failed to fetch accounts');
       }
     } catch (error) {
-      console.error('Error fetching accounts:', error);
+      console.error('[UserContext] Error fetching accounts (catch block):', error);
       const message = error instanceof Error ? error.message : 'Error fetching accounts';
       setError(message);
     } finally {
       setLoading(false);
+      console.log('[UserContext] fetchAccounts: Loading set to false.');
     }
   }, [session?.user?.email, status]);
 
@@ -218,34 +229,6 @@ export function UserProvider({ children }: UserProviderProps) {
     }
   }, [accounts]);
 
-  // Set an account as primary
-  const setPrimaryAccount = async (accountId: string): Promise<boolean> => {
-    try {
-      const response = await fetch(`/api/accounts/${accountId}/primary`, {
-        method: 'PATCH'
-      });
-      
-      if (!response.ok) {
-        const data: { error: string } = await response.json();
-        throw new Error(data.error || 'Failed to set primary account');
-      }
-      
-      // Update local state
-      setAccounts(accounts.map(account => ({
-        ...account,
-        is_primary: account.id === accountId
-      })));
-      
-      toast.success('Primary account updated');
-      return true;
-    } catch (error) {
-      console.error('Error setting primary account:', error);
-      const message = error instanceof Error ? error.message : 'Failed to set primary account';
-      toast.error(message);
-      return false;
-    }
-  };
-
   // Remove an account
   const removeAccount = async (accountId: string): Promise<boolean> => {
     try {
@@ -294,44 +277,60 @@ export function UserProvider({ children }: UserProviderProps) {
   // Initialize active account from localStorage
   useEffect(() => {
     const initializeActiveAccount = () => {
-      if (loading || !accounts.length) return;
+      console.log('[UserContext] initializeActiveAccount: Running.');
+      console.log('[UserContext] initializeActiveAccount: Accounts length:', accounts.length);
+
+      if (loading || !accounts.length) {
+        console.log('[UserContext] initializeActiveAccount: Still loading or no accounts, returning.');
+        return;
+      }
 
       const savedAccountId = localStorage.getItem('activeAccountId');
+      console.log('[UserContext] initializeActiveAccount: Saved account ID from localStorage:', savedAccountId);
+
       if (savedAccountId) {
         const savedAccount = accounts.find(acc => acc.id === savedAccountId);
         if (savedAccount) {
           setActiveAccount(savedAccount);
+          console.log('[UserContext] initializeActiveAccount: Set active account from localStorage:', savedAccount);
           return;
         }
       }
 
       // Fallback to primary account or first account
       const primaryAccount = accounts.find(acc => acc.is_primary);
-      setActiveAccount(primaryAccount || accounts[0]);
-      if (primaryAccount) {
-        localStorage.setItem('activeAccountId', primaryAccount.id);
+      const fallbackAccount = primaryAccount || accounts[0];
+      setActiveAccount(fallbackAccount);
+      console.log('[UserContext] initializeActiveAccount: Set fallback active account:', fallbackAccount);
+
+      if (fallbackAccount) {
+        localStorage.setItem('activeAccountId', fallbackAccount.id);
+        console.log('[UserContext] initializeActiveAccount: Saved fallback account to localStorage:', fallbackAccount.id);
       }
     };
 
     initializeActiveAccount();
-  }, [accounts, loading]);
+  }, [accounts, loading]); // Add accounts and loading to dependencies
 
   // Load initial data when session changes
   useEffect(() => {
+    console.log('[UserContext] Initial data load useEffect triggered. Status:', status);
     if (status === 'loading') {
       setLoading(true);
       return;
     }
 
     if (status === 'authenticated' && session?.user?.email) {
+      console.log('[UserContext] Initial data load: Authenticated. Fetching user and accounts.');
       Promise.all([
         fetchUserData(),
         fetchAccounts()
       ]).catch(error => {
-        console.error('Error loading initial data:', error);
+        console.error('[UserContext] Error loading initial data:', error);
         toast.error('Failed to load user data');
       });
     } else if (status === 'unauthenticated') {
+      console.log('[UserContext] Initial data load: Unauthenticated. Resetting state.');
       setUser(null);
       setAccounts([]);
       setActiveAccount(null);
@@ -344,6 +343,7 @@ export function UserProvider({ children }: UserProviderProps) {
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search);
       if (urlParams.has('addingFor') && status === 'authenticated') {
+        console.log('[UserContext] addingFor param detected, refreshing accounts.');
         const newUrl = window.location.pathname;
         window.history.replaceState({}, '', newUrl);
         
@@ -369,13 +369,17 @@ export function UserProvider({ children }: UserProviderProps) {
     // Account actions
     refreshAccounts: fetchAccounts,
     setActiveAccount: useCallback((account: Account | null) => {
+      console.log('[UserContext] Manual setActiveAccount call:', account);
       setActiveAccount(account);
       if (account) {
         localStorage.setItem('activeAccountId', account.id);
+        console.log('[UserContext] Manual setActiveAccount: Saved to localStorage:', account.id);
+      } else {
+        localStorage.removeItem('activeAccountId');
+        console.log('[UserContext] Manual setActiveAccount: Removed from localStorage.');
       }
     }, []),
     switchAccount,
-    setPrimaryAccount,
     removeAccount
   };
 
@@ -391,9 +395,8 @@ export function UserProvider({ children }: UserProviderProps) {
       refreshAccounts: fetchAccounts,
       setActiveAccount,
       switchAccount,
-      setPrimaryAccount,
       removeAccount,
-    }), [user, accounts, activeAccount, loading, error, fetchUserData, updateUserData, fetchAccounts, setActiveAccount, switchAccount, setPrimaryAccount, removeAccount])}>
+    }), [user, accounts, activeAccount, loading, error, fetchUserData, updateUserData, fetchAccounts, setActiveAccount, switchAccount, removeAccount])}>
       {children}
     </UserContext.Provider>
   );

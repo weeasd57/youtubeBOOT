@@ -319,11 +319,47 @@ export async function getValidAccessToken(authUserId, accountId) {
     const refreshPromise = (async () => {
       try {
         // Fetch token data from the database
-        const { data: tokenData, error } = await supabase
+        // First try to find by account_id, then by user_email if account_id doesn't work
+        let tokenData = null;
+        let error = null;
+        
+        // Try to find by account_id first
+        const { data: tokenByAccountId, error: accountError } = await supabase
           .from('user_tokens')
-          .select('id, account_id, access_token, refresh_token, expires_at')
-          .or(`account_id.eq.${effectiveAccountId},id.eq.${effectiveAccountId}`)
+          .select('id, account_id, user_email, access_token, refresh_token, expires_at')
+          .eq('account_id', effectiveAccountId)
           .maybeSingle();
+          
+        if (accountError && accountError.code !== 'PGRST116') {
+          error = accountError;
+        } else if (tokenByAccountId) {
+          tokenData = tokenByAccountId;
+        } else {
+          // If not found by account_id, try to find by auth_user_id
+          // Get the account email first
+          const { data: accountData, error: accountFetchError } = await supabase
+            .from('accounts')
+            .select('email')
+            .eq('id', effectiveAccountId)
+            .maybeSingle();
+            
+          if (accountFetchError) {
+            error = accountFetchError;
+          } else if (accountData) {
+            // Try to find token by user email
+            const { data: tokenByEmail, error: emailError } = await supabase
+              .from('user_tokens')
+              .select('id, account_id, user_email, access_token, refresh_token, expires_at')
+              .eq('user_email', accountData.email)
+              .maybeSingle();
+              
+            if (emailError && emailError.code !== 'PGRST116') {
+              error = emailError;
+            } else {
+              tokenData = tokenByEmail;
+            }
+          }
+        }
 
         if (error || !tokenData) {
           if (!tokenData) {

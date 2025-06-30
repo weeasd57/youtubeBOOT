@@ -8,11 +8,11 @@ const MultiChannelContext = createContext();
 
 // Add a client-side cache for channel info
 const channelInfoCache = new Map(); // Key: accountId, Value: {data, timestamp}
-const CHANNEL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache TTL
+const CHANNEL_CACHE_TTL = 10 * 60 * 1000; // 10 minutes cache TTL (increased from 5)
 
 // Add a log throttling mechanism with less frequent logging
 const logTimestamps = new Map();
-const LOG_THROTTLE_MS = 60000; // Increase throttle time to 1 minute per account (from 10 seconds)
+const LOG_THROTTLE_MS = 120000; // 2 minutes throttle time (increased from 1 minute)
 const LOG_DEBUG = false; // Set to false to disable non-essential logs
 
 // Helper function to throttled and conditional logging
@@ -105,6 +105,7 @@ export function MultiChannelProvider({ children }) {
         );
         
         throttledLog(`Channel info response for account ${accountId}:`, data, true);
+        console.log(`[MultiChannelContext] Full channelInfo object for ${accountId}:`, data.channelInfo);
         
         // Check if we got an HTML response (authentication issue)
         if (data.isHtmlResponse) {
@@ -122,13 +123,32 @@ export function MultiChannelProvider({ children }) {
         });
         
         if (data.success && data.channelInfo) {
+          // Restructure channelInfo to match YouTube API response format expected by ChannelCard
+          const transformedChannelInfo = {
+            id: data.channelInfo.channelId, // Map channelId to id
+            snippet: {
+              title: data.channelInfo.channelTitle,
+              description: data.channelInfo.description || '',
+              customUrl: data.channelInfo.customUrl,
+              publishedAt: data.channelInfo.publishedAt,
+              thumbnails: {
+                default: { url: data.channelInfo.thumbnailUrl || '', width: 88, height: 88 },
+                medium: { url: data.channelInfo.thumbnailUrl || '', width: 240, height: 240 },
+                high: { url: data.channelInfo.thumbnailUrl || '', width: 800, height: 800 },
+              },
+            },
+            statistics: {
+              viewCount: data.channelInfo.viewCount || '0',
+              subscriberCount: data.channelInfo.subscriberCount || '0',
+              videoCount: data.channelInfo.videoCount || '0',
+            },
+            status: data.status, // Add status directly to the top level for StatusIndicator
+            lastUpdated: new Date().toISOString(),
+          };
+
           setChannelsInfo(prev => ({ 
             ...prev, 
-            [accountId]: {
-              ...data.channelInfo,
-              status: data.status,
-              lastUpdated: new Date().toISOString()
-            }
+            [accountId]: transformedChannelInfo // Use the transformed object
           }));
         } else {
           // Clear existing data if the request was successful but returned no channel info
@@ -150,12 +170,34 @@ export function MultiChannelProvider({ children }) {
         // Handle authentication errors specially
         if (isAuthenticationError(error)) {
           console.log('[MultiChannel] Authentication error detected, handling...');
+          
+          // Check if it's a token-related error
+          const isTokenError = error.message?.includes('token') || 
+                              error.message?.includes('credentials') ||
+                              error.message?.includes('access_token') ||
+                              error.message?.includes('refresh');
+          
+          const errorMessage = isTokenError 
+            ? 'Your YouTube access has expired. Please reconnect your account.'
+            : 'Authentication required. Please sign in again.';
+          
           setErrors(prev => ({ 
             ...prev, 
-            [accountId]: 'Authentication required. Please sign in again.' 
+            [accountId]: errorMessage
           }));
           
-          // Try to handle auth error with retry
+          // For token errors, don't try to handle auth error (which would sign out)
+          // Instead, just return the error for the user to reconnect
+          if (isTokenError) {
+            return { 
+              success: false, 
+              error: errorMessage, 
+              authError: true,
+              needsReconnect: true 
+            };
+          }
+          
+          // For other auth errors, try to handle with retry
           try {
             await handleAuthError(error, async () => {
               // Retry the fetch after auth is fixed

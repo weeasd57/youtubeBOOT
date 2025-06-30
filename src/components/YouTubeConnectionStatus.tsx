@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { FaSync } from 'react-icons/fa';
-import { useAccounts } from '@/contexts/AccountContext';
+import { useAccounts } from '@/contexts/AccountContext.tsx';
 import { useMultiChannel } from '@/contexts/MultiChannelContext';
 
 // Component to show YouTube connection status for the active account

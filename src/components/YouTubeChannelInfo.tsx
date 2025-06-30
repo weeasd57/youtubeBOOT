@@ -3,8 +3,10 @@
 import { useEffect, useState, useMemo } from 'react';
 import { FaYoutube, FaUsers, FaVideo, FaEye, FaSync, FaExclamationTriangle, FaCheckCircle, FaTimesCircle } from 'react-icons/fa';
 import Image from 'next/image';
-import { useAccounts } from '@/contexts/AccountContext';
+import { useAccounts } from '@/contexts/AccountContext.tsx';
 import { useMultiChannel } from '@/contexts/MultiChannelContext';
+import YouTubeAuthErrorBanner from './YouTubeAuthErrorBanner';
+import Link from 'next/link';
 
 // Helper function to format numbers
 const formatNumber = (num) => {
@@ -66,32 +68,32 @@ const ChannelCard = ({ account, channelInfo, loading, error, onRefresh }) => {
   const hasChannelInfo = channelInfo && channelInfo.snippet;
   
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md transition-shadow">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-lg border border-gray-100 dark:border-gray-800 p-6 flex flex-col h-full">
       {/* Header with account info and status */}
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
           {account.image ? (
-            <div className="w-8 h-8 rounded-full overflow-hidden">
+            <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0">
               <Image 
                 src={account.image} 
                 alt={account.name || 'Account'}
-                width={32}
-                height={32}
+                width={40}
+                height={40}
                 className="w-full h-full object-cover" 
               />
             </div>
           ) : (
-            <div className="w-8 h-8 rounded-full bg-gray-500 text-white flex items-center justify-center">
-              <span className="text-sm font-bold">
+            <div className="w-10 h-10 rounded-full bg-blue-500 text-white flex items-center justify-center flex-shrink-0">
+              <span className="text-lg font-bold">
                 {account.name ? account.name.charAt(0).toUpperCase() : 'A'}
               </span>
             </div>
           )}
-          <div>
-            <h3 className="font-medium text-gray-900 dark:text-white text-sm">
+          <div className="flex-1 min-w-0">
+            <h3 className="font-semibold text-gray-900 dark:text-white text-base truncate">
               {account.name || 'Google Account'}
             </h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
               {account.email || 'No email available'}
             </p>
           </div>
@@ -100,51 +102,75 @@ const ChannelCard = ({ account, channelInfo, loading, error, onRefresh }) => {
         <button
           onClick={() => onRefresh(account.id)}
           disabled={loading}
-          className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+          className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 flex-shrink-0"
           title="Refresh channel info"
         >
-          <FaSync className={loading ? 'animate-spin' : ''} size={14} />
+          <FaSync className={loading ? 'animate-spin' : ''} size={16} />
         </button>
       </div>
 
       {/* Status indicator */}
-      <div className="mb-3">
+      <div className="mb-4">
         {loading ? (
-          <StatusIndicator status="loading" />
+          <StatusIndicator status="loading" message={null} />
         ) : error ? (
-          <StatusIndicator status="error" message={error} />
+          <>
+            <StatusIndicator status="error" message={error} />
+            <YouTubeAuthErrorBanner
+              accountId={account.id}
+              message={error}
+              needsReconnect={channelInfo?.status === 'reauthenticate_required'}
+              onRetry={onRefresh}
+            />
+          </>
         ) : channelInfo?.status === 'reauthenticate_required' ? (
-          <StatusIndicator status="reauthenticate_required" message={channelInfo.message} />
+          <>
+            <StatusIndicator status="reauthenticate_required" message={channelInfo.message} />
+            <YouTubeAuthErrorBanner
+              accountId={account.id}
+              message={channelInfo.message}
+              needsReconnect={true}
+              onRetry={onRefresh}
+            />
+          </>
         ) : hasChannelInfo ? (
-          <StatusIndicator status="connected" />
+          <StatusIndicator status="connected" message={null} />
         ) : (
-          <StatusIndicator status="error" message="No channel data" />
+          <>
+            <StatusIndicator status="error" message="No channel data" />
+            <YouTubeAuthErrorBanner
+              accountId={account.id}
+              message="No channel data or initial connection error. Please try reconnecting."
+              needsReconnect={true}
+              onRetry={onRefresh}
+            />
+          </>
         )}
       </div>
 
       {/* Channel information */}
       {hasChannelInfo && (
-        <div className="space-y-3">
+        <div className="space-y-4 flex-grow">
           {/* Channel header */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
             {channelInfo.snippet.thumbnails?.default?.url && (
-              <div className="w-12 h-12 rounded-full overflow-hidden">
+              <div className="w-16 h-16 rounded-full overflow-hidden flex-shrink-0">
                 <Image
                   src={channelInfo.snippet.thumbnails.default.url}
                   alt={channelInfo.snippet.title}
-                  width={48}
-                  height={48}
+                  width={64}
+                  height={64}
                   className="w-full h-full object-cover"
                 />
               </div>
             )}
-            <div className="flex-1">
-              <h4 className="font-medium text-gray-900 dark:text-white flex items-center gap-2">
-                <FaYoutube className="text-red-600" size={16} />
+            <div className="flex-1 min-w-0">
+              <h4 className="font-bold text-gray-900 dark:text-white text-lg flex items-center gap-2 mb-1 truncate">
+                <FaYoutube className="text-red-600" size={20} />
                 {channelInfo.snippet.title}
               </h4>
               {channelInfo.snippet.customUrl && (
-                <p className="text-xs text-gray-500 dark:text-gray-400">
+                <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
                   youtube.com/{channelInfo.snippet.customUrl}
                 </p>
               )}
@@ -153,33 +179,33 @@ const ChannelCard = ({ account, channelInfo, loading, error, onRefresh }) => {
 
           {/* Channel statistics */}
           {channelInfo.statistics && (
-            <div className="grid grid-cols-3 gap-3 text-center">
-              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-2">
-                <div className="flex items-center justify-center gap-1 text-gray-600 dark:text-gray-400 mb-1">
-                  <FaUsers size={12} />
-                  <span className="text-xs">Subscribers</span>
+            <div className="grid grid-cols-3 gap-4 text-center border-t border-b border-gray-100 dark:border-gray-800 py-3">
+              <div className="flex flex-col items-center">
+                <div className="flex items-center gap-1 text-gray-600 dark:text-gray-400 mb-1">
+                  <FaUsers size={14} />
+                  <span className="text-xs font-medium">Subscribers</span>
                 </div>
-                <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                <p className="text-base font-bold text-gray-900 dark:text-white">
                   {formatNumber(channelInfo.statistics.subscriberCount)}
                 </p>
               </div>
               
-              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-2">
-                <div className="flex items-center justify-center gap-1 text-gray-600 dark:text-gray-400 mb-1">
-                  <FaVideo size={12} />
-                  <span className="text-xs">Videos</span>
+              <div className="flex flex-col items-center">
+                <div className="flex items-center gap-1 text-gray-600 dark:text-gray-400 mb-1">
+                  <FaVideo size={14} />
+                  <span className="text-xs font-medium">Videos</span>
                 </div>
-                <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                <p className="text-base font-bold text-gray-900 dark:text-white">
                   {formatNumber(channelInfo.statistics.videoCount)}
                 </p>
               </div>
               
-              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-2">
-                <div className="flex items-center justify-center gap-1 text-gray-600 dark:text-gray-400 mb-1">
-                  <FaEye size={12} />
-                  <span className="text-xs">Views</span>
+              <div className="flex flex-col items-center">
+                <div className="flex items-center gap-1 text-gray-600 dark:text-gray-400 mb-1">
+                  <FaEye size={14} />
+                  <span className="text-xs font-medium">Views</span>
                 </div>
-                <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                <p className="text-base font-bold text-gray-900 dark:text-white">
                   {formatNumber(channelInfo.statistics.viewCount)}
                 </p>
               </div>
@@ -188,8 +214,8 @@ const ChannelCard = ({ account, channelInfo, loading, error, onRefresh }) => {
 
           {/* Channel description (truncated) */}
           {channelInfo.snippet.description && (
-            <div className="text-xs text-gray-600 dark:text-gray-400">
-              <p className="line-clamp-2">
+            <div className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
+              <p className="line-clamp-3">
                 {channelInfo.snippet.description}
               </p>
             </div>
@@ -198,19 +224,8 @@ const ChannelCard = ({ account, channelInfo, loading, error, onRefresh }) => {
       )}
 
       {/* Error state */}
-      {error && !loading && (
-        <div className="text-center py-4">
-          <FaExclamationTriangle className="text-red-500 mx-auto mb-2" size={24} />
-          <p className="text-sm text-red-600 dark:text-red-400 mb-2">
-            Failed to load channel information
-          </p>
-          <button
-            onClick={() => onRefresh(account.id)}
-            className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-          >
-            Try again
-          </button>
-        </div>
+      {error && !loading && channelInfo?.status !== 'reauthenticate_required' && (
+        null // Render nothing here as banner handles it
       )}
     </div>
   );
@@ -218,7 +233,7 @@ const ChannelCard = ({ account, channelInfo, loading, error, onRefresh }) => {
 
 // Main component
 export default function YouTubeChannelInfo() {
-  const { accounts, loading: accountsLoading } = useAccounts();
+  const { accounts = [], loading: accountsLoading } = useAccounts();
   const { 
     channelsInfo, 
     loadingChannels, 
@@ -227,17 +242,28 @@ export default function YouTubeChannelInfo() {
     refreshAllChannels 
   } = useMultiChannel();
 
+  const [activeTab, setActiveTab] = useState<string | null>(null);
+
   // Memoized channel data for performance
   const channelData = useMemo(() => {
-    if (!accounts?.length) return [];
+    if (accounts.length === 0) {
+      return [];
+    }
     
-    return accounts.map(account => ({
+    const data = accounts.map(account => ({
       account,
       channelInfo: channelsInfo[account.id],
       loading: loadingChannels[account.id] || false,
       error: errors[account.id] || null
     }));
-  }, [accounts, channelsInfo, loadingChannels, errors]);
+
+    // Set initial active tab if not already set
+    if (activeTab === null && data.length > 0) {
+      setActiveTab(data[0].account.id);
+    }
+
+    return data;
+  }, [accounts, channelsInfo, loadingChannels, errors, activeTab]);
 
   const handleRefresh = (accountId) => {
     refreshChannel(accountId, true);
@@ -258,51 +284,67 @@ export default function YouTubeChannelInfo() {
     );
   }
 
-  if (!accounts?.length) {
-    return (
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6 text-center">
-        <FaYoutube className="text-gray-400 mx-auto mb-3" size={32} />
-        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-          No YouTube Channels
-        </h3>
-        <p className="text-gray-600 dark:text-gray-400 mb-4">
-          Connect your Google accounts to see your YouTube channel information.
-        </p>
-      </div>
-    );
-  }
+  const currentChannelData = activeTab ? channelData.find(d => d.account.id === activeTab) : null;
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-          <FaYoutube className="text-red-600" />
-          YouTube Channels
+    <div className="bg-white dark:bg-gray-950 p-4 sm:p-6 md:p-8 rounded-xl shadow-lg border border-gray-100 dark:border-gray-800 space-y-6">
+      {/* Section Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
+          <FaYoutube className="text-red-600" /> YouTube Channels
         </h2>
         <button
           onClick={handleRefreshAll}
-          disabled={Object.values(loadingChannels).some(loading => loading)}
-          className="flex items-center gap-2 px-3 py-1 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+          disabled={accountsLoading || Object.values(loadingChannels).some(Boolean)}
+          className="px-5 py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 text-base md:text-lg shadow-md"
         >
-          <FaSync className={Object.values(loadingChannels).some(loading => loading) ? 'animate-spin' : ''} size={14} />
+          <FaSync className={accountsLoading || Object.values(loadingChannels).some(Boolean) ? 'animate-spin' : ''} size={18} />
           Refresh All
         </button>
       </div>
 
-      {/* Channel cards grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {channelData.map(({ account, channelInfo, loading, error }) => (
-          <ChannelCard
-            key={account.id}
-            account={account}
-            channelInfo={channelInfo}
-            loading={loading}
-            error={error}
-            onRefresh={handleRefresh}
-          />
-        ))}
-      </div>
+      {accounts.length === 0 ? (
+        <div className="text-center py-10 bg-gray-50 dark:bg-gray-900 rounded-lg p-6">
+          <p className="text-gray-600 dark:text-gray-400 text-lg mb-4">No YouTube accounts connected.</p>
+          <p className="text-gray-500 dark:text-gray-500 text-sm">Connect an account to manage your YouTube channels.</p>
+          <Link href="/accounts" className="mt-6 inline-flex items-center px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors shadow-md">
+            <FaYoutube className="mr-2" /> Add YouTube Account
+          </Link>
+        </div>
+      ) : (
+        <>
+          {/* Tabs for channels */}
+          <div className="flex flex-wrap gap-2 mb-4 border-b border-gray-200 dark:border-gray-700">
+            {channelData.map((data) => (
+              <button
+                key={data.account.id}
+                onClick={() => setActiveTab(data.account.id)}
+                className={`py-2 px-4 text-sm font-medium rounded-t-lg transition-colors duration-200
+                  ${activeTab === data.account.id
+                    ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400'
+                    : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+                  }`}
+              >
+                {data.account.name || 'Unknown Channel'}
+              </button>
+            ))}
+          </div>
+
+          {/* Display current active channel */}
+          {currentChannelData && (
+            <div className="mt-4">
+              <ChannelCard
+                key={currentChannelData.account.id}
+                account={currentChannelData.account}
+                channelInfo={currentChannelData.channelInfo}
+                loading={currentChannelData.loading}
+                error={currentChannelData.error}
+                onRefresh={handleRefresh}
+              />
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

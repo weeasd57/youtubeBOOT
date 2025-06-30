@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useSession, signIn } from 'next-auth/react';
-import { useAccounts } from '@/contexts/AccountContext';
+import { useAccounts } from '@/contexts/AccountContext.tsx';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { FaSignOutAlt, FaPlus, FaCheck, FaStar, FaTrash, FaUser, FaSync, FaArrowLeft } from 'react-icons/fa';
 import Link from 'next/link';
@@ -244,7 +244,7 @@ export default function AccountsPage() {
             </div>
             
             <div className="divide-y divide-gray-200 dark:divide-gray-700">
-              {accounts.length === 0 ? (
+              {!accounts || accounts.length === 0 ? (
                 <div className="p-6 text-center text-gray-500 dark:text-gray-400">
                   No accounts connected yet. Add your first Google account to get started.
                 </div>
@@ -318,7 +318,7 @@ export default function AccountsPage() {
           </div>
           
           <div className="flex justify-center gap-4">
-            {accounts.some(acc => !acc.email) && (
+            {accounts && accounts.some(acc => !acc.email) && (
               <button
                 onClick={handleFixMissingData}
                 disabled={fixingData}

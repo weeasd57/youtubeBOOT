@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useAccounts } from '@/contexts/AccountContext';
+import { useAccounts } from '@/contexts/AccountContext.tsx';
 import { useSession, signIn, signOut } from 'next-auth/react';
 import { FaSignOutAlt, FaPlus, FaCheck, FaStar, FaTrash, FaUser, FaSync } from 'react-icons/fa';
 import Image from 'next/image';
@@ -15,7 +15,6 @@ export default function AccountSwitcher() {
     activeAccount, 
     loading, 
     switchAccount, 
-    setPrimaryAccount, 
     removeAccount 
   } = useAccounts();
   
@@ -88,11 +87,6 @@ export default function AccountSwitcher() {
   const handleSwitchAccount = async (accountId) => {
     await switchAccount(accountId);
     setIsOpen(false);
-  };
-
-  const handleSetPrimary = async (e, accountId) => {
-    e.stopPropagation();
-    await setPrimaryAccount(accountId);
   };
 
   const handleRemoveAccount = async (e, accountId) => {
@@ -182,11 +176,6 @@ export default function AccountSwitcher() {
                   <div>
                     <div className="text-sm font-medium">
                       {account.name}
-                      {account.is_primary && (
-                        <span className="ml-1 text-yellow-500">
-                          <FaStar className="inline-block w-3 h-3" />
-                        </span>
-                      )}
                     </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                       {account.email}
@@ -199,28 +188,17 @@ export default function AccountSwitcher() {
                       <FaCheck className="w-4 h-4" />
                     </span>
                   )}
-                  {!account.is_primary && (
-                    <button
-                      onClick={(e) => handleSetPrimary(e, account.id)}
-                      className="text-yellow-500 hover:text-yellow-700 p-1"
-                      title="Set as primary account"
-                    >
-                      <FaStar className="w-4 h-4" />
-                    </button>
-                  )}
-                  {!account.is_primary && (
-                    <button
-                      onClick={(e) => handleRemoveAccount(e, account.id)}
-                      className={`${
-                        confirmingRemove === account.id
-                          ? 'text-red-600 hover:text-red-800'
-                          : 'text-gray-500 hover:text-gray-700'
-                      } p-1`}
-                      title={confirmingRemove === account.id ? "Click again to confirm" : "Remove account"}
-                    >
-                      <FaTrash className="w-4 h-4" />
-                    </button>
-                  )}
+                  <button
+                    onClick={(e) => handleRemoveAccount(e, account.id)}
+                    className={`${
+                      confirmingRemove === account.id
+                        ? 'text-red-600 hover:text-red-800'
+                        : 'text-gray-500 hover:text-gray-700'
+                    } p-1`}
+                    title={confirmingRemove === account.id ? "Click again to confirm" : "Remove account"}
+                  >
+                    <FaTrash className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
             ))}
