@@ -10,8 +10,6 @@ interface AccountContextType {
   loading: boolean;
   error: string | null;
   refreshAccounts: () => void;
-  activeAccount: Account | null;
-  switchAccount: (accountId: string) => Promise<void>;
 }
 
 const AccountContext = createContext<AccountContextType | null>(null);
@@ -23,7 +21,6 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeAccount, setActiveAccount] = useState<Account | null>(null);
   const isInitialMount = useRef(true);
   
   // Function to fetch accounts
@@ -60,13 +57,6 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
       if (response.ok) {
             setAccounts(data.accounts || []);
             console.log('[AccountContext] Accounts set in state:', data.accounts || []);
-            
-            // Set the first account as active if no active account is set and there are accounts
-            if (data.accounts && data.accounts.length > 0 && !activeAccount) {
-              setActiveAccount(data.accounts[0]);
-              console.log('[AccountContext] Initial active account set:', data.accounts[0].id);
-            }
-
       } else {
         setError(`Failed to fetch accounts: ${data.error || 'Unknown error'}`);
         console.error('[AccountContext] Failed to fetch accounts error:', data.error || 'Unknown error');
@@ -77,21 +67,7 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
     } finally {
             setLoading(false);
     }
-  }, [activeAccount]); // Depend on activeAccount to re-run if it changes after initial load
-
-  // Function to switch active account
-  const switchAccount = useCallback(async (accountId: string) => {
-    const accountToSwitch = accounts.find(acc => acc.id === accountId);
-    if (accountToSwitch) {
-      setActiveAccount(accountToSwitch);
-      console.log('[AccountContext] Switched active account to:', accountToSwitch.id);
-      // Optionally, update last_used_at in Supabase for this account
-      // This requires supabaseAdmin import and a call to update the 'accounts' table
-      // For now, we'll just update the local state
-    } else {
-      console.warn('[AccountContext] Attempted to switch to non-existent account:', accountId);
-    }
-  }, [accounts]);
+  }, []);
 
   // Expose a refresh function
   const refreshAccounts = useCallback(() => {
@@ -111,7 +87,6 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
       setAccounts([]);
       setLoading(false);
       setError(null);
-      setActiveAccount(null); // Clear active account on unauthentication
     }
   }, [status, session?.user?.auth_user_id, fetchAccounts]);
 
@@ -123,10 +98,8 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
       loading,
       error,
       refreshAccounts,
-      activeAccount,
-      switchAccount,
     };
-  }, [accounts, loading, error, refreshAccounts, activeAccount, switchAccount]);
+  }, [accounts, loading, error, refreshAccounts]);
 
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;
 }

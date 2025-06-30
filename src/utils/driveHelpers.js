@@ -9,6 +9,8 @@ import { getStorageItem, setStorageItem } from './localStorage';
  * @param {Function} options.setFoldersState - Function to set folders state
  * @param {Function} options.onFolderCheck - Callback to check folder validity after fetching
  * @param {string} options.accountId - Account ID to use for fetching folders
+ * @param {Function} options.onError - Callback for error handling
+ * @param {Function} options.onAuthError - Callback for authentication errors
  * @returns {Promise<Object>} Result object with success flag and folders or error
  */
 export async function fetchDriveFoldersWithCache(options = {}) {
@@ -17,7 +19,9 @@ export async function fetchDriveFoldersWithCache(options = {}) {
     setLoadingState = null,
     setFoldersState = null,
     onFolderCheck = null,
-    accountId = null
+    accountId = null,
+    onError = null,
+    onAuthError = null,
   } = options;
   
   const cacheKeyPrefix = accountId ? `drive-folders-${accountId}` : 'driveFolders';
@@ -300,14 +304,29 @@ export async function fetchAccountDriveFolders({ forceRefresh = false, accountId
 /**
  * Fetches drive files for an account with caching support
  * 
- * @param {Object} param - Configuration options
- * @param {boolean} param.forceRefresh - Whether to bypass cache and force a refresh
- * @param {string} param.accountId - Account ID to fetch files for
- * @param {string} param.folderId - Optional folder ID to filter by
+ * @param {Object} options - Configuration options
+ * @param {boolean} options.forceRefresh - Whether to bypass cache and force a refresh
+ * @param {string} options.accountId - Account ID to fetch files for
+ * @param {string} options.folderId - Optional folder ID to filter by
+ * @param {Function} options.setLoadingState - Function to set loading state
+ * @param {Function} options.setFilesState - Function to set files state
+ * @param {Function} options.onFileCheck - Callback for progress monitoring
+ * @param {Function} options.onError - Callback for error handling
+ * @param {Function} options.onAuthError - Callback for authentication errors
  * @returns {Promise<Object>} - Result object with files or error
  */
-export async function fetchDriveFilesWithCache(param) {
-  let { forceRefresh = false, accountId, folderId = null } = param;
+export async function fetchDriveFilesWithCache(options = {}) {
+  const {
+    forceRefresh = false,
+    accountId,
+    folderId = null,
+    setLoadingState = null,
+    setFilesState = null,
+    onFileCheck = null,
+    onError = null,
+    onAuthError = null,
+  } = options;
+
   if (!accountId) {
     console.error('Account ID is required to fetch drive files');
     return { success: false, error: 'Account ID is required' };

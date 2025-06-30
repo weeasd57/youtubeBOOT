@@ -33,7 +33,6 @@ interface MultiDriveContextType {
   errors: { [accountId: string]: string | null };
   refreshDriveInfo: (accountId: string, forceRefresh?: boolean) => Promise<any>;
   refreshDriveFiles: (accountId: string, forceRefresh?: boolean) => Promise<any>;
-  activeAccountDriveInfo: DriveInfo | null;
   driveFiles: any[];
   driveFolders: any[];
   loading: boolean;
@@ -50,8 +49,8 @@ export function MultiDriveProvider({ children }: { children: React.ReactNode }) 
   const [loadingDrives, setLoadingDrives] = useState<{ [accountId: string]: boolean }>({});
   const [errors, setErrors] = useState<{ [accountId: string]: string | null }>({});
   
-  // Get activeAccount from AccountContext
-  const { accounts, activeAccount, loading: accountsLoading } = useAccounts();
+  // Get accounts from AccountContext - activeAccount is no longer used
+  const { accounts, loading: accountsLoading } = useAccounts();
   const { data: session } = useSession();
   
   const accountsRef = useRef<Account[] | null>(null);
@@ -76,33 +75,46 @@ export function MultiDriveProvider({ children }: { children: React.ReactNode }) 
     loadingDrivesRef.current = loadingDrives;
   }, [loadingDrives]);
 
-  // Token refresh handling - ensure it uses the active account
-  const handleAuthError = useCallback(async () => {
+  // Token refresh handling - needs re-evaluation as activeAccount is removed
+  // For now, simplifying it to remove dependency on activeAccount
+  const handleAuthError = useCallback(async (accountId: string) => {
     try {
+      console.log(`[MultiDriveContext] handleAuthError triggered for account: ${accountId}`);
       const response = await fetch('/api/auth/session');
-      if (!response.ok) return false;
-
-      const sessionData = await response.json();
-      if (!sessionData?.user) return false;
-
-      const accountId = activeAccount?.id; // Use activeAccount.id here
-      if (!accountId) {
-        console.warn('[MultiDriveContext] No active account ID for auth error handling.');
+      if (!response.ok) {
+        console.warn('[MultiDriveContext] Session fetch failed during auth error handling.');
         return false;
       }
 
+      const sessionData = await response.json();
+      if (!sessionData?.user) {
+        console.warn('[MultiDriveContext] No user session during auth error handling.');
+        return false;
+      }
+
+      if (!accountId) {
+        console.warn('[MultiDriveContext] No accountId provided for auth error handling.');
+        return false;
+      }
+
+      console.log(`[MultiDriveContext] Attempting to refresh token for account: ${accountId}`);
       const tokenResponse = await fetch('/api/auth/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ accountId }),
       });
 
+      if (!tokenResponse.ok) {
+        const errorBody = await tokenResponse.text();
+        console.error(`[MultiDriveContext] Token refresh failed for ${accountId}: ${tokenResponse.status} - ${errorBody}`);
+      }
+
       return tokenResponse.ok;
     } catch (error: any) {
       console.error('[MultiDriveContext] Error in handleAuthError:', error);
       return false;
     }
-  }, [activeAccount]);
+  }, []); // Dependency on activeAccount removed
 
   // Data comparison utility
   const hasDataChanged = useCallback((oldData: any[], newData: any[], keys = ['id', 'name']) => {
@@ -152,8 +164,13 @@ export function MultiDriveProvider({ children }: { children: React.ReactNode }) 
           forceRefresh,
           accountId,
           onFolderCheck: () => {},
-          setLoadingState: () => {},
-          setFoldersState: () => {},
+          setLoadingState: (loading) => setLoadingDrives(prev => ({ ...prev, [accountId]: loading})),
+          setFoldersState: (folders) => setDrivesInfo(prev => ({ 
+            ...prev, 
+            [accountId]: { ...prev[accountId], folders, status: 'connected', lastUpdated: new Date().toISOString() }
+          })),
+          onError: (errorMessage) => setErrors(prev => ({ ...prev, [accountId]: errorMessage})),
+          onAuthError: () => handleAuthError(accountId) // Pass accountId to handleAuthError
         });
 
         if (!mounted.current) {
@@ -247,151 +264,188 @@ export function MultiDriveProvider({ children }: { children: React.ReactNode }) 
     }
 
     setLoadingDrives(prev => ({ ...prev, [accountId]: true }));
+    setErrors(prev => ({ ...prev, [accountId]: null })); // Clear error when fetching
 
-    try {
-      console.log(`[MultiDriveContext] fetchDriveFiles: Starting fetch for ${accountId}.`);
-      const result = await fetchDriveFilesWithCache({
-        forceRefresh,
-        accountId,
-        folderId: selectedFolder?.id || null,
-      });
+    const fetchPromise = (async () => {
+      try {
+        console.log(`[MultiDriveContext] fetchDriveFiles: Starting fetch for ${accountId}.`);
+        const result = await fetchDriveFilesWithCache({
+          forceRefresh,
+          accountId,
+          onFileCheck: () => {},
+          folderId: selectedFolder?.id || null,
+          setLoadingState: (loading) => setLoadingDrives(prev => ({ ...prev, [accountId]: loading})),
+          setFilesState: (files) => setDrivesInfo(prev => ({
+            ...prev,
+            [accountId]: { ...prev[accountId], files, status: 'connected', lastUpdated: new Date().toISOString() }
+          })),
+          onError: (errorMessage) => setErrors(prev => ({ ...prev, [accountId]: errorMessage})),
+          onAuthError: () => handleAuthError(accountId)
+        });
 
-      if (!mounted.current) {
-        console.log(`[MultiDriveContext] fetchDriveFiles: Component unmounted during fetch for ${accountId}.`);
-        return;
-      }
+        if (!mounted.current) {
+          console.log(`[MultiDriveContext] fetchDriveFiles: Component unmounted during fetch for ${accountId}.`);
+          return;
+        }
 
-      if (result.success) {
-        setDrivesInfo(prev => {
-          const currentAccountData = prev[accountId] || { folders: [], files: [], status: 'loading', lastUpdated: '' };
+        if (result.success) {
+          setDrivesInfo(prev => {
+            const currentAccountData = prev[accountId] || { folders: [], files: [], status: 'loading', lastUpdated: '' };
 
-          const oldFiles = Array.isArray(currentAccountData.files) ? currentAccountData.files : [];
-          const newFiles = result.files || [];
+            const oldFiles = Array.isArray(currentAccountData.files) ? currentAccountData.files : [];
+            const newFiles = result.files || [];
 
-          if (!hasDataChanged(oldFiles, newFiles)) {
-            console.log(`[MultiDriveContext] fetchDriveFiles: No file data change for ${accountId}.`);
-            return prev;
-          }
+            if (!hasDataChanged(oldFiles, newFiles)) {
+              console.log(`[MultiDriveContext] fetchDriveFiles: No file data change for ${accountId}.`);
+              return prev;
+            }
 
-          console.log(`[MultiDriveContext] fetchDriveFiles: Setting files for ${accountId}.`);
-          return {
+            console.log(`[MultiDriveContext] fetchDriveFiles: Setting files for ${accountId}.`);
+            return {
+              ...prev,
+              [accountId]: {
+                ...currentAccountData,
+                files: newFiles,
+                status: 'connected',
+                lastUpdated: new Date().toISOString(),
+              },
+            };
+          });
+        } else {
+          if (!mounted.current) return;
+
+          setDrivesInfo(prev => ({
             ...prev,
             [accountId]: {
-              ...currentAccountData,
-              files: newFiles,
-              status: 'connected',
+              ...prev[accountId],
+              folders: prev[accountId]?.folders || [], // Preserve existing folders
+              files: [],
+              status: 'no_data',
               lastUpdated: new Date().toISOString(),
             },
-          };
-        });
-      } else {
-        if (!mounted.current) return;
+          }));
 
-        setDrivesInfo(prev => ({
-          ...prev,
-          [accountId]: {
-            ...prev[accountId],
-            folders: prev[accountId]?.folders || [], // Preserve existing folders
-            files: [],
-            status: 'no_data',
-            lastUpdated: new Date().toISOString(),
-          },
-        }));
+          setErrors(prev => ({
+            ...prev,
+            [accountId]: result.error || 'Failed to fetch drive files',
+          }));
+          console.error(`[MultiDriveContext] fetchDriveFiles: Failed for ${accountId}:`, result.error);
+        }
+        return result;
+      } catch (error: any) {
+        if (!mounted.current) return;
 
         setErrors(prev => ({
           ...prev,
-          [accountId]: result.error || 'Failed to fetch drive files',
+          [accountId]: error.message || 'An unexpected error occurred',
         }));
-        console.error(`[MultiDriveContext] fetchDriveFiles: Failed for ${accountId}:`, result.error);
+        console.error(`[MultiDriveContext] fetchDriveFiles: Caught error for ${accountId}:`, error);
+        throw error;
+      } finally {
+        if (mounted.current) {
+          setLoadingDrives(prev => ({ ...prev, [accountId]: false }));
+        }
+        pendingFetches.current.delete(`${accountId}_files`);
+        lastFetchTimes.current.set(`${accountId}_files`, Date.now());
+        console.log(`[MultiDriveContext] fetchDriveFiles: Finished for ${accountId}.`);
       }
-      return result;
-    } catch (error: any) {
-      if (!mounted.current) return;
+    })();
 
-      setErrors(prev => ({
-        ...prev,
-        [accountId]: error.message || 'An unexpected error occurred',
-      }));
-      console.error(`[MultiDriveContext] fetchDriveFiles: Caught error for ${accountId}:`, error);
-      throw error;
-    } finally {
-      if (mounted.current) {
-        setLoadingDrives(prev => ({ ...prev, [accountId]: false }));
-      }
-      pendingFetches.current.delete(`${accountId}_files`);
-      lastFetchTimes.current.set(`${accountId}_files`, Date.now());
-      console.log(`[MultiDriveContext] fetchDriveFiles: Finished for ${accountId}.`);
+    pendingFetches.current.set(`${accountId}_files`, fetchPromise);
+    return fetchPromise;
+  }, [loadingDrives, hasDataChanged, selectedFolder, handleAuthError]);
+
+  // Expose a refresh function
+  const refreshAllDrives = useCallback((forceRefresh = false) => {
+    if (session?.user?.auth_user_id) {
+      // Iterate over all accounts and refresh their drive info
+      accounts.forEach(account => {
+        fetchDriveInfo(account.id, forceRefresh);
+        fetchDriveFiles(account.id, forceRefresh);
+      });
     }
-  }, [loadingDrives, hasDataChanged, selectedFolder]);
+  }, [session?.user?.auth_user_id, accounts, fetchDriveInfo, fetchDriveFiles]);
 
-  // Refresh all drive info for a user
-  const refreshAllDrives = useCallback(async (forceRefresh = false) => {
+  // New useEffect to fetch drive info for all accounts
+  useEffect(() => {
     if (accountsLoading) {
-      console.log('[MultiDriveContext] refreshAllDrives: Accounts still loading, skipping.');
+      console.log('[MultiDriveContext] Accounts still loading, deferring drive info fetch.');
       return;
     }
 
-    // Filter out accounts that are already loading or don't have an active token
-    const accountsToRefresh = accounts.filter(account => 
-      !loadingDrivesRef.current[account.id] && 
-      account.access_token
-    );
-
-    if (accountsToRefresh.length === 0) {
-      console.log('[MultiDriveContext] No accounts to refresh or all are loading.');
+    if (!session?.user?.auth_user_id) {
+      console.log('[MultiDriveContext] No authenticated user, clearing drive info.');
+      setDrivesInfo({});
+      setLoadingDrives({});
+      setErrors({});
+      setSelectedFolder(null);
       return;
     }
 
-    console.log(`[MultiDriveContext] Refreshing ${accountsToRefresh.length} drives...`);
+    if (accounts.length === 0) {
+      console.log('[MultiDriveContext] No accounts found, clearing drive info.');
+      setDrivesInfo({});
+      setLoadingDrives({});
+      setErrors({});
+      setSelectedFolder(null);
+      return;
+    }
 
-    const processBatch = async (accountsBatch: Account[]) => {
-      await Promise.all(accountsBatch.map(account => 
-        Promise.all([
-          fetchDriveInfo(account.id, forceRefresh),
-          fetchDriveFiles(account.id, forceRefresh)
-        ])
-      ));
+    console.log('[MultiDriveContext] Accounts available. Initiating fetch for all drives.', accounts);
+
+    const fetchAllDrives = async () => {
+      const accountBatches: Account[][] = [];
+      for (let i = 0; i < accounts.length; i += BATCH_SIZE) {
+        accountBatches.push(accounts.slice(i, i + BATCH_SIZE));
+      }
+
+      for (const batch of accountBatches) {
+        await Promise.all(batch.map(async (account) => {
+          try {
+            await fetchDriveInfo(account.id, false);
+            await fetchDriveFiles(account.id, false);
+          } catch (e) {
+            console.error(`[MultiDriveContext] Error fetching drive data for account ${account.id}:`, e);
+          }
+        }));
+        if (accountBatches.indexOf(batch) < accountBatches.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, STAGGER_DELAY));
+        }
+      }
     };
 
-    // Batch processing to prevent too many concurrent requests
-    for (let i = 0; i < accountsToRefresh.length; i += BATCH_SIZE) {
-      const batch = accountsToRefresh.slice(i, i + BATCH_SIZE);
-      await processBatch(batch);
-      if (i + BATCH_SIZE < accountsToRefresh.length) {
-        await new Promise(resolve => setTimeout(resolve, STAGGER_DELAY));
-      }
-    }
-    console.log('[MultiDriveContext] All drives refresh complete.');
-  }, [accounts, accountsLoading, fetchDriveInfo, fetchDriveFiles]);
+    fetchAllDrives();
 
-  // Debounced refresh for initial load
-  useEffect(() => {
-    // Only run initial fetch if not already loading and accounts are available
-    if (!accountsLoading && accounts.length > 0 && Object.keys(drivesInfo).length === 0) {
-      console.log('[MultiDriveContext] Initializing drive data refresh.');
-      refreshAllDrives(false);
-    }
-  }, [accounts, accountsLoading, drivesInfo, refreshAllDrives]);
-
-  // Fetch drive info for active account when activeAccount changes
-  useEffect(() => {
-    if (activeAccount && !accountsLoading) {
-      console.log(`[MultiDriveContext] Active account changed to ${activeAccount.id}. Fetching drive info.`);
-      fetchDriveInfo(activeAccount.id, false);
-      fetchDriveFiles(activeAccount.id, false);
-      setSelectedFolder(null);
-    }
-  }, [activeAccount, accountsLoading, fetchDriveInfo, fetchDriveFiles]);
+  }, [accounts, accountsLoading, session?.user?.auth_user_id, fetchDriveInfo, fetchDriveFiles]);
 
   // Memoize the context value
   const value = useMemo<MultiDriveContextType>(() => {
-    const activeAccountDriveInfo = activeAccount ? drivesInfo[activeAccount.id] || { folders: [], files: [], status: 'loading', lastUpdated: '' } : null;
-    
-    // Filter files and folders based on active account and selected folder
-    const driveFiles = activeAccountDriveInfo?.files || [];
-    const driveFolders = activeAccountDriveInfo?.folders || [];
-    const loading = activeAccount ? loadingDrives[activeAccount.id] || false : accountsLoading;
-    const error = activeAccount ? errors[activeAccount.id] || null : null;
+    // Calculate overall loading state
+    const loading = accountsLoading || Object.values(loadingDrives).some(Boolean);
+
+    // Aggregate all errors
+    const error = Object.values(errors).find(e => e !== null) || null;
+
+    // Aggregate all files and folders from all accounts
+    const allDriveFiles: any[] = [];
+    const allDriveFolders: any[] = [];
+
+    Object.values(drivesInfo).forEach(drive => {
+      if (drive.files) {
+        allDriveFiles.push(...drive.files);
+      }
+      if (drive.folders) {
+        allDriveFolders.push(...drive.folders);
+      }
+    });
+
+    const filteredDriveFiles = selectedFolder 
+      ? allDriveFiles.filter(file => file.parents && file.parents.includes(selectedFolder.id))
+      : allDriveFiles;
+
+    // Note: Filtering folders by selectedFolder needs careful consideration if folders can have parents too.
+    // For now, if a folder is selected, we only show files within it.
+    // If the intent is to show sub-folders of a selected folder, more logic is needed.
 
     return {
       drivesInfo,
@@ -399,18 +453,15 @@ export function MultiDriveProvider({ children }: { children: React.ReactNode }) 
       errors,
       refreshDriveInfo: (accountId, forceRefresh) => fetchDriveInfo(accountId, forceRefresh),
       refreshDriveFiles: (accountId, forceRefresh) => fetchDriveFiles(accountId, forceRefresh),
-      activeAccountDriveInfo,
-      driveFiles: selectedFolder 
-        ? driveFiles.filter(file => file.parents && file.parents.includes(selectedFolder.id))
-        : driveFiles,
-      driveFolders,
+      driveFiles: filteredDriveFiles,
+      driveFolders: allDriveFolders, // All folders are provided, filtering by selectedFolder for files only
       loading,
       error,
       selectedFolder,
-      selectFolder: setSelectedFolder,
+      selectFolder: (folder) => setSelectedFolder(folder),
       clearSelectedFolder: () => setSelectedFolder(null),
     };
-  }, [drivesInfo, loadingDrives, errors, activeAccount, accountsLoading, fetchDriveInfo, fetchDriveFiles, selectedFolder]);
+  }, [drivesInfo, loadingDrives, errors, accountsLoading, selectedFolder, fetchDriveInfo, fetchDriveFiles]);
 
   return (
     <MultiDriveContext.Provider value={value}>
@@ -419,7 +470,7 @@ export function MultiDriveProvider({ children }: { children: React.ReactNode }) 
   );
 }
 
-// Custom hook for using the MultiDriveContext directly
+// Custom hook for using the context
 export function useMultiDrive() {
   const context = useContext(MultiDriveContext);
   if (context === null) {
@@ -428,61 +479,57 @@ export function useMultiDrive() {
   return context;
 }
 
-// Custom hook to get specific drive info for a single account
+// Custom hook for accessing a single drive's info directly
+// This can be useful for components that only care about one specific account's drive
 export function useSingleDrive(accountId: string) {
   const context = useContext(MultiDriveContext);
-  const singleDriveContext = useMemo(() => {
-    if (!context || !accountId) {
-      return {
-        driveInfo: null,
-        loading: false,
-        error: null,
-        fetchDriveInfo: () => Promise.resolve(null),
-        fetchDriveFiles: () => Promise.resolve(null),
-      };
-    }
+  if (context === null) {
+    throw new Error('useSingleDrive must be used within a MultiDriveProvider');
+  }
+  const { drivesInfo, loadingDrives, errors, refreshDriveInfo, refreshDriveFiles } = context;
 
-    const driveInfo = context.drivesInfo[accountId] || null;
-    const loading = context.loadingDrives[accountId] || false;
-    const error = context.errors[accountId] || null;
-
-    return {
-      driveInfo,
-      loading,
-      error,
-      fetchDriveInfo: (force = false) => context.refreshDriveInfo(accountId, force),
-      fetchDriveFiles: (force = false) => context.refreshDriveFiles(accountId, force),
-    };
-  }, [context, accountId]);
-
-  return singleDriveContext;
+  return {
+    driveInfo: drivesInfo[accountId] || { folders: [], files: [], status: 'loading', lastUpdated: '' },
+    loading: loadingDrives[accountId] || false,
+    error: errors[accountId] || null,
+    refreshDriveInfo: () => refreshDriveInfo(accountId, true),
+    refreshDriveFiles: () => refreshDriveFiles(accountId, true),
+  };
 }
 
-// Simplified hook for general drive access (for HomeDashboardContent)
+// Custom hook to provide aggregated drive data
+// This is designed to be used in place of the old useDrive, providing overall state.
 export function useDrive() {
   const context = useContext(MultiDriveContext);
-  const { activeAccount } = useAccounts();
   if (context === null) {
     throw new Error('useDrive must be used within a MultiDriveProvider');
   }
-  
-  // Destructure simplified props directly
-  const { driveFiles, driveFolders, loading, error, selectedFolder, selectFolder, clearSelectedFolder, refreshDriveFiles: contextRefreshDriveFiles } = context;
+
+  const {
+    drivesInfo,
+    loadingDrives,
+    errors,
+    selectedFolder,
+    selectFolder,
+    clearSelectedFolder,
+    refreshDriveInfo,
+    refreshDriveFiles,
+    driveFiles, // Now directly using the aggregated files from context
+    driveFolders, // Now directly using the aggregated folders from context
+    loading, // Now directly using the overall loading state from context
+    error, // Now directly using the overall error state from context
+  } = context;
 
   return {
-    driveFiles,
-    driveFolders,
+    drivesInfo, // All drive info by accountId
+    driveFiles, // All files (potentially filtered by selectedFolder)
+    driveFolders, // All folders
     loading,
     error,
     selectedFolder,
     selectFolder,
     clearSelectedFolder,
-    refreshDriveFiles: (force = false) => {
-      if (!activeAccount?.id) {
-        console.warn('No active account selected for refreshing drive files.');
-        return Promise.resolve(null);
-      }
-      return contextRefreshDriveFiles(activeAccount.id, force);
-    },
+    refreshDriveInfo,
+    refreshDriveFiles,
   };
 }
