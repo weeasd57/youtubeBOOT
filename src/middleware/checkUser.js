@@ -4,6 +4,7 @@ export async function ensureUserExists(session) {
   if (!session?.user?.auth_user_id) {
     throw new Error('No auth_user_id in session');
   }
+  
 
   const { data: existingUser } = await supabaseAdmin
     .from('users')
