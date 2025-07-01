@@ -183,6 +183,23 @@ const CSP_POLICY = [
   "frame-ancestors 'none'"
 ].join('; ');
 
+export const config = {
+  matcher: [
+    /*
+     * Match all request paths except for those that start with:
+     * - /api (API routes)
+     * - /_next/static (Next.js static files)
+     * - /_next/image (Next.js image optimization files)
+     * - /favicon.ico (favicon file)
+     * - Any files that have an extension (e.g., .txt, .js, .css, etc.)
+     *
+     * This ensures that the middleware does not run on static files and internal Next.js resources,
+     * thereby preventing the .txt file from being redirected.
+     */
+    '/((?!api|_next/static|_next/image|favicon.ico|.*\..+$).*)',
+  ],
+};
+
 export default withAuth(
   function middleware(req) {
     const startTime = Date.now();
@@ -342,20 +359,3 @@ export default withAuth(
     },
   }
 );
-
-export const config = {
-  matcher: [
-    '/home/:path*',
-    '/accounts/:path*',
-    '/uploads/:path*',
-    '/uploader/:path*',
-    '/admin/:path*',
-    '/tiktok-downloader/:path*',
-    '/api/auth/:path*',
-    '/api/upload/:path*',
-    '/api/youtube/:path*',
-    '/api/drive/:path*',
-    '/api/admin/:path*',
-    '/((?!_next/static|_next/image|favicon.ico|public|android-chrome|apple-touch|favicon|site.webmanifest).*)',
-  ],
-};
