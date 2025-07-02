@@ -1,6 +1,14 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { 
+  createContext, 
+  useContext, 
+  useState, 
+  useEffect, 
+  useMemo, 
+  useCallback, 
+  useRef,
+} from 'react';
 import { useSession } from 'next-auth/react';
 import { Account } from '@/types/account';
 
@@ -14,8 +22,12 @@ interface AccountContextType {
 
 const AccountContext = createContext<AccountContextType | null>(null);
 
+interface AccountProviderProps {
+  children: React.ReactNode;
+}
+
 // Provider component
-export function AccountProvider({ children }: { children: React.ReactNode }) {
+export function AccountProvider({ children }: AccountProviderProps) {
   console.log('[AccountProvider] AccountProvider rendering...');
   const { data: session, status } = useSession();
   const [accounts, setAccounts] = useState<Account[]>([]);
