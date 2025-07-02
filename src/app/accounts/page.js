@@ -1,356 +1,323 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
-import { useSession, signIn } from 'next-auth/react';
-import { useAccounts } from '@/contexts/AccountContext.tsx';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { FaSignOutAlt, FaPlus, FaCheck, FaStar, FaTrash, FaUser, FaSync, FaArrowLeft } from 'react-icons/fa';
-import Link from 'next/link';
-import Image from 'next/image';
-import ThemeToggle from '@/components/ThemeToggle';
-import { toast } from 'react-hot-toast';
-
-// Component that safely uses search params
-function AccountSwitcher({ accounts, switchAccount, router }) {
-  const searchParams = useSearchParams();
-  const [processingSwitch, setProcessingSwitch] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return; // Ensure this runs only on client
-    const switchToId = searchParams.get('switchTo');
-    if (switchToId && !processingSwitch) {
-      console.log(`Found switchTo parameter with account ID: ${switchToId}`);
-      setProcessingSwitch(true);
-      
-      const timer = setTimeout(async () => {
-        try {
-          const accountExists = accounts?.some(acc => acc.id === switchToId);
-          
-          if (accountExists) {
-            console.log(`Switching to account: ${switchToId}`);
-            localStorage.removeItem('driveFolders');
-            localStorage.removeItem('driveFoldersTimestamp');
-            localStorage.removeItem('lastHomeFolderRefresh');
-            localStorage.removeItem('lastDriveFolderCheck');
-            localStorage.removeItem('lastTokenFetch');
-            localStorage.removeItem('cachedUserTokens');
-            localStorage.removeItem('lastDriveRefresh');
-            
-            localStorage.setItem('accountSwitched', 'true');
-            localStorage.setItem('accountSwitchedTimestamp', Date.now().toString());
-            
-            await switchAccount(switchToId);
-            
-            setTimeout(() => {
-              router.push('/home');
-            }, 500);
-          } else {
-            console.warn(`Account with ID ${switchToId} not found`);
-          }
-        } catch (error) {
-          console.error('Error processing switchTo parameter:', error);
-        } finally {
-          setProcessingSwitch(false);
-        }
-      }, 1000);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [searchParams, accounts, switchAccount, router, processingSwitch]);
-
-  return null;
-}
+import { useState, useEffect } from 'react';
+import { useSession } from 'next-auth/react';
+import { 
+  FaGoogle, 
+  FaYoutube, 
+  FaPlus, 
+  FaCheck, 
+  FaExclamationTriangle,
+  FaEye,
+  FaTrash,
+  FaRefresh,
+  FaCog
+} from 'react-icons/fa';
 
 export default function AccountsPage() {
-  const router = useRouter();
-  const { data: session, status } = useSession();
-  const [refreshing, setRefreshing] = useState(false);
-  const [addingAccount, setAddingAccount] = useState(false);
-  const [apiError, setApiError] = useState(null);
-  
-  let accounts, activeAccount, loading, switchAccount, setPrimaryAccount, removeAccount, error;
+  const { data: session } = useSession();
+  const [accounts, setAccounts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [connectingAccount, setConnectingAccount] = useState(false);
 
-  if (typeof window !== 'undefined') {
-    ({ accounts, activeAccount, loading, switchAccount, setPrimaryAccount, removeAccount, error } = useAccounts());
-  }
+  useEffect(() => {
+    loadAccounts();
+  }, []);
 
-  const [confirmingRemove, setConfirmingRemove] = useState(null);
-  const [fixingData, setFixingData] = useState(false);
-
-  const handleRefreshAuth = async () => {
-    setRefreshing(true);
+  const loadAccounts = async () => {
     try {
-      window.location.reload();
-    } catch (error) {
-      console.error('Error refreshing:', error);
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
-  if (status === 'unauthenticated') {
-    router.push('/');
-    return null;
-  }
-
-  const handleAddAccount = async () => {
-    if (!session?.user?.id) {
-      return;
-    }
-
-    setAddingAccount(true);
-    setApiError(null);
-    
-    try {
-      const response = await fetch('/api/auth/generate-link-token', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+      setLoading(true);
+      // Simulate API call - replace with real implementation
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      setAccounts([
+        {
+          id: '1',
+          email: 'john.doe@gmail.com',
+          name: 'John Doe',
+          avatar: '/android-chrome-192x192.png',
+          type: 'google',
+          status: 'connected',
+          youtubeChannels: [
+            {
+              id: 'UC123',
+              name: 'John Tech Channel',
+              subscribers: '12.5K',
+              status: 'active'
+            },
+            {
+              id: 'UC456',
+              name: 'Gaming with John',
+              subscribers: '8.2K',
+              status: 'active'
+            }
+          ],
+          driveInfo: {
+            totalSpace: '15 GB',
+            usedSpace: '8.3 GB'
+          },
+          lastSync: '2 minutes ago'
         },
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to generate linking token');
-      }
-
-      const { token: linkToken } = await response.json();
-      
-      const toastId = toast.loading('جاري فتح نافذة تسجيل الدخول بجوجل...');
-      
-      const state = JSON.stringify({ linkToken });
-      
-      await signIn('google', { 
-        callbackUrl: '/accounts', 
-        state 
-      });
-      
-      toast.dismiss(toastId);
-
+        {
+          id: '2',
+          email: 'business@company.com',
+          name: 'Business Account',
+          avatar: '/android-chrome-192x192.png',
+          type: 'google',
+          status: 'connected',
+          youtubeChannels: [
+            {
+              id: 'UC789',
+              name: 'Company Official',
+              subscribers: '25.1K',
+              status: 'active'
+            }
+          ],
+          driveInfo: {
+            totalSpace: '100 GB',
+            usedSpace: '45.7 GB'
+          },
+          lastSync: '5 minutes ago'
+        },
+        {
+          id: '3',
+          email: 'backup@gmail.com',
+          name: 'Backup Account',
+          avatar: '/android-chrome-192x192.png',
+          type: 'google',
+          status: 'expired',
+          youtubeChannels: [],
+          driveInfo: {
+            totalSpace: '15 GB',
+            usedSpace: '2.1 GB'
+          },
+          lastSync: '2 days ago'
+        }
+      ]);
     } catch (error) {
-      console.error('Error adding account:', error);
-      setApiError(error.message);
+      console.error('Error loading accounts:', error);
     } finally {
-      setAddingAccount(false);
+      setLoading(false);
     }
   };
 
-  const handleSwitchAccount = async (accountId) => {
-    if (switchAccount) await switchAccount(accountId);
-  };
-
-  const handleSetPrimary = async (accountId) => {
-    if (setPrimaryAccount) await setPrimaryAccount(accountId);
-  };
-
-  const handleRemoveAccount = async (accountId) => {
-    if (confirmingRemove === accountId) {
-      if (removeAccount) await removeAccount(accountId);
-      setConfirmingRemove(null);
-    } else {
-      setConfirmingRemove(accountId);
-      setTimeout(() => setConfirmingRemove(null), 3000);
-    }
-  };
-
-  const handleFixMissingData = async () => {
-    setFixingData(true);
+  const connectNewAccount = async () => {
+    setConnectingAccount(true);
     try {
-      const response = await fetch('/api/accounts/fix-missing-data', {
-        method: 'POST',
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        console.log('Fix result:', result);
-        window.location.reload();
-      } else {
-        console.error('Failed to fix account data');
-      }
+      // Simulate account connection
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Refresh accounts list
+      await loadAccounts();
     } catch (error) {
-      console.error('Error fixing account data:', error);
+      console.error('Error connecting account:', error);
     } finally {
-      setFixingData(false);
+      setConnectingAccount(false);
     }
   };
 
-  const getInitials = (name) => {
-    if (!name) return 'U';
-    return name
-      .split(' ')
-      .map(n => n[0])
-      .join('')
-      .toUpperCase()
-      .substring(0, 2);
+  const refreshAccount = async (accountId) => {
+    try {
+      // Simulate refresh
+      console.log('Refreshing account:', accountId);
+    } catch (error) {
+      console.error('Error refreshing account:', error);
+    }
   };
+
+  const disconnectAccount = async (accountId) => {
+    if (confirm('Are you sure you want to disconnect this account?')) {
+      try {
+        // Simulate disconnect
+        console.log('Disconnecting account:', accountId);
+        await loadAccounts();
+      } catch (error) {
+        console.error('Error disconnecting account:', error);
+      }
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="loading-spinner"></div>
+      </div>
+    );
+  }
 
   return (
-    <>
-      <Suspense fallback={null}>
-        <AccountSwitcher 
-          accounts={accounts} 
-          switchAccount={switchAccount} 
-          router={router} 
-        />
-      </Suspense>
-      
-      <div className="container mx-auto px-4 py-8 max-w-5xl">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold">Manage Accounts</h1>
-          </div>
-          <button
-            onClick={handleAddAccount}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
-            disabled={addingAccount}
-          >
-            {addingAccount ? (
-              <>
-                <FaSync className="animate-spin" /> Generating Link...
-              </>
-            ) : (
-              <>
-                <FaPlus /> Add New Account
-              </>
-            )}
-          </button>
+    <div className="p-8">
+      {/* Page Header */}
+      <div className="mb-8 flex justify-between items-start">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Connected Accounts</h1>
+          <p className="text-gray-600">Manage your Google accounts and YouTube channels</p>
         </div>
-      
-      {apiError && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6 text-red-700 dark:text-red-400">
-          {apiError}
-        </div>
-      )}
+        
+        <button
+          onClick={connectNewAccount}
+          disabled={connectingAccount}
+          className="btn btn-primary"
+        >
+          <FaPlus />
+          {connectingAccount ? 'Connecting...' : 'Connect Account'}
+        </button>
+      </div>
 
-      {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6 text-red-700 dark:text-red-400">
-          {error}
-        </div>
-      )}
-      
-      {loading ? (
-        <div className="flex justify-center py-12">
-          <FaSync className="animate-spin text-amber-500 w-8 h-8" />
-        </div>
-      ) : (
-        <>
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden mb-6">
-            <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-              <h2 className="text-lg font-semibold mb-2">Connected Google Accounts</h2>
-              <p className="text-gray-600 dark:text-gray-400 text-sm">
-                Manage the Google accounts you've connected to YouTube Boot. 
-                Your primary account will be used by default for all operations.
-              </p>
-            </div>
-            
-            <div className="divide-y divide-gray-200 dark:divide-gray-700">
-              {!accounts || accounts.length === 0 ? (
-                <div className="p-6 text-center text-gray-500 dark:text-gray-400">
-                  No accounts connected yet. Add your first Google account to get started.
-                </div>
-              ) : (
-                accounts.map(account => (
-                  <div 
-                    key={account.id}
-                    className={`p-4 flex items-center justify-between ${
-                      activeAccount?.id === account.id ? 'bg-amber-50 dark:bg-amber-900/20' : ''
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-amber-500 text-white flex items-center justify-center overflow-hidden">
-                        {account.image ? (
-                          <Image 
-                            src={account.image} 
-                            alt="" 
-                            width={40}
-                            height={40}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <span className="text-sm font-medium">
-                            {getInitials(account.name)}
-                          </span>
-                        )}
-                      </div>
-                      
-                      <div>
-                        <div className="font-medium flex items-center">
-                          {account.name}
-                          {account.is_primary && (
-                            <span className="ml-2 text-amber-500 text-xs flex items-center gap-1">
-                              <FaStar className="w-3 h-3" /> Primary
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-sm text-gray-500 dark:text-gray-400">
-                          {account.email}
-                        </div>
+      {/* Accounts Grid */}
+      <div className="space-y-6">
+        {accounts.map((account) => (
+          <div key={account.id} className="card">
+            {/* Account Header */}
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 relative">
+                    <img
+                      src={account.avatar}
+                      alt={account.name}
+                      className="w-full h-full rounded-full object-cover"
+                    />
+                  </div>
+                  
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-lg font-semibold text-gray-900">{account.name}</h3>
+                      <div className={`status-badge ${
+                        account.status === 'connected' ? 'status-success' :
+                        account.status === 'expired' ? 'status-warning' :
+                        'status-error'
+                      }`}>
+                        {account.status === 'connected' && <FaCheck />}
+                        {account.status === 'expired' && <FaExclamationTriangle />}
+                        {account.status}
                       </div>
                     </div>
-                    
-                    <div className="flex gap-2">
-                      {activeAccount?.id !== account.id && (
-                        <button
-                          onClick={() => handleSwitchAccount(account.id)}
-                          className="px-3 py-1 text-xs rounded border border-amber-500 text-amber-500 hover:bg-amber-500 hover:text-white transition-colors"
-                        >
-                          Switch to
-                        </button>
-                      )}
+                    <p className="text-gray-600">{account.email}</p>
+                    <p className="text-sm text-gray-500">Last sync: {account.lastSync}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => refreshAccount(account.id)}
+                    className="btn btn-ghost"
+                    title="Refresh account"
+                  >
+                    <FaRefresh />
+                  </button>
+                  <button
+                    onClick={() => disconnectAccount(account.id)}
+                    className="btn btn-ghost text-red-600 hover:text-red-800"
+                    title="Disconnect account"
+                  >
+                    <FaTrash />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Account Details */}
+            <div className="p-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* YouTube Channels */}
+                <div>
+                  <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <FaYoutube className="text-red-600" />
+                    YouTube Channels ({account.youtubeChannels.length})
+                  </h4>
+                  
+                  {account.youtubeChannels.length === 0 ? (
+                    <div className="text-center py-8 bg-gray-50 rounded-lg">
+                      <FaYoutube className="text-gray-400 text-3xl mx-auto mb-4" />
+                      <p className="text-gray-600">No YouTube channels found</p>
+                      <button className="btn btn-secondary mt-4">
+                        <FaRefresh />
+                        Refresh Channels
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {account.youtubeChannels.map((channel) => (
+                        <div key={channel.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                          <div>
+                            <h5 className="font-medium text-gray-900">{channel.name}</h5>
+                            <p className="text-sm text-gray-600">{channel.subscribers} subscribers</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className={`status-badge ${
+                              channel.status === 'active' ? 'status-success' : 'status-warning'
+                            }`}>
+                              {channel.status}
+                            </div>
+                            <button className="btn btn-ghost btn-sm">
+                              <FaEye />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Google Drive Info */}
+                <div>
+                  <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <FaGoogle className="text-blue-600" />
+                    Google Drive Storage
+                  </h4>
+                  
+                  <div className="space-y-4">
+                    <div className="p-4 bg-gray-50 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm text-gray-600">Storage Used</span>
+                        <span className="text-sm font-medium text-gray-900">
+                          {account.driveInfo.usedSpace} / {account.driveInfo.totalSpace}
+                        </span>
+                      </div>
                       
-                      {!account.is_primary && (
-                        <button
-                          onClick={() => handleRemoveAccount(account.id)}
-                          className={`px-3 py-1 text-xs rounded border ${
-                            confirmingRemove === account.id
-                              ? 'border-red-600 bg-red-600 text-white'
-                              : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
-                          } transition-colors`}
-                        >
-                          {confirmingRemove === account.id ? 'Confirm Remove' : 'Remove'}
-                        </button>
-                      )}
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div 
+                          className="bg-blue-600 h-2 rounded-full" 
+                          style={{ width: '55%' }}
+                        ></div>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button className="btn btn-secondary flex-1">
+                        <FaEye />
+                        Browse Files
+                      </button>
+                      <button className="btn btn-ghost">
+                        <FaCog />
+                      </button>
                     </div>
                   </div>
-                ))
-              )}
-            </div>
-          </div>
-          
-          <div className="flex justify-center gap-4">
-            {accounts && accounts.some(acc => !acc.email) && (
-              <button
-                onClick={handleFixMissingData}
-                disabled={fixingData}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2 transition-colors disabled:opacity-50"
-              >
-                <FaSync className={`w-4 h-4 ${fixingData ? 'animate-spin' : ''}`} />
-                Fix Missing Data
-              </button>
-            )}
-          </div>
-          
-          <div className="mt-8 bg-gray-50 dark:bg-gray-900 rounded-lg p-6 border border-gray-200 dark:border-gray-800">
-            <h3 className="text-lg font-semibold mb-3">About Multiple Accounts</h3>
-            <div className="space-y-4 text-gray-600 dark:text-gray-400">
-              <p>
-                The multiple accounts feature allows you to connect several Google accounts to YouTube Boot
-                and easily switch between them.
-              </p>
-              <div>
-                <h4 className="font-medium text-gray-800 dark:text-gray-200 mb-1">How it works:</h4>
-                <ul className="list-disc pl-5 space-y-1">
-                  <li>Connect multiple Google accounts to upload videos to different YouTube channels</li>
-                  <li>Set one account as your primary account that will be used by default</li>
-                  <li>Easily switch between accounts without signing out</li>
-                  <li>Each account maintains its own tokens and permissions</li>
-                </ul>
+                </div>
               </div>
             </div>
           </div>
-        </>
-      )}
+        ))}
       </div>
-    </>
+
+      {/* Empty State */}
+      {accounts.length === 0 && (
+        <div className="text-center py-12">
+          <FaGoogle className="text-gray-400 text-6xl mx-auto mb-6" />
+          <h3 className="text-xl font-semibold text-gray-900 mb-4">No accounts connected</h3>
+          <p className="text-gray-600 mb-8 max-w-md mx-auto">
+            Connect your Google account to start managing your YouTube channels and Google Drive files.
+          </p>
+          <button
+            onClick={connectNewAccount}
+            disabled={connectingAccount}
+            className="btn btn-primary"
+          >
+            <FaPlus />
+            {connectingAccount ? 'Connecting...' : 'Connect Your First Account'}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

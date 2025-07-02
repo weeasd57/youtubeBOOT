@@ -22,14 +22,14 @@ const inter = Inter({
 export const metadata = {
   metadataBase: new URL(process.env.NEXTAUTH_URL || 'http://localhost:3000'),
   title: {
-    default: "Uploader - YouTube & Drive Management Tool",
-    template: "%s | Uploader"
+    default: "Content Scheduler - Smart Social Media Management",
+    template: "%s | Content Scheduler"
   },
-  description: "Securely manage YouTube uploads, TikTok downloads, and Google Drive files with multi-account support and smart scheduling",
-  keywords: ["YouTube uploader", "Google Drive", "TikTok downloader", "video management", "content scheduling"],
-  authors: [{ name: "YouTube Boot Team" }],
-  creator: "YouTube Boot",
-  publisher: "YouTube Boot",
+  description: "The smarter way to manage your social media content. Connect multiple accounts, schedule posts, and grow your audience effortlessly.",
+  keywords: ["content scheduler", "social media management", "YouTube scheduler", "Google Drive", "multi-account", "Buffer alternative"],
+  authors: [{ name: "Content Scheduler Team" }],
+  creator: "Content Scheduler",
+  publisher: "Content Scheduler",
   robots: {
     index: true,
     follow: true,
@@ -59,29 +59,24 @@ export const metadata = {
   openGraph: {
     type: 'website',
     locale: 'en_US',
-    url: 'https://youtubeboot.com',
-    siteName: 'Uploader',
-    title: 'Uploader - YouTube & Drive Management Tool',
-    description: 'Securely manage YouTube uploads, TikTok downloads, and Google Drive files',
+    url: process.env.NEXTAUTH_URL || 'http://localhost:3000',
+    siteName: 'Content Scheduler',
+    title: 'Content Scheduler - Smart Social Media Management',
+    description: 'The smarter way to manage your social media content. Connect multiple accounts, schedule posts, and grow your audience effortlessly.',
     images: [
       {
         url: '/android-chrome-512x512.png',
         width: 512,
         height: 512,
-        alt: 'Uploader Logo',
+        alt: 'Content Scheduler Logo',
       },
     ],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Uploader - YouTube & Drive Management Tool',
-    description: 'Securely manage YouTube uploads, TikTok downloads, and Google Drive files',
+    title: 'Content Scheduler - Smart Social Media Management',
+    description: 'The smarter way to manage your social media content.',
     images: ['/android-chrome-512x512.png'],
-  },
-  verification: {
-    // Add your verification tokens here
-    // google: 'your-google-verification-token',
-    // yandex: 'your-yandex-verification-token',
   },
 };
 
@@ -92,8 +87,8 @@ export const viewport = {
   maximumScale: 5,
   userScalable: true,
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#f59e0b' },
-    { media: '(prefers-color-scheme: dark)', color: '#d97706' },
+    { media: '(prefers-color-scheme: light)', color: '#3b82f6' },
+    { media: '(prefers-color-scheme: dark)', color: '#1e40af' },
   ],
 };
 
@@ -112,11 +107,11 @@ export default function RootLayout({ children }) {
         <link rel="dns-prefetch" href="https://accounts.google.com" />
         
         {/* Theme color for mobile browsers */}
-        <meta name="theme-color" content="#f59e0b" media="(prefers-color-scheme: light)" />
-        <meta name="theme-color" content="#d97706" media="(prefers-color-scheme: dark)" />
+        <meta name="theme-color" content="#3b82f6" media="(prefers-color-scheme: light)" />
+        <meta name="theme-color" content="#1e40af" media="(prefers-color-scheme: dark)" />
       </head>
       <body
-        className={`font-sans antialiased flex flex-col min-h-screen ${inter.className}`}
+        className={`font-sans antialiased ${inter.className}`}
         suppressHydrationWarning
       >
         {/* Noscript fallback */}
@@ -128,19 +123,10 @@ export default function RootLayout({ children }) {
 
         <ToastProvider>
           <ToastInitializer />
-          <DialogBlockerWrapper />
           <DevelopmentHelper />
           <PerformanceMonitor />
           <Providers>
-            <NavbarWrapper />
-            <main 
-              className="flex-grow"
-              role="main"
-              aria-label="Main content"
-            >
-              {children}
-            </main>
-            <FooterWrapper />
+            {children}
           </Providers>
         </ToastProvider>
 
