@@ -34,45 +34,37 @@ export default function Dashboard() {
     }
   }, [status, router]);
 
+  // Fetch real stats from the new API route
   useEffect(() => {
-    // Simulate loading stats - replace with real API calls
-    setStats({
-      scheduledPosts: 24,
-      publishedToday: 8,
-      totalAccounts: 3,
-      pendingApproval: 2
-    });
+    async function fetchStats() {
+      try {
+        const res = await fetch('/api/dashboard/stats', { credentials: 'include' });
 
-    setRecentActivity([
-      {
-        id: 1,
-        type: 'published',
-        title: 'New Video Published',
-        description: 'How to Create Amazing Content',
-        account: 'YouTube Channel 1',
-        time: '2 hours ago',
-        status: 'success'
-      },
-      {
-        id: 2,
-        type: 'scheduled',
-        title: 'Post Scheduled',
-        description: 'Weekly Tutorial #5',
-        account: 'YouTube Channel 2',
-        time: '4 hours ago',
-        status: 'scheduled'
-      },
-      {
-        id: 3,
-        type: 'failed',
-        title: 'Upload Failed',
-        description: 'Connection timeout',
-        account: 'YouTube Channel 1',
-        time: '6 hours ago',
-        status: 'error'
+        if (res.status === 401) {
+          // Not signed in – redirect to home / sign-in page
+          router.push('/');
+          return;
+        }
+
+        if (!res.ok) throw new Error(`Failed to load stats (${res.status})`);
+
+        const data = await res.json();
+
+        setStats({
+          scheduledPosts: data.scheduled_posts ?? 0,
+          publishedToday: data.published_today ?? 0,
+          totalAccounts: data.total_accounts ?? 0,
+          pendingApproval: data.pending_approval ?? 0
+        });
+      } catch (err) {
+        console.error('[Dashboard] Error fetching stats:', err);
       }
-    ]);
-  }, []);
+    }
+
+    if (status === 'authenticated') {
+      fetchStats();
+    }
+  }, [status, router]);
 
   if (status === 'loading') {
     return (

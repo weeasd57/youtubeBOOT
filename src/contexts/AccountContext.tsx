@@ -39,6 +39,15 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
       console.log('[AccountContext] API Response OK:', response.ok);
       console.log('[AccountContext] API Response Type:', response.type);
       
+      // Handle unauthorized explicitly
+      if (response.status === 401) {
+        console.warn('[AccountContext] Received 401 – user not authenticated');
+        setAccounts([]);
+        setLoading(false);
+        // Let the global auth flow handle redirect; just exit.
+        return;
+      }
+      
       let data;
       try {
         data = await response.json();
