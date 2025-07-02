@@ -1,6 +1,14 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { 
+  createContext, 
+  useContext, 
+  useState, 
+  useEffect, 
+  useMemo, 
+  useCallback, 
+  useRef,
+} from 'react';
 import { useSession } from 'next-auth/react';
 import { Account } from '@/types/account';
 
@@ -14,8 +22,12 @@ interface AccountContextType {
 
 const AccountContext = createContext<AccountContextType | null>(null);
 
+interface AccountProviderProps {
+  children: React.ReactNode;
+}
+
 // Provider component
-export function AccountProvider({ children }: { children: React.ReactNode }) {
+export function AccountProvider({ children }: AccountProviderProps) {
   console.log('[AccountProvider] AccountProvider rendering...');
   const { data: session, status } = useSession();
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -38,6 +50,15 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
       console.log('[AccountContext] API Response Status Text:', response.statusText);
       console.log('[AccountContext] API Response OK:', response.ok);
       console.log('[AccountContext] API Response Type:', response.type);
+      
+      // Handle unauthorized explicitly
+      if (response.status === 401) {
+        console.warn('[AccountContext] Received 401 – user not authenticated');
+        setAccounts([]);
+        setLoading(false);
+        // Let the global auth flow handle redirect; just exit.
+        return;
+      }
       
       let data;
       try {
