@@ -21,7 +21,13 @@
     "http",
     "net"
   ],
+  "geminicodeassist.updateChannel": "Insiders",
+
   "references.preferredLocation": "view",
   "editor.language.brackets": [],
-  "codium.codeCompletion.enable": false
+  "codium.codeCompletion.enable": false,
+  "python.defaultInterpreterPath": "C:\\Program Files\\Python312\\python.exe",
+  "code-runner.executorMap": {
+    "python": "C:\\Program Files\\Python312\\python.exe"
+  }
 }

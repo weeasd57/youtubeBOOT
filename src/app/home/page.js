@@ -1,21 +1,18 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { useSession, signOut } from 'next-auth/react';
-import { FaUpload, FaSync, FaHistory, FaEye, FaThumbsUp, FaCalendarAlt, FaClock, FaCloudUploadAlt, FaTable, FaDownload, FaHashtag, FaTiktok, FaExclamationTriangle } from 'react-icons/fa';
+import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useSession } from 'next-auth/react';
+import { FaUpload, FaSync, FaHistory, FaEye, FaCalendarAlt, FaCloudUploadAlt, FaTable, FaTiktok } from 'react-icons/fa';
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/contexts/UserContext';
-// import { useDrive } from '@/contexts/MultiDriveContext';
-import { useMultiChannel } from '@/contexts/MultiChannelContext';
 import { useAccounts } from '@/contexts/AccountContext.tsx';
-import ClientOnly from '@/components/ClientOnly';
-import ScheduleUploadForm from '@/components/ScheduleUploadForm';
-import YouTubeChannelInfo from '@/components/YouTubeChannelInfo';
 import PageContainer from '@/components/PageContainer';
-import FileListItem from '@/components/FileListItem';
+import LoadingFallback from '@/components/LoadingFallback';
+import ApiErrorBoundary from '@/components/ApiErrorBoundary';
 import { toast } from 'react-hot-toast';
+import { post, getUserFriendlyErrorMessage } from '@/utils/apiUtils';
 
 // Helper function to extract hashtags from text
 const extractHashtags = (text) => {
@@ -65,33 +62,15 @@ const AppLogoIcon = ({ className = "", size = 24, priority = false }) => (
 );
 
 export default function Home() {
-  // Prevent server-side rendering issues
-  const [isMounted, setIsMounted] = useState(false);
-  
-  // Use Next.js hooks with checks for SSR
-  const router = useRouter();
-  
   // Call useSession at the top level of the component
   const { data: session, status } = useSession();
-
-  // Initialize with client-side rendering
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
   
-  // Don't render anything on the server or during initial mount
-  if (!isMounted) {
-    return (
-      <div className="min-h-screen p-8 flex items-center justify-center bg-slate-50 dark:bg-slate-900" suppressHydrationWarning>
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600 mx-auto mb-4" suppressHydrationWarning></div>
-          <p className="text-slate-600 dark:text-slate-400 text-sm">Loading dashboard...</p>
-        </div>
-      </div>
-    );
+  // Show loading state while session is loading
+  if (status === 'loading') {
+    return <LoadingFallback message="Loading session..." showLogo={true} />;
   }
   
-  // Now we can safely use the actual component with client-side data
+  // Return the landing page content directly
   return (
     <PageContainer 
       user={session?.user} 
@@ -106,39 +85,51 @@ export default function Home() {
   );
 }
 
-// Separate component that only renders on the client
+// Separate component that renders the dashboard content
 function HomeDashboardContent({ session, status }) {
   const router = useRouter();
   
-  // استخدام الـ contexts المتاحة
+  // Use the contexts with error handling
   const { user, loading: userLoading, error: userError } = useUser();
-  const accountContext = useAccounts(); // Get the whole context object
-  const { accounts, loading: accountsLoading, refreshAccounts } = accountContext; // Destructure from the object
+  
+  // Safely access account context with fallbacks
+  const { accounts = [], loading: accountsLoading = false, refreshAccounts = () => {} } = 
+    useAccounts() || {};
 
-  // Drive state managed locally, fetched from /api/drive/list
+  // Local state for drive data
   const [driveFiles, setDriveFiles] = useState([]);
   const [driveFolders, setDriveFolders] = useState([]);
   const [driveLoading, setDriveLoading] = useState(false);
   const [driveError, setDriveError] = useState(null);
   const [selectedFolder, setSelectedFolder] = useState(null);
 
-  // Fetch Drive files/folders from API
+  // Fetch Drive files/folders from API with better error handling
   const fetchDriveData = useCallback(async (force = false) => {
     if (!accounts || accounts.length === 0) return;
+    
     setDriveLoading(true);
     setDriveError(null);
+    
     try {
-      const res = await fetch('/api/drive/list', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountId: accounts[0].id, force }),
-      });
-      if (!res.ok) throw new Error('Failed to fetch Drive data');
-      const data = await res.json();
-      setDriveFiles(data.files || []);
-      setDriveFolders(data.folders || []);
-    } catch (err) {
-      setDriveError(err.message || 'Unknown error');
+      const data = await post(
+        '/api/drive/list',
+        { accountId: accounts[0].id, force },
+        {},
+        (data) => {
+          // Success handler
+          setDriveFiles(data.files || []);
+          setDriveFolders(data.folders || []);
+        },
+        (error) => {
+          // Error handler
+          const errorMessage = getUserFriendlyErrorMessage(error);
+          setDriveError(errorMessage);
+          toast.error(`Drive data error: ${errorMessage}`);
+        }
+      );
+    } catch (error) {
+      // This will only run if the error wasn't handled in the onError callback
+      console.error('Unhandled API error:', error);
     } finally {
       setDriveLoading(false);
     }
@@ -150,33 +141,15 @@ function HomeDashboardContent({ session, status }) {
       fetchDriveData();
     }
   }, [accounts, fetchDriveData]);
-
-  const { 
-    channelsInfo, 
-    loading: channelsLoading, 
-    errors: channelErrors,
-    refreshChannel 
-  } = useMultiChannel();
-
-  console.log('[DEBUG] Full accountContext from useAccounts:', accountContext);
-  console.log('[DEBUG] accounts from useAccounts:', accounts);
   
   // Local state
   const [selectedFiles, setSelectedFiles] = useState([]);
-  // No activeDriveTab or activeDriveAccountId logic needed
   const [selectingAll, setSelectingAll] = useState(false);
   const [processingProgress, setProcessingProgress] = useState(0);
   const [lastChecked, setLastChecked] = useState(null);
   
-  // Error handling for missing contexts
-  const safeChannelsInfo = channelsInfo || {};
-  const safeChannelErrors = channelErrors || {};
-  
-  // Safe error handling
-  const hasError = userError || driveError || Object.keys(safeChannelErrors).length > 0;
-  
   // Derived state
-  const loadingCombined = userLoading || driveLoading || channelsLoading || accountsLoading;
+  const loadingCombined = userLoading || driveLoading || accountsLoading;
   const availableAccounts = accounts || [];
   const mergedAccounts = availableAccounts;
   const filteredItems = selectedFolder 
@@ -248,158 +221,278 @@ function HomeDashboardContent({ session, status }) {
     toast.error(`Refresh failed: ${error.message}`);
   }, []);
 
-  const syncDriveChanges = useCallback((force = false) => {
-    fetchDriveData(force);
-    setLastChecked(new Date().toISOString());
-  }, [fetchDriveData]);
-
-  const refreshDrive = useCallback((accountId) => {
-    fetchDriveData(true);
-  }, [fetchDriveData]);
-
-  const fetchDriveFolders = useCallback((force = false) => {
-    fetchDriveData(force);
-    setLastChecked(new Date().toISOString());
-  }, [fetchDriveData]);
-
-  // Enhanced loading state checks - only show loading for critical operations
-  const isCriticalLoading = userLoading;
-  
-  // Show loading spinner for any loading state
-  if (isCriticalLoading || accountsLoading) {
+  // If not authenticated, show landing page content
+  if (status === 'unauthenticated') {
     return (
-      <div className="min-h-screen p-8 flex flex-col items-center justify-center text-center bg-slate-50 dark:bg-slate-900">
-        <AppLogoIcon size={64} className="mb-4 animate-pulse" priority={true} />
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600 mb-4"></div>
-        <p className="text-slate-600 dark:text-slate-400">
-          {userLoading ? 'Loading user data...' :
-           accountsLoading ? 'Loading accounts...' :
-           'Setting up your dashboard...'}
-        </p>
-      </div>
-    );
-  }
-
-  // Enhanced no accounts check - but don't show this if we're still loading
-  const hasAccounts = mergedAccounts?.length > 0;
-  
-  if (!hasAccounts && !accountsLoading) { 
-    return (
-      <div className="min-h-screen p-8 flex flex-col items-center justify-center text-center bg-slate-50 dark:bg-slate-900">
-        <AppLogoIcon size={64} className="mb-4" priority={true} />
-        <h2 className="text-2xl font-semibold mb-2 text-slate-900 dark:text-slate-50">No Connected Accounts</h2>
-        <p className="mb-6 text-slate-600 dark:text-slate-400 max-w-md">
-          Connect your Google Drive account to start scheduling and managing your video uploads.
-        </p>
-        <Link
-          href="/accounts"
-          className="schedule-button-primary inline-flex items-center gap-2"
-        >
-          <FaUpload />
-          <span>Connect Account</span>
-        </Link>
-      </div>
-    );
-  }
-  
-  // Show a message if there's a user error
-  if (userError) {
-     return (
-       <div className="min-h-screen p-8 flex flex-col items-center justify-center text-center dark:bg-black dark:text-white">
-         <AppLogoIcon size={64} className="mb-4" priority={true} />
-         <h2 className="text-2xl font-semibold mb-2">Account Issue</h2>
-         <p className="mb-4 text-gray-600 dark:text-gray-400">
-           {`Error: ${userError}`}
-         </p>
-         <button
-           onClick={() => router.push('/accounts')}
-           className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-150 ease-in-out"
-         >
-           Go to Accounts
-         </button>
-       </div>
-     );
-  }
-
-  return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors duration-300">
-      <div className="max-w-7xl mx-auto p-6">
-        <ClientOnly>
-          {/* Header */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-50 mb-2">Content Dashboard</h1>
-            <p className="text-slate-600 dark:text-slate-400">Manage and schedule your video content</p>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <div className="text-center">
+          <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-6">
+            Welcome to Content Scheduler
+          </h1>
+          <p className="text-xl text-gray-600 dark:text-gray-300 mb-8 max-w-3xl mx-auto">
+            The smarter way to manage your social media content. Connect multiple accounts, schedule posts, and grow your audience effortlessly.
+          </p>
+          <div className="flex flex-wrap justify-center gap-4">
+            <Link 
+              href="/api/auth/signin"
+              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
+            >
+              Get Started
+            </Link>
+            <Link 
+              href="/about"
+              className="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white px-6 py-3 rounded-lg font-medium transition-colors"
+            >
+              Learn More
+            </Link>
           </div>
+        </div>
 
-          <div className="space-y-6">
-            {/* YouTube Channel Information */}
-            <YouTubeChannelInfo />
+        <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md">
+            <div className="text-blue-600 mb-4">
+              <FaCloudUploadAlt size={32} />
+            </div>
+            <h2 className="text-xl font-semibold mb-2 text-gray-900 dark:text-white">Easy Uploads</h2>
+            <p className="text-gray-600 dark:text-gray-300">
+              Upload videos directly from Google Drive to multiple platforms with just a few clicks.
+            </p>
+          </div>
+          
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md">
+            <div className="text-blue-600 mb-4">
+              <FaCalendarAlt size={32} />
+            </div>
+            <h2 className="text-xl font-semibold mb-2 text-gray-900 dark:text-white">Smart Scheduling</h2>
+            <p className="text-gray-600 dark:text-gray-300">
+              Schedule your content for the perfect time to maximize engagement and reach.
+            </p>
+          </div>
+          
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md">
+            <div className="text-blue-600 mb-4">
+              <FaTable size={32} />
+            </div>
+            <h2 className="text-xl font-semibold mb-2 text-gray-900 dark:text-white">Multi-Account Management</h2>
+            <p className="text-gray-600 dark:text-gray-300">
+              Manage all your social media accounts in one place with our intuitive dashboard.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-            {/* Re-authentication Alert */}
-            {availableAccounts.length > 0 &&
-             safeChannelsInfo[availableAccounts[0].id]?.status === 'reauthenticate_required' && (
-              <div className="schedule-card border-l-4 border-l-red-500">
-                <div className="schedule-card-content">
-                  <div className="flex items-start gap-3">
-                    <div className="text-red-600 dark:text-red-400 mt-0.5">
-                      <FaExclamationTriangle />
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="font-medium text-red-700 dark:text-red-400 mb-1">YouTube Account Disconnected</h4>
-                      <p className="text-sm text-red-600 dark:text-red-300 mb-3">
-                        Your YouTube account for {safeChannelsInfo[availableAccounts[0].id]?.message || 'this account'} needs to be re-authenticated.
-                      </p>
+  // If authenticated but still loading accounts, show loading state
+  if (accountsLoading) {
+    return <LoadingFallback message="Loading accounts..." />;
+  }
+
+  // If authenticated but no accounts, show onboarding
+  if (noAccounts) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-8">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+          <h2 className="text-2xl font-bold mb-4 text-center">Connect Your First Account</h2>
+          <p className="text-gray-600 dark:text-gray-300 mb-6 text-center">
+            To get started, connect your Google account to access your Drive files and YouTube channels.
+          </p>
+          <div className="flex justify-center">
+            <Link 
+              href="/accounts"
+              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors flex items-center gap-2"
+            >
+              <FaUpload /> Connect Account
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Main dashboard content when authenticated with accounts
+  return (
+    <ApiErrorBoundary
+      loading={loadingCombined}
+      error={userError}
+      onRetry={() => window.location.reload()}
+    >
+      <div className="space-y-6">
+        {/* Dashboard header */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <h1 className="text-2xl font-bold">Dashboard</h1>
+          
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => {
+                fetchDriveData(true);
+                handleRefreshSuccess();
+              }}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md flex items-center gap-2 text-sm"
+              disabled={driveLoading}
+            >
+              {driveLoading ? (
+                <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+              ) : (
+                <FaSync />
+              )}
+              Refresh Data
+            </button>
+            
+            <Link
+              href="/uploader"
+              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md flex items-center gap-2 text-sm"
+            >
+              <FaUpload /> Upload Videos
+            </Link>
+          </div>
+        </div>
+        
+        {/* Content area */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Drive files section */}
+          <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-lg shadow-md p-4">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">Drive Files</h2>
+              
+              <select
+                value={selectedFolder ? selectedFolder.id : 'all'}
+                onChange={handleFolderSelect}
+                className="bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md px-3 py-1 text-sm"
+              >
+                <option value="all">All Files</option>
+                {currentDriveFolders.map(folder => (
+                  <option key={folder.id} value={folder.id}>{folder.name}</option>
+                ))}
+              </select>
+            </div>
+            
+            <ApiErrorBoundary
+              loading={driveLoading}
+              error={driveError}
+              onRetry={() => fetchDriveData(true)}
+            >
+              {driveLoading ? (
+                <LoadingFallback message="Loading files..." />
+              ) : filteredItems.length > 0 ? (
+                <div className="space-y-2">
+                  {filteredItems.slice(0, 5).map(file => (
+                    <div 
+                      key={file.id}
+                      className="p-3 bg-gray-50 dark:bg-gray-700 rounded-md flex justify-between items-center"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded flex items-center justify-center text-blue-600 dark:text-blue-300">
+                          {file.mimeType?.includes('video') ? '🎬' : '📄'}
+                        </div>
+                        <div className="truncate max-w-[200px] sm:max-w-xs">
+                          <p className="font-medium truncate">{file.name}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                            {new Date(file.modifiedTime).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                      
                       <button
-                        onClick={() => router.push('/accounts')}
-                        className="schedule-badge schedule-badge-error cursor-pointer hover:bg-red-200 dark:hover:bg-red-900/40"
+                        onClick={() => handleScheduleSelect(file)}
+                        className={`px-3 py-1 rounded text-sm ${
+                          selectedFiles.some(f => f.id === file.id)
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200'
+                        }`}
                       >
-                        Reconnect Account
+                        {selectedFiles.some(f => f.id === file.id) ? 'Selected' : 'Select'}
                       </button>
                     </div>
-                  </div>
+                  ))}
+                  
+                  {filteredItems.length > 5 && (
+                    <div className="text-center pt-2">
+                      <Link
+                        href="/uploader"
+                        className="text-blue-600 hover:underline text-sm"
+                      >
+                        View all {filteredItems.length} files
+                      </Link>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              ) : (
+                <div className="py-12 text-center text-gray-500 dark:text-gray-400">
+                  <p>No files found. Connect your Google Drive to see files here.</p>
+                </div>
+              )}
+            </ApiErrorBoundary>
+          </div>
+          
+          {/* Quick actions panel */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4">
+            <h2 className="text-xl font-semibold mb-4">Quick Actions</h2>
             
-            {/* Main Content Card */}
-            <div className="schedule-card">
-              <div className="schedule-card-header">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-50">Content Library</h2>
-                  <button
-                    onClick={() => {
-                      // Reset API call limiters to allow refresh
-                      window._lastDriveFoldersApiCall = 0;
-                      localStorage.setItem('lastHomeFolderFetch', '0');
-                      localStorage.setItem('lastHomeFolderRefresh', '0');
-                      
-                      syncDriveChanges(true);
-                      fetchDriveFolders(true);
-                    }}
-                    disabled={loadingCombined}
-                    className="schedule-button-secondary p-2"
-                    title="Sync with Drive Changes"
-                  >
-                    <FaSync className={driveLoading ? 'animate-spin' : ''} />
-                  </button>
+            <div className="space-y-3">
+              <Link
+                href="/uploader"
+                className="flex items-center gap-3 p-3 bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-650 rounded-md transition-colors"
+              >
+                <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded flex items-center justify-center text-blue-600 dark:text-blue-300">
+                  <FaUpload />
                 </div>
-              </div>
+                <div>
+                  <p className="font-medium">Upload Videos</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Upload videos from Google Drive
+                  </p>
+                </div>
+              </Link>
               
-              <div className="schedule-card-content">
-                {/* ...existing code for account status, last sync, content section header, file grid, upload form, etc... */}
-                {/* Account Status */}
-                {availableAccounts.length === 0 && (
-                  <div className="p-4 text-center bg-slate-100 dark:bg-slate-800 rounded-lg mb-6">
-                    <p className="text-slate-600 dark:text-slate-400">No accounts available</p>
-                  </div>
-                )}
-                {/* ...existing code... */}
-                {/* The rest of your content remains unchanged, just ensure all opened divs are closed below */}
-              </div> {/* schedule-card-content */}
-            </div> {/* schedule-card */}
-          </div> {/* space-y-6 */}
-        </ClientOnly>
-      </div> {/* max-w-7xl mx-auto p-6 */}
-    </div> /* min-h-screen ... */
+              <Link
+                href="/uploads"
+                className="flex items-center gap-3 p-3 bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-650 rounded-md transition-colors"
+              >
+                <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded flex items-center justify-center text-blue-600 dark:text-blue-300">
+                  <FaHistory />
+                </div>
+                <div>
+                  <p className="font-medium">Upload History</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    View your recent uploads
+                  </p>
+                </div>
+              </Link>
+              
+              <Link
+                href="/accounts"
+                className="flex items-center gap-3 p-3 bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-650 rounded-md transition-colors"
+              >
+                <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded flex items-center justify-center text-blue-600 dark:text-blue-300">
+                  <FaEye />
+                </div>
+                <div>
+                  <p className="font-medium">Manage Accounts</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Connect and manage your accounts
+                  </p>
+                </div>
+              </Link>
+              
+              <Link
+                href="/tiktok-downloader"
+                className="flex items-center gap-3 p-3 bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-650 rounded-md transition-colors"
+              >
+                <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded flex items-center justify-center text-blue-600 dark:text-blue-300">
+                  <FaTiktok />
+                </div>
+                <div>
+                  <p className="font-medium">TikTok Downloader</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Download TikTok videos
+                  </p>
+                </div>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    </ApiErrorBoundary>
   );
 }

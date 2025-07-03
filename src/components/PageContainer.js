@@ -105,7 +105,7 @@ export default function PageContainer({ user, children, onRefresh = null, error 
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-black text-black dark:text-amber-50 transition-colors duration-300">
+    <div className="min-h-screen flex flex-col bg-background text-foreground transition-colors duration-300">
       {/* Content with padding to account for sticky navbar */}
       <div className="mt-4 pb-16">
         {/* Show auth error banner conditionally */}

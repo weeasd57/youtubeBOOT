@@ -15,11 +15,11 @@ const NavLink = ({ href, icon: Icon, isActive, onClick, children }) => (
     onClick={onClick}
     className={`px-4 py-3 rounded-lg text-sm font-medium flex items-center gap-3 transition-all duration-200 ${
       isActive
-        ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-white shadow-md transform scale-[0.98]'
-        : 'text-gray-700 dark:text-amber-50 hover:bg-gray-100/80 dark:hover:bg-gray-800/50 hover:transform hover:scale-[0.98]'
+        ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-white shadow-md transform scale-[0.98] dark:from-amber-700 dark:to-amber-600'
+        : 'text-foreground hover:bg-gray-100/80 dark:hover:bg-gray-800/50 hover:transform hover:scale-[0.98]'
     }`}
   >
-    <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-amber-500'} transition-colors`} />
+    <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-amber-500 dark:text-amber-300'} transition-colors`} />
     <span className="font-medium">{children}</span>
   </Link>
 );
@@ -73,7 +73,7 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
     return (
       <div className={`sticky top-0 z-40 transition-all duration-300 ${scrolled ? 'py-1' : 'py-2'} w-full max-w-full`}>
           <div className="px-4 max-w-7xl mx-auto">
-            <div className="backdrop-blur-md bg-white/75 dark:bg-black/80 rounded-lg shadow-lg border border-white/20 dark:border-amber-600/30 p-3 w-full">
+            <div className="backdrop-blur-md bg-background/75 dark:bg-background/80 rounded-lg shadow-lg border border-white/20 dark:border-amber-600/30 p-3 w-full">
               <div className="flex items-center justify-between min-w-0">
                 {/* Logo and App Name */}
                 <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-shrink-0">
@@ -86,7 +86,7 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
                       className="object-cover"
                     />
                   </div>
-                  <h1 className="text-sm sm:text-base md:text-lg font-bold tracking-tight dark:text-amber-50 bg-gradient-to-r from-amber-600 to-amber-400 bg-clip-text text-transparent whitespace-nowrap truncate">
+                  <h1 className="text-sm sm:text-base md:text-lg font-bold tracking-tight bg-gradient-to-r from-amber-600 to-amber-400 dark:from-amber-400 dark:to-amber-300 bg-clip-text text-transparent whitespace-nowrap truncate">
                     <span className="hidden md:inline">Uploader</span>
                     <span className="hidden sm:inline md:hidden">Uploader</span>
                     <span className="sm:hidden">Uploader</span>
@@ -109,7 +109,7 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
                   {/* Mobile Menu Button - only shown on small screens */}
                   <button
                     onClick={() => setIsMenuOpen(!isMenuOpen)}
-                    className="sm:hidden p-1.5 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-md transition-all"
+                    className="sm:hidden p-1.5 text-foreground hover:bg-gray-100/50 dark:hover:bg-gray-800/50 rounded-md transition-all"
                     aria-label={isMenuOpen ? 'Close menu' : 'Open menu'}
                     aria-expanded={isMenuOpen}
                   >
@@ -156,7 +156,7 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
     <div className={`sticky top-0 z-40 transition-all duration-300 ${scrolled ? 'py-1' : 'py-2'} w-full max-w-full`}>
       {/* Desktop Navigation */}
       <div className="hidden md:block px-4 max-w-7xl mx-auto">
-        <div className="backdrop-blur-md bg-white/75 dark:bg-black/80 rounded-lg shadow-lg border border-white/20 dark:border-amber-600/30 p-3 w-full">
+        <div className="backdrop-blur-md bg-background/75 dark:bg-background/80 rounded-lg shadow-lg border border-white/20 dark:border-amber-600/30 p-3 w-full">
           <div className="flex items-center justify-between min-w-0">
             {/* Logo and App Name */}
             <div className="flex items-center space-x-3 min-w-0 flex-shrink-0">
@@ -169,7 +169,7 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
                   className="object-cover"
                 />
               </div>
-              <h1 className="text-sm lg:text-base xl:text-lg font-bold tracking-tight dark:text-amber-50 bg-gradient-to-r from-amber-600 to-amber-400 bg-clip-text text-transparent whitespace-nowrap">
+              <h1 className="text-sm lg:text-base xl:text-lg font-bold tracking-tight bg-gradient-to-r from-amber-600 to-amber-400 dark:from-amber-400 dark:to-amber-300 bg-clip-text text-transparent whitespace-nowrap">
                 <span className="hidden xl:inline">Uploader</span>
                 <span className="hidden lg:inline xl:hidden">Uploader</span>
                 <span className="lg:hidden">Uploader</span>
@@ -183,10 +183,10 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
                 className={`px-2 lg:px-3 xl:px-4 py-2 rounded-md font-medium text-xs lg:text-sm xl:text-base flex items-center gap-1 lg:gap-1.5 transition-all duration-300 hover:scale-105 ${
                   isActive('/home')
                     ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-white shadow-md dark:from-amber-700 dark:to-amber-600'
-                    : 'text-gray-700 dark:text-amber-50 hover:bg-gray-100/80 dark:hover:bg-black/50'
+                    : 'text-foreground hover:bg-gray-100/80 dark:hover:bg-black/50'
                 }`}
               >
-                <FaHome className={`${isActive('/home') ? "text-white" : "text-amber-500"} transition-all text-xs lg:text-sm xl:text-base`} />
+                <FaHome className={`${isActive('/home') ? "text-white" : "text-amber-500 dark:text-amber-300"} transition-all text-xs lg:text-sm xl:text-base`} />
                 <span className="whitespace-nowrap hidden lg:inline">Dashboard</span>
               </Link>
               
@@ -195,10 +195,10 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
                 className={`px-2 lg:px-3 xl:px-4 py-2 rounded-md font-medium text-xs lg:text-sm xl:text-base flex items-center gap-1 lg:gap-1.5 transition-all duration-300 hover:scale-105 ${
                   isActive('/uploads')
                     ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-white shadow-md dark:from-amber-700 dark:to-amber-600'
-                    : 'text-gray-700 dark:text-amber-50 hover:bg-gray-100/80 dark:hover:bg-black/50'
+                    : 'text-foreground hover:bg-gray-100/80 dark:hover:bg-black/50'
                 }`}
               >
-                <FaTable className={`${isActive('/uploads') ? "text-white" : "text-amber-500"} transition-all text-xs lg:text-sm xl:text-base`} />
+                <FaTable className={`${isActive('/uploads') ? "text-white" : "text-amber-500 dark:text-amber-300"} transition-all text-xs lg:text-sm xl:text-base`} />
                 <span className="whitespace-nowrap hidden lg:inline">Schedules</span>
               </Link>
               
@@ -207,10 +207,10 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
                 className={`px-2 lg:px-3 xl:px-4 py-2 rounded-md font-medium text-xs lg:text-sm xl:text-base flex items-center gap-1 lg:gap-1.5 transition-all duration-300 hover:scale-105 ${
                   isActive('/uploader')
                     ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-white shadow-md dark:from-amber-700 dark:to-amber-600'
-                    : 'text-gray-700 dark:text-amber-50 hover:bg-gray-100/80 dark:hover:bg-black/50'
+                    : 'text-foreground hover:bg-gray-100/80 dark:hover:bg-black/50'
                 }`}
               >
-                <FaDownload className={`${isActive('/uploader') ? "text-white" : "text-amber-500"} transition-all text-xs lg:text-sm xl:text-base`} />
+                <FaDownload className={`${isActive('/uploader') ? "text-white" : "text-amber-500 dark:text-amber-300"} transition-all text-xs lg:text-sm xl:text-base`} />
                 <span className="whitespace-nowrap hidden xl:inline">Uploader</span>
                 <span className="whitespace-nowrap hidden lg:inline xl:hidden">Uploader</span>
               </Link>
@@ -220,10 +220,10 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
                 className={`px-2 lg:px-3 xl:px-4 py-2 rounded-md font-medium text-xs lg:text-sm xl:text-base flex items-center gap-1 lg:gap-1.5 transition-all duration-300 hover:scale-105 ${
                   isActive('/accounts')
                     ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-white shadow-md dark:from-amber-700 dark:to-amber-600'
-                    : 'text-gray-700 dark:text-amber-50 hover:bg-gray-100/80 dark:hover:bg-black/50'
+                    : 'text-foreground hover:bg-gray-100/80 dark:hover:bg-black/50'
                 }`}
               >
-                <FaUserCog className={`${isActive('/accounts') ? "text-white" : "text-amber-500"} transition-all text-xs lg:text-sm xl:text-base`} />
+                <FaUserCog className={`${isActive('/accounts') ? "text-white" : "text-amber-500 dark:text-amber-300"} transition-all text-xs lg:text-sm xl:text-base`} />
                 <span className="whitespace-nowrap hidden lg:inline">Accounts</span>
               </Link>
             </div>
@@ -278,16 +278,16 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
                       </div>
                       {/* Use email as fallback if name is null/undefined */}
                       <span className="hidden xl:block text-sm font-medium truncate max-w-[100px]">{user?.name || user?.email || 'User'}</span>
-                      <FaChevronDown className={`w-3 h-3 text-gray-500 dark:text-gray-400 transition-transform ${isUserMenuOpen ? 'rotate-180' : ''}`} />
+                      <FaChevronDown className={`w-3 h-3 text-foreground transition-transform ${isUserMenuOpen ? 'rotate-180' : ''}`} />
                     </button>
                     
                     {isUserMenuOpen && ( // Show menu if open, regardless of user presence based on new requirement
-                      <div ref={userMenuRef} className="absolute right-0 mt-2 w-60 bg-white dark:bg-gray-900 shadow-lg rounded-md py-2 z-[9999] border border-gray-200 dark:border-gray-700">
+                      <div ref={userMenuRef} className="absolute right-0 mt-2 w-60 bg-background shadow-lg rounded-md py-2 z-[9999] border border-gray-200 dark:border-gray-700">
                         {user && (
                           <div className="px-4 py-2">
                             {/* Display only email */}
                             <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
+                              <span className="text-sm font-medium text-foreground truncate">
                                 {user.email}
                               </span>
                             </div>
@@ -312,7 +312,7 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
                 ) : (
                   <div className="flex items-center gap-2">
                     {/* Optional: Guest Icon */}
-                    <div className="relative w-8 h-8 rounded-full overflow-hidden border-2 border-gray-300 dark:border-gray-600 flex items-center justify-center bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                    <div className="relative w-8 h-8 rounded-full overflow-hidden border-2 border-gray-300 dark:border-gray-600 flex items-center justify-center bg-gray-100 dark:bg-gray-800 text-foreground">
                          <FaUser className="w-4 h-4" />
                     </div>
                     <span className="hidden xl:block text-sm font-medium">Guest</span>
@@ -333,7 +333,7 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
 
       {/* Mobile Navigation */}
       <div className="md:hidden px-4 max-w-full">
-        <div className="backdrop-blur-md bg-white/75 dark:bg-black/80 rounded-lg shadow-lg border border-white/20 dark:border-amber-600/30 px-4 py-3 w-full">
+        <div className="backdrop-blur-md bg-background/75 dark:bg-background/80 rounded-lg shadow-lg border border-white/20 dark:border-amber-600/30 px-4 py-3 w-full">
           <div className="flex justify-between items-center">
             <Link href="/home" className="flex items-center gap-2">
               <div className="w-8 h-8 relative rounded-full overflow-hidden shadow-sm">
@@ -380,7 +380,7 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
                   setIsMenuOpen(!isMenuOpen);
                   setIsUserMenuOpen(false); // Close user menu when opening mobile main menu
                 }}
-                className="text-gray-700 dark:text-amber-50 focus:outline-none p-1.5 hover:bg-gray-100/50 dark:hover:bg-gray-800/50 rounded-md transition-colors"
+                className="text-foreground focus:outline-none p-1.5 hover:bg-gray-100/50 dark:hover:bg-gray-800/50 rounded-md transition-colors"
                 aria-label={isMenuOpen ? 'Close menu' : 'Open menu'}
                 aria-expanded={isMenuOpen}
               >
@@ -399,7 +399,7 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
               className="mt-3 transform transition-all duration-300 ease-out animate-fade-in"
               ref={menuRef}
             >
-              <div className="flex flex-col space-y-1 py-3 border-t border-gray-200/50 dark:border-gray-700/50 bg-white/50 dark:bg-black/50 rounded-lg backdrop-blur-sm">
+              <div className="flex flex-col space-y-1 py-3 border-t border-gray-200/50 dark:border-gray-700/50 bg-background/50 dark:bg-background/50 rounded-lg backdrop-blur-sm">
               <NavLink 
                 href="/home" 
                 icon={FaHome} 
@@ -442,7 +442,7 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
                   {user && (
                     <div className="px-3 py-2">
                       {/* Display only email */}
-                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
+                      <span className="text-sm font-medium text-foreground truncate">
                         {user.email}
                       </span>
                     </div>
@@ -461,8 +461,8 @@ export default function Navbar({ user, onRefreshAuth, refreshing, themeToggle, i
                 </div>
               ) : (
                  <div className="pt-2 mt-1 border-t border-gray-200 dark:border-gray-700">
-                    <div className="px-3 py-2 text-gray-700 dark:text-amber-50 flex items-center gap-2">
-                         <FaUser className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                    <div className="px-3 py-2 text-foreground flex items-center gap-2">
+                         <FaUser className="w-4 h-4 text-foreground" />
                          <span>Guest</span>
                     </div>
                      <button
