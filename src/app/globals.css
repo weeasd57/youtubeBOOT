@@ -4,10 +4,13 @@
 
 /* Modern design system inspired by Buffer */
 :root {
+<<<<<<< HEAD
   /* Base background and foreground colors */
   --background: var(--color-neutral-50);
   --foreground: var(--color-neutral-800);
 
+=======
+>>>>>>> 72edfc3ef57a65d21c6a1d935c25640a1487a9f7
   /* Primary colors */
   --color-primary: #1f2937;
   --color-primary-light: #374151;
@@ -45,10 +48,13 @@
 }
 
 [data-theme="dark"] {
+<<<<<<< HEAD
   /* Base background and foreground colors for dark theme */
   --background: var(--color-neutral-900);
   --foreground: var(--color-neutral-50);
 
+=======
+>>>>>>> 72edfc3ef57a65d21c6a1d935c25640a1487a9f7
   --color-primary: #f9fafb;
   --color-primary-light: #f3f4f6;
   --color-accent: #60a5fa;
@@ -76,20 +82,33 @@
 html {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   line-height: 1.6;
+<<<<<<< HEAD
   color: var(--foreground);
   background-color: var(--background);
+=======
+  color: var(--color-neutral-800);
+  background-color: var(--color-neutral-50);
+>>>>>>> 72edfc3ef57a65d21c6a1d935c25640a1487a9f7
 }
 
 body {
   font-size: 1rem;
   font-weight: 400;
   min-height: 100vh;
+<<<<<<< HEAD
   background-color: var(--background);
+=======
+  background-color: var(--color-neutral-50);
+>>>>>>> 72edfc3ef57a65d21c6a1d935c25640a1487a9f7
 }
 
 /* Typography */
 h1, h2, h3, h4, h5, h6 {
+<<<<<<< HEAD
   color: var(--foreground);
+=======
+  color: var(--color-primary);
+>>>>>>> 72edfc3ef57a65d21c6a1d935c25640a1487a9f7
   font-weight: 600;
   line-height: 1.4;
   margin-bottom: 0.5rem;
@@ -103,13 +122,21 @@ h5 { font-size: 1.125rem; font-weight: 500; }
 h6 { font-size: 1rem; font-weight: 500; }
 
 p {
+<<<<<<< HEAD
   color: var(--foreground);
+=======
+  color: var(--color-neutral-600);
+>>>>>>> 72edfc3ef57a65d21c6a1d935c25640a1487a9f7
   margin-bottom: 1rem;
 }
 
 /* Modern component styles */
 .card {
+<<<<<<< HEAD
   background: var(--background);
+=======
+  background: white;
+>>>>>>> 72edfc3ef57a65d21c6a1d935c25640a1487a9f7
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--color-neutral-200);
@@ -122,7 +149,11 @@ p {
 }
 
 [data-theme="dark"] .card {
+<<<<<<< HEAD
   background: var(--color-neutral-800);
+=======
+  background: var(--color-neutral-100);
+>>>>>>> 72edfc3ef57a65d21c6a1d935c25640a1487a9f7
   border-color: var(--color-neutral-200);
 }
 
@@ -380,6 +411,7 @@ p {
     display: none !important;
   }
 }
+<<<<<<< HEAD
 
 /* Add dark mode styles */
 .dark {
@@ -391,3 +423,5 @@ p {
   background-color: inherit;
   color: inherit;
 }
+=======
+>>>>>>> 72edfc3ef57a65d21c6a1d935c25640a1487a9f7

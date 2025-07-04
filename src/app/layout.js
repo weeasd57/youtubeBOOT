@@ -112,7 +112,11 @@ export default function RootLayout({ children }) {
         <meta name="theme-color" content="#1e40af" media="(prefers-color-scheme: dark)" />
       </head>
       <body
+<<<<<<< HEAD
         className={`font-sans antialiased dark ${inter.className}`}
+=======
+        className={`font-sans antialiased ${inter.className}`}
+>>>>>>> 72edfc3ef57a65d21c6a1d935c25640a1487a9f7
         suppressHydrationWarning
       >
         {/* Noscript fallback */}
@@ -122,6 +126,7 @@ export default function RootLayout({ children }) {
           </div>
         </noscript>
 
+<<<<<<< HEAD
         <ThemeProvider>
           <ToastProvider>
             <ToastInitializer />
@@ -132,6 +137,16 @@ export default function RootLayout({ children }) {
             </Providers>
           </ToastProvider>
         </ThemeProvider>
+=======
+        <ToastProvider>
+          <ToastInitializer />
+          <DevelopmentHelper />
+          <PerformanceMonitor />
+          <Providers>
+            {children}
+          </Providers>
+        </ToastProvider>
+>>>>>>> 72edfc3ef57a65d21c6a1d935c25640a1487a9f7
 
         {/* Skip to main content for accessibility */}
         <a 

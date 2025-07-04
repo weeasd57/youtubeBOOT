@@ -10,7 +10,11 @@ import {
   FaExclamationTriangle,
   FaEye,
   FaTrash,
+<<<<<<< HEAD
   FaSync,
+=======
+  FaRefresh,
+>>>>>>> 72edfc3ef57a65d21c6a1d935c25640a1487a9f7
   FaCog
 } from 'react-icons/fa';
 
@@ -203,7 +207,11 @@ export default function AccountsPage() {
                     className="btn btn-ghost"
                     title="Refresh account"
                   >
+<<<<<<< HEAD
                     <FaSync />
+=======
+                    <FaRefresh />
+>>>>>>> 72edfc3ef57a65d21c6a1d935c25640a1487a9f7
                   </button>
                   <button
                     onClick={() => disconnectAccount(account.id)}
@@ -231,7 +239,11 @@ export default function AccountsPage() {
                       <FaYoutube className="text-gray-400 text-3xl mx-auto mb-4" />
                       <p className="text-gray-600">No YouTube channels found</p>
                       <button className="btn btn-secondary mt-4">
+<<<<<<< HEAD
                         <FaSync />
+=======
+                        <FaRefresh />
+>>>>>>> 72edfc3ef57a65d21c6a1d935c25640a1487a9f7
                         Refresh Channels
                       </button>
                     </div>
